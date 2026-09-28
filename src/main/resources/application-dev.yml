@@ -1,0 +1,21 @@
+# Profil DEV : environnement de développement partagé / recette (staging)
+# Toutes les valeurs sensibles viennent de variables d'environnement.
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:fasoecoleBD}
+    username: ${DB_USER:fasoecole_bd_user}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+jwt:
+  secret: ${JWT_SECRET}
+
+logging:
+  level:
+    org.afritechinnovations: DEBUG
+    org.hibernate.SQL: INFO

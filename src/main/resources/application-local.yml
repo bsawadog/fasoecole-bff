@@ -1,0 +1,21 @@
+# Profil LOCAL : développement sur poste, base Postgres via docker-compose.yml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/fasoecoleBD
+    username: fasoecole_bd_user
+    password: fasoecole_bd_password
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+
+jwt:
+  # Secret de développement uniquement - ne jamais utiliser en dev/prod
+  secret: "ZmFzb2Vjb2xlLWxvY2FsLXNlY3JldC1rZXktZm9yLWRldi1vbmx5LTI1NmJpdHM="
+
+logging:
+  level:
+    org.afritechinnovations: DEBUG
+    org.hibernate.SQL: DEBUG
