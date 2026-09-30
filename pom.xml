@@ -12,7 +12,7 @@
     </parent>
 
     <groupId>org.afritechinnovations</groupId>
-    <artifactId>fasoecole</artifactId>
+    <artifactId>fasoecole-bff</artifactId>
     <version>1.0-SNAPSHOT</version>
     <name>fasoecole</name>
     <description>Plateforme de gestion scolaire FasoEcole</description>
@@ -39,6 +39,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
         <!-- Base de données & migrations -->

@@ -14,6 +14,8 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
 
     List<StudentEnrollment> findBySchoolClassIdAndStatus(Long classId, EnrollmentStatus status);
 
+    List<StudentEnrollment> findByStudentIdAndSchoolClassIdAndStatus(Long studentId, Long classId, EnrollmentStatus status);
+
     @Query("""
         SELECT se FROM StudentEnrollment se
         JOIN FETCH se.student s

@@ -3,8 +3,17 @@ package org.afritechinnovations.service.common;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.CreateUserRequest;
 import org.afritechinnovations.dto.common.UserDto;
+import org.afritechinnovations.dto.auth.RegisterUserRequest;
+import org.afritechinnovations.model.common.Role;
+import org.afritechinnovations.model.common.RoleName;
+import org.afritechinnovations.model.common.School;
+import org.afritechinnovations.model.common.SchoolUser;
 import org.afritechinnovations.model.common.User;
+import org.afritechinnovations.repository.common.RoleRepository;
+import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.repository.common.SchoolUserRepository;
 import org.afritechinnovations.repository.common.UserRepository;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,9 +27,12 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SchoolRepository schoolRepository;
+    private final RoleRepository roleRepository;
+    private final SchoolUserRepository schoolUserRepository;
 
     public List<UserDto> findActive() {
-        return userRepository.findByActiveTrueOrderByLastNameAsc()
+        return userRepository.findByActiveTrueAndApprovedTrueOrderByLastNameAsc()
                 .stream()
                 .map(this::toDto)
                 .toList();
@@ -39,7 +51,7 @@ public class UserService {
     }
 
     public UserDto create(CreateUserRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + request.getEmail());
         }
         User user = User.builder()
@@ -50,6 +62,91 @@ public class UserService {
                 .phone(request.getPhone())
                 .active(true)
                 .build();
+        return toDto(userRepository.save(user));
+    }
+
+    public UserDto registerPending(RegisterUserRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+        if (userRepository.existsByEmailIgnoreCase(email)) {
+            throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
+        }
+        if (request.getRequestedRole() != RoleName.TEACHER
+                && request.getRequestedRole() != RoleName.PARENT
+                && request.getRequestedRole() != RoleName.STUDENT) {
+            throw new IllegalArgumentException("Le profil demandé doit être enseignant, parent ou étudiant");
+        }
+
+        School requestedSchool = schoolRepository.findById(request.getSchoolId())
+                .filter(school -> school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
+                .orElseThrow(() -> new IllegalArgumentException("Établissement sélectionné introuvable ou inactif"));
+        User user = User.builder()
+                .firstName(request.getFirstName().trim())
+                .lastName(request.getLastName().trim())
+                .email(email)
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .phone(request.getPhone())
+                .active(true)
+                .approved(false)
+                .requestedSchoolId(requestedSchool.getId())
+                .requestedRole(request.getRequestedRole())
+                .build();
+        return toDto(userRepository.save(user));
+    }
+
+    public List<UserDto> findPendingApprovals(Long approverId, boolean systemAdmin) {
+        List<User> pendingUsers;
+        if (systemAdmin) {
+            pendingUsers = userRepository.findByApprovedFalseOrderByCreatedAtAsc();
+        } else {
+            List<Long> schoolIds = schoolRepository.findByOwnerId(approverId).stream()
+                    .map(School::getId)
+                    .toList();
+            pendingUsers = schoolIds.isEmpty()
+                    ? List.of()
+                    : userRepository.findByApprovedFalseAndRequestedSchoolIdInOrderByCreatedAtAsc(schoolIds);
+        }
+        return pendingUsers
+                .stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    public UserDto approvePendingUser(Long userId, Long schoolId, RoleName roleName,
+                                     Long approverId, boolean systemAdmin) {
+        if (roleName != RoleName.TEACHER && roleName != RoleName.PARENT && roleName != RoleName.STUDENT) {
+            throw new IllegalArgumentException("Un propriétaire peut attribuer uniquement un rôle enseignant, parent ou étudiant");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Demande d'inscription introuvable"));
+        if (Boolean.TRUE.equals(user.getApproved())) {
+            throw new IllegalArgumentException("Cette demande a déjà été traitée");
+        }
+
+        School school = schoolRepository.findById(schoolId)
+                .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable"));
+        if (school.getStatus() != org.afritechinnovations.model.common.SchoolStatus.ACTIVE) {
+            throw new IllegalArgumentException("Impossible d'activer un compte dans un établissement inactif");
+        }
+        if (!systemAdmin) {
+            boolean ownsSelectedSchool = school.getOwner().getId().equals(approverId);
+            boolean ownsRequestedSchool = user.getRequestedSchoolId() != null
+                    && schoolRepository.findById(user.getRequestedSchoolId())
+                    .map(requestedSchool -> requestedSchool.getOwner().getId().equals(approverId))
+                    .orElse(false);
+            if (!ownsSelectedSchool || !ownsRequestedSchool) {
+                throw new AccessDeniedException("Vous ne pouvez valider que les demandes destinées à votre établissement");
+            }
+        }
+
+        Role role = roleRepository.findByName(roleName.name())
+                .orElseThrow(() -> new IllegalStateException("Rôle non configuré: " + roleName));
+        schoolUserRepository.save(SchoolUser.builder()
+                .user(user)
+                .school(school)
+                .role(role)
+                .build());
+        user.setApproved(true);
+        user.setActive(true);
         return toDto(userRepository.save(user));
     }
 
@@ -74,6 +171,9 @@ public class UserService {
     }
 
     private UserDto toDto(User user) {
+        School requestedSchool = user.getRequestedSchoolId() == null
+                ? null
+                : schoolRepository.findById(user.getRequestedSchoolId()).orElse(null);
         return UserDto.builder()
                 .id(user.getId())
                 .firstName(user.getFirstName())
@@ -81,6 +181,16 @@ public class UserService {
                 .email(user.getEmail())
                 .phone(user.getPhone())
                 .active(user.getActive())
+                .approved(user.getApproved())
+                .requestedSchoolId(user.getRequestedSchoolId())
+                .requestedSchoolName(requestedSchool == null ? null : requestedSchool.getName())
+                .requestedSchoolType(requestedSchool == null ? null : requestedSchool.getType())
+                .requestedRole(user.getRequestedRole())
+                .roles(schoolUserRepository.findByUserId(user.getId()).stream()
+                        .map(SchoolUser::getRole)
+                        .map(Role::getName)
+                        .distinct()
+                        .toList())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();

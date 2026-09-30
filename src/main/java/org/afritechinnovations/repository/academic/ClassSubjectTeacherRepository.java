@@ -20,4 +20,12 @@ public interface ClassSubjectTeacherRepository extends JpaRepository<ClassSubjec
         WHERE cst.teacher.id = :teacherId
         """)
     List<ClassSubjectTeacher> findAllWithSubjectAndClassByTeacherId(@Param("teacherId") Long teacherId);
+
+    @Query("""
+        SELECT DISTINCT cst FROM ClassSubjectTeacher cst
+        JOIN FETCH cst.teacher t
+        JOIN FETCH t.user u
+        WHERE cst.schoolClass.id = :classId
+        """)
+    List<ClassSubjectTeacher> findAllWithTeacherByClassId(@Param("classId") Long classId);
 }

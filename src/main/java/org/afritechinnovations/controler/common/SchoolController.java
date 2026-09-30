@@ -2,10 +2,14 @@ package org.afritechinnovations.controler.common;
 
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.SchoolDto;
+import org.afritechinnovations.dto.common.RegistrationSchoolDto;
 import org.afritechinnovations.model.common.SchoolStatus;
 import org.afritechinnovations.model.common.SchoolType;
 import org.afritechinnovations.service.common.SchoolService;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.afritechinnovations.security.UserPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,6 +20,13 @@ import java.util.List;
 public class SchoolController {
 
     private final SchoolService schoolService;
+
+    @GetMapping("/registration-options")
+    public List<RegistrationSchoolDto> getRegistrationOptions() {
+        return schoolService.findByStatus(SchoolStatus.ACTIVE).stream()
+                .map(school -> new RegistrationSchoolDto(school.getId(), school.getName(), school.getType()))
+                .toList();
+    }
 
     @GetMapping
     public List<SchoolDto> getByStatus(@RequestParam(required = false) SchoolStatus status,
@@ -30,7 +41,13 @@ public class SchoolController {
     }
 
     @GetMapping("/by-owner/{ownerId}")
-    public List<SchoolDto> getByOwner(@PathVariable Long ownerId) {
+    public List<SchoolDto> getByOwner(@PathVariable Long ownerId, Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            throw new AccessDeniedException("Authentification requise");
+        }
+        if (!principal.getId().equals(ownerId) && !principal.getRoles().contains("SUPER_ADMIN")) {
+            throw new AccessDeniedException("Vous ne pouvez consulter que vos propres établissements");
+        }
         return schoolService.findByOwner(ownerId);
     }
 

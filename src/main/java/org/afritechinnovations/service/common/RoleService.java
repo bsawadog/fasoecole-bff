@@ -31,7 +31,7 @@ public class RoleService {
     }
 
     public RoleDto findByName(RoleName name) {
-        Role role = roleRepository.findByName(name)
+        Role role = roleRepository.findByName(name.name())
                 .orElseThrow(() -> new IllegalArgumentException("Rôle introuvable: " + name));
         return toDto(role);
     }

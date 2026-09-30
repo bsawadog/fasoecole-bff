@@ -1,16 +1,15 @@
-package org.afritechinnovations.dto.common;
+package org.afritechinnovations.dto.people;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.*;
+import lombok.Getter;
+import lombok.Setter;
 
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class CreateUserRequest {
+public class UpdateParentProfileRequest {
+
     @NotBlank
     @Size(max = 100)
     private String firstName;
@@ -23,10 +22,6 @@ public class CreateUserRequest {
     @Email
     @Size(max = 150)
     private String email;
-
-    @NotBlank
-    @Size(min = 8, max = 100)
-    private String password;
 
     @Size(max = 30)
     private String phone;

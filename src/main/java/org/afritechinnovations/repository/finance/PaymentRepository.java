@@ -12,6 +12,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     List<Payment> findByInvoiceId(Long invoiceId);
 
+    long countByReferenceStartingWith(String prefix);
+
     @Query("""
         SELECT s.school.name AS schoolName, SUM(p.amount) AS totalCollected
         FROM Payment p

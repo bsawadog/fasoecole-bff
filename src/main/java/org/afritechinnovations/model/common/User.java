@@ -37,6 +37,17 @@ public class User {
     @Column(nullable = false)
     private Boolean active = true;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean approved = true;
+
+    @Column(name = "requested_school_id")
+    private Long requestedSchoolId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "requested_role", length = 30)
+    private RoleName requestedRole;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

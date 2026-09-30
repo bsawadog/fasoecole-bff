@@ -11,6 +11,9 @@ spring:
       ddl-auto: validate
     show-sql: true
 
+  flyway:
+    locations: classpath:db/migration,classpath:db/local
+
 jwt:
   # Secret de développement uniquement - ne jamais utiliser en dev/prod
   secret: "ZmFzb2Vjb2xlLWxvY2FsLXNlY3JldC1rZXktZm9yLWRldi1vbmx5LTI1NmJpdHM="
