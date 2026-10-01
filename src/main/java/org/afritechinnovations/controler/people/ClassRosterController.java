@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.ClassRosterRowDto;
 import org.afritechinnovations.dto.people.CreateRosterStudentRequest;
+import org.afritechinnovations.dto.people.TransferStudentRequest;
 import org.afritechinnovations.dto.people.UpdateParentProfileRequest;
 import org.afritechinnovations.dto.people.UpdateStudentProfileRequest;
 import org.afritechinnovations.security.UserPrincipal;
@@ -56,6 +57,16 @@ public class ClassRosterController {
         UserPrincipal principal = requireOwner(authentication);
         return classRosterService.updateParentProfile(classId, parentId, request, principal.getId(),
                 principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
+    @PostMapping("/students/{studentId}/transfer")
+    public ClassRosterRowDto transferStudent(@PathVariable Long classId,
+                                              @PathVariable Long studentId,
+                                              @Valid @RequestBody TransferStudentRequest request,
+                                              Authentication authentication) {
+        UserPrincipal principal = requireOwner(authentication);
+        return classRosterService.transferStudent(classId, studentId, request.getTargetClassId(),
+                principal.getId(), principal.getRoles().contains("SUPER_ADMIN"));
     }
 
     @DeleteMapping("/students/{studentId}")

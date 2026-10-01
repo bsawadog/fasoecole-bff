@@ -3,6 +3,7 @@ package org.afritechinnovations.service.common;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.CreateUserRequest;
 import org.afritechinnovations.dto.common.UserDto;
+import org.afritechinnovations.dto.common.UpdateProfileRequest;
 import org.afritechinnovations.dto.auth.RegisterUserRequest;
 import org.afritechinnovations.model.common.Role;
 import org.afritechinnovations.model.common.RoleName;
@@ -30,6 +31,9 @@ public class UserService {
     private final SchoolRepository schoolRepository;
     private final RoleRepository roleRepository;
     private final SchoolUserRepository schoolUserRepository;
+    private final org.afritechinnovations.service.auth.EmailVerificationService emailVerificationService;
+    private final org.afritechinnovations.service.people.TeacherProfileService teacherProfileService;
+    private final org.afritechinnovations.repository.people.ParentRepository parentRepository;
 
     public List<UserDto> findActive() {
         return userRepository.findByActiveTrueAndApprovedTrueOrderByLastNameAsc()
@@ -65,15 +69,35 @@ public class UserService {
         return toDto(userRepository.save(user));
     }
 
+    /**
+     * Inscription avec le courriel d'un compte créé par une école (parent saisi à l'inscription d'un enfant) :
+     * rien n'est modifié, un lien d'activation est envoyé à cette adresse.
+     * @return vrai si le cas a été traité ainsi.
+     */
+    public boolean requestActivationOfSchoolCreatedAccount(RegisterUserRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+        User existing = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (existing == null || Boolean.TRUE.equals(existing.getPasswordSet()) || !Boolean.TRUE.equals(existing.getActive())) {
+            return false;
+        }
+        Long schoolId = schoolRepository.findById(request.getSchoolId())
+                .filter(school -> school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
+                .map(School::getId)
+                .orElse(null);
+        emailVerificationService.sendActivation(existing, schoolId, request.getRequestedRole());
+        return true;
+    }
+
     public UserDto registerPending(RegisterUserRequest request) {
         String email = request.getEmail().trim().toLowerCase();
-        if (userRepository.existsByEmailIgnoreCase(email)) {
-            throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
-        }
         if (request.getRequestedRole() != RoleName.TEACHER
                 && request.getRequestedRole() != RoleName.PARENT
                 && request.getRequestedRole() != RoleName.STUDENT) {
             throw new IllegalArgumentException("Le profil demandé doit être enseignant, parent ou étudiant");
+        }
+        User existing = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (existing != null) {
+            throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
         }
 
         School requestedSchool = schoolRepository.findById(request.getSchoolId())
@@ -90,7 +114,19 @@ public class UserService {
                 .requestedSchoolId(requestedSchool.getId())
                 .requestedRole(request.getRequestedRole())
                 .build();
-        return toDto(userRepository.save(user));
+        user = userRepository.save(user);
+        emailVerificationService.sendVerification(user);
+        return toDto(user);
+    }
+
+    /** Renvoie le lien de confirmation de l'adresse du compte connecté. */
+    public void resendEmailVerification(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + userId));
+        if (Boolean.TRUE.equals(user.getEmailVerified())) {
+            throw new IllegalArgumentException("Votre adresse courriel est déjà vérifiée");
+        }
+        emailVerificationService.sendVerification(user);
     }
 
     public List<UserDto> findPendingApprovals(Long approverId, boolean systemAdmin) {
@@ -145,6 +181,12 @@ public class UserService {
                 .school(school)
                 .role(role)
                 .build());
+        if (roleName == RoleName.TEACHER) {
+            teacherProfileService.ensureProfile(user, school);
+        }
+        if (roleName == RoleName.PARENT && parentRepository.findByUserId(user.getId()).isEmpty()) {
+            parentRepository.save(org.afritechinnovations.model.people.Parent.builder().user(user).build());
+        }
         user.setApproved(true);
         user.setActive(true);
         return toDto(userRepository.save(user));
@@ -157,6 +199,29 @@ public class UserService {
         user.setLastName(dto.getLastName());
         user.setPhone(dto.getPhone());
         return toDto(userRepository.save(user));
+    }
+
+    public UserDto updateProfile(Long id, UpdateProfileRequest request) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + id));
+        user.setFirstName(request.getFirstName().trim());
+        user.setLastName(request.getLastName().trim());
+        user.setPhone(request.getPhone() == null || request.getPhone().isBlank()
+                ? null : request.getPhone().trim());
+        return toDto(userRepository.save(user));
+    }
+
+    public void changePassword(Long id, String currentPassword, String newPassword) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + id));
+        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new IllegalArgumentException("Le mot de passe actuel est incorrect");
+        }
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new IllegalArgumentException("Le nouveau mot de passe doit être différent de l'actuel");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
     }
 
     public void deactivate(Long id) {
@@ -182,6 +247,7 @@ public class UserService {
                 .phone(user.getPhone())
                 .active(user.getActive())
                 .approved(user.getApproved())
+                .emailVerified(user.getEmailVerified())
                 .requestedSchoolId(user.getRequestedSchoolId())
                 .requestedSchoolName(requestedSchool == null ? null : requestedSchool.getName())
                 .requestedSchoolType(requestedSchool == null ? null : requestedSchool.getType())

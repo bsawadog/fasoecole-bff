@@ -1,5 +1,6 @@
 package org.afritechinnovations.service.people;
 
+import org.afritechinnovations.dto.people.NewStudentEnrollmentRequest;
 import org.afritechinnovations.dto.people.OwnerEnrollmentDto;
 import org.afritechinnovations.model.academic.AcademicYear;
 import org.afritechinnovations.model.academic.Level;
@@ -57,6 +58,10 @@ class OwnerEnrollmentServiceTest {
     @Mock GradePeriodRepository gradePeriodRepository;
     @Mock StudentEnrollmentRepository enrollmentRepository;
     @Mock OwnerGradeService gradeService;
+    @Mock ClassRosterService classRosterService;
+    @Mock org.afritechinnovations.repository.finance.FeeTypeRepository feeTypeRepository;
+    @Mock org.afritechinnovations.repository.people.ParentRepository parentRepository;
+    @Mock org.afritechinnovations.repository.people.ParentStudentRepository parentStudentRepository;
 
     @InjectMocks OwnerEnrollmentService service;
 
@@ -111,6 +116,97 @@ class OwnerEnrollmentServiceTest {
                 .user(User.builder().id(studentId + 1000).firstName(firstName).lastName("Kaboré").build()).build();
         return StudentEnrollment.builder().id(id).student(student).schoolClass(cp1a2026).academicYear(y2026)
                 .status(EnrollmentStatus.ACTIVE).build();
+    }
+
+    @Test
+    void registersNewStudentInChosenClass() {
+        when(schoolClassRepository.findById(21L)).thenReturn(Optional.of(cp1a2027));
+        when(enrollmentRepository.findBySchoolClassIdAndStatus(21L, EnrollmentStatus.ACTIVE)).thenReturn(List.of());
+        var request = newStudent(21L);
+
+        service.registerStudent(1L, request, OWNER_ID, false);
+
+        verify(classRosterService).enrollNewStudentWithFees(cp1a2027, request);
+    }
+
+    @Test
+    void refusesNewStudentInFullClass() {
+        when(schoolClassRepository.findById(22L)).thenReturn(Optional.of(cp2a2027));
+        when(enrollmentRepository.findBySchoolClassIdAndStatus(22L, EnrollmentStatus.ACTIVE)).thenReturn(List.of(awa));
+
+        var error = assertThrows(IllegalArgumentException.class,
+                () -> service.registerStudent(1L, newStudent(22L), OWNER_ID, false));
+        assertTrue(error.getMessage().contains("complète"));
+        verifyNoInteractions(classRosterService);
+    }
+
+    @Test
+    void refusesNewStudentForAnotherSchoolOrUnauthorizedUser() {
+        School other = School.builder().id(2L).owner(User.builder().id(99L).build()).build();
+        SchoolClass foreign = SchoolClass.builder().id(30L).school(other).academicYear(y2026).level(cp1).name("X").build();
+        when(schoolClassRepository.findById(30L)).thenReturn(Optional.of(foreign));
+
+        assertThrows(IllegalArgumentException.class, () -> service.registerStudent(1L, newStudent(30L), OWNER_ID, false));
+        assertThrows(AccessDeniedException.class, () -> service.registerStudent(1L, newStudent(21L), 55L, false));
+        verifyNoInteractions(classRosterService);
+    }
+
+    @Test
+    void yearClassesReportActiveHeadcount() {
+        StudentEnrollment active = enrollment(103L, 203L, "Sali");
+        active.setSchoolClass(cp1a2027);
+        active.setAcademicYear(y2027);
+        when(enrollmentRepository.findByYearWithStudent(2L)).thenReturn(List.of(active));
+
+        var classes = service.yearClasses(1L, 2L, OWNER_ID, false);
+
+        assertEquals(List.of(21L, 22L), classes.stream().map(OwnerEnrollmentDto.TargetClass::id).toList());
+        assertEquals(1L, classes.get(0).enrolled());
+        assertEquals(0L, classes.get(1).enrolled());
+    }
+
+    @Test
+    void refusesExistingParentUnknownToTheOwnerSchools() {
+        when(schoolClassRepository.findById(21L)).thenReturn(Optional.of(cp1a2027));
+        when(enrollmentRepository.findBySchoolClassIdAndStatus(21L, EnrollmentStatus.ACTIVE)).thenReturn(List.of());
+        when(schoolRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(school));
+        var request = newStudent(21L);
+        request.setGuardians(List.of(new OwnerEnrollmentDto.Guardian(500L, "X", "Y", null, null, null)));
+
+        assertThrows(AccessDeniedException.class, () -> service.registerStudent(1L, request, OWNER_ID, false));
+        verifyNoInteractions(classRosterService);
+
+        when(parentRepository.isKnownInSchools(eq(500L), any())).thenReturn(true);
+        service.registerStudent(1L, request, OWNER_ID, false);
+        verify(classRosterService).enrollNewStudentWithFees(cp1a2027, request);
+    }
+
+    @Test
+    void searchesGuardiansAcrossTheOwnerSchoolsOnly() {
+        School second = School.builder().id(3L).owner(school.getOwner()).build();
+        when(schoolRepository.findByOwnerId(OWNER_ID)).thenReturn(List.of(school, second));
+        User moussa = User.builder().id(4L).firstName("Moussa").lastName("Kaboré").email("m@x.bf").build();
+        var parent = org.afritechinnovations.model.people.Parent.builder().id(7L).user(moussa).build();
+        when(parentRepository.searchInSchools(eq(java.util.Set.of(1L, 3L)), eq("%kab%"), any()))
+                .thenReturn(List.of(parent));
+
+        assertTrue(service.searchGuardians(1L, " k", OWNER_ID, false).isEmpty());
+        var found = service.searchGuardians(1L, "KAB", OWNER_ID, false);
+
+        assertEquals(1, found.size());
+        assertEquals(7L, found.get(0).parentId());
+        assertThrows(AccessDeniedException.class, () -> service.searchGuardians(1L, "kab", 55L, false));
+    }
+
+    private NewStudentEnrollmentRequest newStudent(Long classId) {
+        var request = new NewStudentEnrollmentRequest();
+        request.setClassId(classId);
+        request.setFirstName("Sali");
+        request.setLastName("Ouédraogo");
+        request.setEmail("sali@ecole.bf");
+        request.setPassword("motdepasse");
+        request.setRegistrationNumber("M-300");
+        return request;
     }
 
     @Test

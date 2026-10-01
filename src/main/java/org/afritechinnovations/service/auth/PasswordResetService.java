@@ -33,6 +33,7 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository tokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final org.afritechinnovations.service.common.ParentAutoAccessService parentAutoAccessService;
 
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
@@ -65,8 +66,15 @@ public class PasswordResetService {
         }
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        // Le lien a été reçu dans la boîte : l'adresse est prouvée.
+        boolean newlyVerified = !Boolean.TRUE.equals(user.getEmailVerified()) || !Boolean.TRUE.equals(user.getPasswordSet());
+        user.setPasswordSet(true);
+        user.setEmailVerified(true);
         userRepository.save(user);
         tokenRepository.delete(resetToken);
+        if (newlyVerified) {
+            parentAutoAccessService.grantFromChildren(user.getId(), true);
+        }
     }
 
     private void createAndSendResetLink(User user) {

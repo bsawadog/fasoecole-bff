@@ -2,8 +2,10 @@ package org.afritechinnovations.controler.common;
 
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.ApproveUserRequest;
+import org.afritechinnovations.dto.common.ChangePasswordRequest;
 import org.afritechinnovations.dto.common.CreateUserRequest;
 import org.afritechinnovations.dto.common.UserDto;
+import org.afritechinnovations.dto.common.UpdateProfileRequest;
 import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.security.UserPrincipal;
 import org.afritechinnovations.service.common.UserService;
@@ -29,6 +31,31 @@ public class UserController {
             throw new AccessDeniedException("Authentification requise");
         }
         return userService.findById(principal.getId());
+    }
+
+    @PutMapping("/me")
+    public UserDto updateCurrentUser(@Valid @RequestBody UpdateProfileRequest request,
+                                     Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            throw new AccessDeniedException("Authentification requise");
+        }
+        return userService.updateProfile(principal.getId(), request);
+    }
+
+    @PutMapping("/me/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@Valid @RequestBody ChangePasswordRequest request,
+                               Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            throw new AccessDeniedException("Authentification requise");
+        }
+        userService.changePassword(principal.getId(), request.getCurrentPassword(), request.getNewPassword());
+    }
+
+    @PostMapping("/me/email-verification")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void resendEmailVerification() {
+        userService.resendEmailVerification(guard.currentUserId());
     }
 
     @GetMapping

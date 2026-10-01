@@ -1,7 +1,10 @@
 package org.afritechinnovations.service.people;
 
 import lombok.RequiredArgsConstructor;
+import org.afritechinnovations.dto.people.NewStudentEnrollmentRequest;
 import org.afritechinnovations.dto.people.OwnerEnrollmentDto;
+import org.afritechinnovations.model.finance.FeeType;
+import org.afritechinnovations.repository.finance.FeeTypeRepository;
 import org.afritechinnovations.model.academic.AcademicYear;
 import org.afritechinnovations.model.academic.ClassSubjectTeacher;
 import org.afritechinnovations.model.academic.GradePeriod;
@@ -21,6 +24,7 @@ import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
 import org.afritechinnovations.security.SchoolPermissions;
 import org.afritechinnovations.service.academic.OwnerGradeService;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +65,101 @@ public class OwnerEnrollmentService {
     private final GradePeriodRepository gradePeriodRepository;
     private final StudentEnrollmentRepository enrollmentRepository;
     private final OwnerGradeService gradeService;
+    private final ClassRosterService classRosterService;
+    private final FeeTypeRepository feeTypeRepository;
+    private final org.afritechinnovations.repository.people.ParentRepository parentRepository;
+    private final org.afritechinnovations.repository.people.ParentStudentRepository parentStudentRepository;
+
+    // ================================================================== nouveaux élèves
+
+    /** Classes d'une année avec leur effectif actif, pour choisir la classe d'accueil d'un nouvel élève. */
+    @Transactional(readOnly = true)
+    public List<OwnerEnrollmentDto.TargetClass> yearClasses(Long schoolId, Long yearId, Long userId, boolean systemAdmin) {
+        requireSchool(schoolId, userId, systemAdmin);
+        AcademicYear year = requireYear(yearId, schoolId);
+        Map<Long, Long> enrolled = enrollmentRepository.findByYearWithStudent(year.getId()).stream()
+                .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE)
+                .collect(Collectors.groupingBy(e -> e.getSchoolClass().getId(), Collectors.counting()));
+        return schoolClassRepository.findAllWithLevelBySchoolAndYear(schoolId, year.getId()).stream()
+                .map(c -> new OwnerEnrollmentDto.TargetClass(c.getId(), c.getName(), c.getLevel().getId(),
+                        c.getLevel().getName(), c.getCapacity(), enrolled.getOrDefault(c.getId(), 0L)))
+                .toList();
+    }
+
+    public OwnerEnrollmentDto.RegistrationResult registerStudent(Long schoolId, NewStudentEnrollmentRequest request,
+                                                                Long userId, boolean systemAdmin) {
+        requireSchool(schoolId, userId, systemAdmin);
+        SchoolClass schoolClass = schoolClassRepository.findById(request.getClassId())
+                .orElseThrow(() -> new IllegalArgumentException("Classe introuvable : " + request.getClassId()));
+        if (!schoolClass.getSchool().getId().equals(schoolId)) {
+            throw new IllegalArgumentException("Cette classe n'appartient pas à l'établissement");
+        }
+        if (schoolClass.getCapacity() != null
+                && enrollmentRepository.findBySchoolClassIdAndStatus(schoolClass.getId(), EnrollmentStatus.ACTIVE).size()
+                >= schoolClass.getCapacity()) {
+            throw new IllegalArgumentException("La classe " + schoolClass.getName() + " est complète ("
+                    + schoolClass.getCapacity() + " places)");
+        }
+        if (request.getGuardians() != null) {
+            Set<Long> scope = guardianScope(schoolClass.getSchool(), userId, systemAdmin);
+            for (OwnerEnrollmentDto.Guardian guardian : request.getGuardians()) {
+                if (guardian.parentId() != null && !parentRepository.isKnownInSchools(guardian.parentId(), scope)) {
+                    throw new AccessDeniedException("Ce parent n'est pas connu de vos établissements");
+                }
+            }
+        }
+        return classRosterService.enrollNewStudentWithFees(schoolClass, request);
+    }
+
+    /** Recherche d'un parent déjà enregistré (au moins 2 caractères) pour le rattacher à un nouvel élève. */
+    @Transactional(readOnly = true)
+    public List<OwnerEnrollmentDto.GuardianOption> searchGuardians(Long schoolId, String query, Long userId,
+                                                                    boolean systemAdmin) {
+        School school = requireSchool(schoolId, userId, systemAdmin);
+        String text = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (text.length() < 2) {
+            return List.of();
+        }
+        Set<Long> scope = guardianScope(school, userId, systemAdmin);
+        return parentRepository.searchInSchools(scope, "%" + text + "%", PageRequest.of(0, 15)).stream()
+                .map(p -> new OwnerEnrollmentDto.GuardianOption(p.getId(), p.getUser().getFirstName(),
+                        p.getUser().getLastName(), p.getUser().getEmail(), p.getUser().getPhone(),
+                        parentStudentRepository.findChildrenWithUserByParentId(p.getId()).stream()
+                                .filter(ps -> scope.contains(ps.getStudent().getSchool().getId()))
+                                .map(ps -> ps.getStudent().getUser() == null ? null
+                                        : ps.getStudent().getUser().getFirstName() + " " + ps.getStudent().getUser().getLastName())
+                                .filter(Objects::nonNull)
+                                .distinct()
+                                .toList()))
+                .toList();
+    }
+
+    /**
+     * Établissements dont les parents peuvent être proposés : ceux du propriétaire (un parent peut avoir des enfants
+     * dans plusieurs de ses écoles) ; un membre du personnel reste limité à l'établissement où il travaille.
+     */
+    private Set<Long> guardianScope(School school, Long userId, boolean systemAdmin) {
+        Set<Long> ids = new java.util.HashSet<>();
+        ids.add(school.getId());
+        boolean owner = school.getOwner() != null && school.getOwner().getId().equals(userId);
+        if (owner || systemAdmin) {
+            Long ownerId = school.getOwner() != null ? school.getOwner().getId() : null;
+            if (ownerId != null) {
+                schoolRepository.findByOwnerId(ownerId).forEach(s -> ids.add(s.getId()));
+            }
+        }
+        return ids;
+    }
+
+    @Transactional(readOnly = true)
+    public List<OwnerEnrollmentDto.EnrollmentFee> enrollmentFees(Long schoolId, Long userId, boolean systemAdmin) {
+        requireSchool(schoolId, userId, systemAdmin);
+        return feeTypeRepository.findWithLevelBySchoolId(schoolId).stream()
+                .filter(FeeType::isActive)
+                .map(f -> new OwnerEnrollmentDto.EnrollmentFee(f.getId(), f.getName(), f.getAmount(),
+                        f.getFrequency().name(), f.getLevel() != null ? f.getLevel().getId() : null))
+                .toList();
+    }
 
     // ================================================================== années scolaires
 
@@ -326,7 +425,8 @@ public class OwnerEnrollmentService {
                 .filter(x -> !x.getId().equals(e.getId()))
                 .filter(x -> x.getAcademicYear().getStartDate().isAfter(yearStart))
                 .toList();
-        if (later.stream().anyMatch(x -> x.getStatus() != EnrollmentStatus.ACTIVE)) {
+        if (later.stream().anyMatch(x -> x.getStatus() != EnrollmentStatus.ACTIVE
+                && x.getStatus() != EnrollmentStatus.TRANSFERRED)) {
             throw new IllegalArgumentException("L'année suivante de cet élève est déjà clôturée : annulez d'abord sa décision");
         }
         later.forEach(enrollmentRepository::delete);

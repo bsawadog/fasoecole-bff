@@ -71,6 +71,7 @@ class TeacherWorkServiceTest {
     @Mock
     SchoolPermissions permissions;
 
+    @Mock TeacherProfileService teacherProfileService;
     @InjectMocks TeacherWorkService service;
 
     private School school;

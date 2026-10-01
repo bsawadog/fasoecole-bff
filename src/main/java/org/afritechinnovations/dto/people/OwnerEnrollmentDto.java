@@ -1,6 +1,8 @@
 package org.afritechinnovations.dto.people;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -70,5 +72,34 @@ public final class OwnerEnrollmentDto {
     }
 
     public record PromotionResult(int applied, List<Skipped> skipped) {
+    }
+
+    /** Frais actifs proposés lors de l'inscription d'un nouvel élève (levelId null = tous niveaux). */
+    public record EnrollmentFee(Long id, String name, BigDecimal amount, String frequency, Long levelId) {
+    }
+
+    /** Frais facturé à l'inscription ; amountPaid > 0 encaisse immédiatement un paiement. */
+    public record FeeLine(@NotNull Long feeTypeId, @DecimalMin("0") BigDecimal amountPaid) {
+    }
+
+    /**
+     * Parent ou tuteur saisi à l'inscription : seuls le nom et le prénom sont obligatoires.
+     * Avec parentId, un parent déjà enregistré est rattaché tel quel (ses coordonnées ne sont pas modifiées).
+     */
+    public record Guardian(Long parentId,
+                           @NotBlank @Size(max = 100) String firstName,
+                           @NotBlank @Size(max = 100) String lastName,
+                           @Email @Size(max = 150) String email,
+                           @Size(max = 30) String phone,
+                           @Size(max = 50) String relationship) {
+    }
+
+    /** Parent existant proposé à l'inscription, avec ses enfants déjà inscrits pour le reconnaître. */
+    public record GuardianOption(Long parentId, String firstName, String lastName, String email, String phone,
+                                 List<String> children) {
+    }
+
+    public record RegistrationResult(ClassRosterRowDto student, String schoolName, String className,
+                                     String yearLabel, List<StudentDetailDto.InvoiceInfo> invoices) {
     }
 }

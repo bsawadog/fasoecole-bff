@@ -24,7 +24,7 @@ public class User {
     @Column(name = "last_name", nullable = false, length = 100)
     private String lastName;
 
-    @Column(nullable = false, unique = true, length = 150)
+    @Column(unique = true, length = 150)
     private String email;
 
     @Column(name = "password_hash", nullable = false)
@@ -40,6 +40,16 @@ public class User {
     @Builder.Default
     @Column(nullable = false)
     private Boolean approved = true;
+
+    /** Faux pour un compte créé par l'école dont le titulaire n'a pas encore choisi son mot de passe. */
+    @Builder.Default
+    @Column(name = "password_set", nullable = false)
+    private Boolean passwordSet = true;
+
+    /** Vrai une fois que le titulaire a prouvé qu'il possède son adresse (lien reçu par courriel). */
+    @Builder.Default
+    @Column(name = "email_verified", nullable = false)
+    private Boolean emailVerified = false;
 
     @Column(name = "requested_school_id")
     private Long requestedSchoolId;

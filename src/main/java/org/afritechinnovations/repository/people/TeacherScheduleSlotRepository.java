@@ -17,4 +17,13 @@ public interface TeacherScheduleSlotRepository extends JpaRepository<TeacherSche
         ORDER BY s.dayOfWeek, s.startTime, s.effectiveFrom
         """)
     List<TeacherScheduleSlot> findAllWithClassByTeacherId(@Param("teacherId") Long teacherId);
+
+    @Query("""
+        SELECT s FROM TeacherScheduleSlot s
+        JOIN FETCH s.teacher t
+        JOIN FETCH t.user
+        WHERE s.schoolClass.id = :classId
+        ORDER BY s.dayOfWeek, s.startTime
+        """)
+    List<TeacherScheduleSlot> findAllWithTeacherByClassId(@Param("classId") Long classId);
 }

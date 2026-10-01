@@ -89,9 +89,14 @@ public class SecurityConfig {
                             if (principal.isActive() && principal.isApproved()) {
                                 return new AuthorizationDecision(true);
                             }
+                            String method = context.getRequest().getMethod();
+                            String path = context.getRequest().getServletPath();
                             boolean profileOnly = principal.isActive()
-                                    && HttpMethod.GET.matches(context.getRequest().getMethod())
-                                    && "/api/users/me".equals(context.getRequest().getServletPath());
+                                    && ((("/api/users/me".equals(path))
+                                            && (HttpMethod.GET.matches(method) || HttpMethod.PUT.matches(method)))
+                                        || ("/api/users/me/password".equals(path) && HttpMethod.PUT.matches(method))
+                                        || ("/api/users/me/email-verification".equals(path)
+                                            && HttpMethod.POST.matches(method)));
                             return new AuthorizationDecision(profileOnly);
                         })
                 )

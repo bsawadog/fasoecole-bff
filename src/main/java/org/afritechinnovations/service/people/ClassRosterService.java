@@ -5,6 +5,8 @@ import org.afritechinnovations.dto.people.ClassRosterRowDto;
 import org.afritechinnovations.dto.people.CreateRosterStudentRequest;
 import org.afritechinnovations.dto.people.CreateStudentInvoiceRequest;
 import org.afritechinnovations.dto.people.CreateStudentPaymentRequest;
+import org.afritechinnovations.dto.people.NewStudentEnrollmentRequest;
+import org.afritechinnovations.dto.people.OwnerEnrollmentDto;
 import org.afritechinnovations.dto.people.StudentDetailDto;
 import org.afritechinnovations.dto.people.UpdateParentProfileRequest;
 import org.afritechinnovations.dto.people.UpdateStudentProfileRequest;
@@ -14,6 +16,7 @@ import org.afritechinnovations.model.academic.ClassSubjectTeacher;
 import org.afritechinnovations.model.academic.Grade;
 import org.afritechinnovations.model.academic.SchoolClass;
 import org.afritechinnovations.model.academic.Attendance;
+import org.afritechinnovations.model.academic.AttendanceStatus;
 import org.afritechinnovations.model.common.Role;
 import org.afritechinnovations.model.common.SchoolUser;
 import org.afritechinnovations.model.common.User;
@@ -21,6 +24,7 @@ import org.afritechinnovations.model.finance.FeeType;
 import org.afritechinnovations.model.finance.Invoice;
 import org.afritechinnovations.model.finance.InvoiceStatus;
 import org.afritechinnovations.model.finance.Payment;
+import org.afritechinnovations.model.finance.PaymentMethod;
 import org.afritechinnovations.model.people.EnrollmentStatus;
 import org.afritechinnovations.model.people.Parent;
 import org.afritechinnovations.model.people.ParentStudent;
@@ -32,6 +36,9 @@ import org.afritechinnovations.repository.academic.ClassSubjectTeacherRepository
 import org.afritechinnovations.repository.academic.GradeRepository;
 import org.afritechinnovations.repository.academic.SchoolClassRepository;
 import org.afritechinnovations.repository.common.RoleRepository;
+import org.afritechinnovations.repository.communication.AbsenceReportRepository;
+import org.afritechinnovations.model.communication.AbsenceReportStatus;
+import org.afritechinnovations.service.communication.AbsenceReportJustification;
 import org.afritechinnovations.repository.common.SchoolUserRepository;
 import org.afritechinnovations.repository.common.UserRepository;
 import org.afritechinnovations.repository.finance.FeeTypeRepository;
@@ -50,8 +57,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -75,6 +87,7 @@ public class ClassRosterService {
     private final PaymentRepository paymentRepository;
     private final FeeTypeRepository feeTypeRepository;
     private final AcademicYearRepository academicYearRepository;
+    private final AbsenceReportRepository absenceReportRepository;
 
     public List<ClassRosterRowDto> getRoster(Long classId, Long ownerId, boolean systemAdmin) {
         requireOwnedClass(classId, ownerId, systemAdmin);
@@ -103,7 +116,11 @@ public class ClassRosterService {
                 .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
-        user.setEmail(request.getEmail().trim().toLowerCase());
+        String studentEmail = request.getEmail().trim().toLowerCase();
+        if (!studentEmail.equalsIgnoreCase(String.valueOf(user.getEmail()))) {
+            user.setEmailVerified(false);
+        }
+        user.setEmail(studentEmail);
         user.setPhone(request.getPhone());
         userRepository.save(user);
 
@@ -136,9 +153,18 @@ public class ClassRosterService {
 
         User user = userRepository.findById(parent.getUser().getId())
                 .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+        String parentEmail = request.getEmail() == null || request.getEmail().isBlank()
+                ? null : request.getEmail().trim().toLowerCase();
+        if (parentEmail != null && !parentEmail.equalsIgnoreCase(user.getEmail())
+                && userRepository.existsByEmailIgnoreCase(parentEmail)) {
+            throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + parentEmail);
+        }
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
-        user.setEmail(request.getEmail().trim().toLowerCase());
+        if (!java.util.Objects.equals(parentEmail, user.getEmail() == null ? null : user.getEmail().toLowerCase())) {
+            user.setEmailVerified(false);
+        }
+        user.setEmail(parentEmail);
         user.setPhone(request.getPhone());
         userRepository.save(user);
 
@@ -162,15 +188,170 @@ public class ClassRosterService {
         userRepository.deleteById(student.getUser().getId());
     }
 
+    /**
+     * Transfère un élève vers une autre classe de la même année scolaire. L'inscription courante est
+     * conservée en historique (TRANSFERRED) : le dossier de l'élève (notes, présences, factures, parents)
+     * reste rattaché au même élève.
+     */
+    public ClassRosterRowDto transferStudent(Long classId, Long studentId, Long targetClassId,
+                                             Long ownerId, boolean systemAdmin) {
+        SchoolClass source = requireOwnedClass(classId, ownerId, systemAdmin);
+        if (classId.equals(targetClassId)) {
+            throw new IllegalArgumentException("L'élève est déjà inscrit dans cette classe");
+        }
+        SchoolClass target = requireOwnedClass(targetClassId, ownerId, systemAdmin);
+        if (!target.getSchool().getId().equals(source.getSchool().getId())) {
+            throw new IllegalArgumentException("La classe de destination doit appartenir au même établissement");
+        }
+
+        StudentEnrollment current = studentEnrollmentRepository
+                .findByStudentIdAndSchoolClassIdAndStatus(studentId, classId, EnrollmentStatus.ACTIVE)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Seul un élève actif de cette classe peut être transféré"));
+
+        Long targetYearId = target.getAcademicYear().getId();
+        if (!targetYearId.equals(source.getAcademicYear().getId())) {
+            studentEnrollmentRepository.findByStudentIdAndAcademicYearId(studentId, targetYearId).stream()
+                    .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE)
+                    .findFirst()
+                    .ifPresent(e -> {
+                        throw new IllegalArgumentException("L'élève est déjà inscrit en "
+                                + e.getSchoolClass().getName() + " pour l'année "
+                                + target.getAcademicYear().getLabel()
+                                + ". Transférez-le depuis cette classe.");
+                    });
+        }
+
+        if (target.getCapacity() != null) {
+            long enrolled = studentEnrollmentRepository
+                    .findBySchoolClassIdAndStatus(target.getId(), EnrollmentStatus.ACTIVE).size();
+            if (enrolled >= target.getCapacity()) {
+                throw new IllegalArgumentException(
+                        "La classe " + target.getName() + " est complète (" + target.getCapacity() + " places)");
+            }
+        }
+
+        current.setStatus(EnrollmentStatus.TRANSFERRED);
+        current.setDecidedAt(LocalDateTime.now());
+        studentEnrollmentRepository.save(current);
+
+        studentEnrollmentRepository.save(StudentEnrollment.builder()
+                .student(current.getStudent())
+                .schoolClass(target)
+                .academicYear(target.getAcademicYear())
+                .status(EnrollmentStatus.ACTIVE)
+                .enrollmentDate(LocalDate.now())
+                .build());
+
+        return toRow(current.getStudent(), teacherNamesForClass(target.getId()));
+    }
+
     public ClassRosterRowDto createStudent(Long classId, CreateRosterStudentRequest request,
                                             Long ownerId, boolean systemAdmin) {
-        SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
+        return enrollNewStudent(requireOwnedClass(classId, ownerId, systemAdmin), request);
+    }
+
+    /** Crée le compte, la fiche élève et l'inscription ACTIVE dans la classe (droits vérifiés par l'appelant). */
+    public ClassRosterRowDto enrollNewStudent(SchoolClass schoolClass, CreateRosterStudentRequest request) {
+        return toRow(createEnrolledStudent(schoolClass, request), teacherNamesForClass(schoolClass.getId()));
+    }
+
+    /**
+     * Inscrit un nouvel élève, lui facture les frais choisis pour l'année de la classe et encaisse
+     * immédiatement les montants versés (une référence de reçu par paiement). Droits vérifiés par l'appelant.
+     */
+    public OwnerEnrollmentDto.RegistrationResult enrollNewStudentWithFees(SchoolClass schoolClass,
+                                                                         NewStudentEnrollmentRequest request) {
+        List<OwnerEnrollmentDto.FeeLine> lines = request.getFees() == null ? List.of() : request.getFees();
+        List<FeeType> feeTypes = validateEnrollmentFees(schoolClass, lines, request.getPaymentMethod());
+
+        Student student = createEnrolledStudent(schoolClass, request);
+        attachGuardians(student, request.getGuardians());
+        LocalDate paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : LocalDate.now();
+        LocalDate yearEnd = schoolClass.getAcademicYear().getEndDate();
+        LocalDate dueDate = yearEnd != null && yearEnd.isAfter(LocalDate.now()) ? yearEnd : LocalDate.now();
+        List<StudentDetailDto.InvoiceInfo> invoices = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) {
+            FeeType feeType = feeTypes.get(i);
+            BigDecimal paid = lines.get(i).amountPaid() == null ? BigDecimal.ZERO : lines.get(i).amountPaid();
+            Invoice invoice = invoiceRepository.save(Invoice.builder()
+                    .student(student)
+                    .feeType(feeType)
+                    .academicYear(schoolClass.getAcademicYear())
+                    .amountDue(feeType.getAmount())
+                    .dueDate(dueDate)
+                    .status(InvoiceStatus.PENDING)
+                    .build());
+            List<Payment> payments = new ArrayList<>();
+            if (paid.signum() > 0) {
+                payments.add(paymentRepository.save(Payment.builder()
+                        .invoice(invoice)
+                        .amount(paid)
+                        .paymentDate(paymentDate)
+                        .method(request.getPaymentMethod())
+                        .reference(generatePaymentReference())
+                        .build()));
+            }
+            updateInvoicePaymentStatus(invoice, payments);
+            invoices.add(toInvoiceInfo(invoice, payments));
+        }
+
+        return new OwnerEnrollmentDto.RegistrationResult(
+                toRow(student, teacherNamesForClass(schoolClass.getId())),
+                schoolClass.getSchool().getName(),
+                schoolClass.getName(),
+                schoolClass.getAcademicYear().getLabel(),
+                invoices);
+    }
+
+    private List<FeeType> validateEnrollmentFees(SchoolClass schoolClass, List<OwnerEnrollmentDto.FeeLine> lines,
+                                                 PaymentMethod method) {
+        Set<Long> seen = new HashSet<>();
+        List<FeeType> feeTypes = new ArrayList<>();
+        for (OwnerEnrollmentDto.FeeLine line : lines) {
+            if (!seen.add(line.feeTypeId())) {
+                throw new IllegalArgumentException("Un même frais ne peut être ajouté qu'une fois");
+            }
+            FeeType feeType = feeTypeRepository.findById(line.feeTypeId())
+                    .orElseThrow(() -> new IllegalArgumentException("Type de frais introuvable: " + line.feeTypeId()));
+            if (!feeType.getSchool().getId().equals(schoolClass.getSchool().getId())) {
+                throw new IllegalArgumentException("Ce type de frais n'appartient pas à l'établissement");
+            }
+            if (!feeType.isActive()) {
+                throw new IllegalArgumentException("Le frais « " + feeType.getName() + " » est archivé");
+            }
+            if (feeType.getLevel() != null && schoolClass.getLevel() != null
+                    && !feeType.getLevel().getId().equals(schoolClass.getLevel().getId())) {
+                throw new IllegalArgumentException("Le frais « " + feeType.getName() + " » ne concerne pas le niveau de cette classe");
+            }
+            BigDecimal paid = line.amountPaid() == null ? BigDecimal.ZERO : line.amountPaid();
+            if (paid.signum() < 0) {
+                throw new IllegalArgumentException("Le montant versé ne peut pas être négatif");
+            }
+            if (paid.compareTo(feeType.getAmount()) > 0) {
+                throw new IllegalArgumentException("Le montant versé pour « " + feeType.getName()
+                        + " » dépasse le montant dû (" + feeType.getAmount() + ")");
+            }
+            if (paid.signum() > 0 && method == null) {
+                throw new IllegalArgumentException("Choisissez le mode de paiement");
+            }
+            feeTypes.add(feeType);
+        }
+        return feeTypes;
+    }
+
+    private Student createEnrolledStudent(SchoolClass schoolClass, CreateRosterStudentRequest request) {
         String email = request.getEmail().trim().toLowerCase();
         if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
         }
-        if (studentRepository.findBySchoolIdAndRegistrationNumber(schoolClass.getSchool().getId(),
-                request.getRegistrationNumber().trim()).isPresent()) {
+        String registrationNumber = request.getRegistrationNumber() == null ? "" : request.getRegistrationNumber().trim();
+        if (registrationNumber.isEmpty()) {
+            registrationNumber = nextRegistrationNumber(schoolClass);
+        } else if (studentRepository.findBySchoolIdAndRegistrationNumber(schoolClass.getSchool().getId(),
+                registrationNumber).isPresent()) {
             throw new IllegalArgumentException("Ce matricule est déjà utilisé dans cet établissement");
         }
 
@@ -196,7 +377,7 @@ public class ClassRosterService {
         Student student = Student.builder()
                 .user(user)
                 .school(schoolClass.getSchool())
-                .registrationNumber(request.getRegistrationNumber().trim())
+                .registrationNumber(registrationNumber)
                 .birthDate(request.getBirthDate())
                 .gender(request.getGender())
                 .build();
@@ -210,7 +391,97 @@ public class ClassRosterService {
                 .enrollmentDate(LocalDate.now())
                 .build());
 
-        return toRow(student, teacherNamesForClass(classId));
+        return student;
+    }
+
+    /**
+     * Matricule incrémental par établissement et par année d'entrée : MAT-2026-001, MAT-2026-002…
+     * L'année est celle du début de l'année scolaire de la classe d'accueil.
+     */
+    synchronized String nextRegistrationNumber(SchoolClass schoolClass) {
+        AcademicYear year = schoolClass.getAcademicYear();
+        int startYear = year != null && year.getStartDate() != null ? year.getStartDate().getYear() : LocalDate.now().getYear();
+        String prefix = "MAT-" + startYear + "-";
+        Long schoolId = schoolClass.getSchool().getId();
+        int max = studentRepository.findRegistrationNumbersBySchoolAndPrefix(schoolId, prefix).stream()
+                .map(value -> value.substring(prefix.length()))
+                .filter(suffix -> suffix.matches("\\d{1,9}"))
+                .mapToInt(Integer::parseInt)
+                .max()
+                .orElse(0);
+        String candidate;
+        do {
+            candidate = prefix + String.format("%03d", ++max);
+        } while (studentRepository.findBySchoolIdAndRegistrationNumber(schoolId, candidate).isPresent());
+        return candidate;
+    }
+
+    /** Crée (ou retrouve par courriel) chaque parent/tuteur et le rattache à l'élève. */
+    private void attachGuardians(Student student, List<OwnerEnrollmentDto.Guardian> guardians) {
+        if (guardians == null || guardians.isEmpty()) {
+            return;
+        }
+        Role parentRole = roleRepository.findByName("PARENT")
+                .orElseThrow(() -> new IllegalStateException("Rôle non configuré: PARENT"));
+        Set<Long> linked = new HashSet<>();
+        for (OwnerEnrollmentDto.Guardian guardian : guardians) {
+            if (guardian.parentId() != null) {
+                Parent existing = parentRepository.findById(guardian.parentId())
+                        .orElseThrow(() -> new IllegalArgumentException("Parent introuvable : " + guardian.parentId()));
+                if (student.getUser() != null && existing.getUser().getId().equals(student.getUser().getId())) {
+                    throw new IllegalArgumentException("Un élève ne peut pas être son propre parent");
+                }
+                linkGuardian(student, existing, guardian.relationship(), parentRole, linked);
+                continue;
+            }
+            String email = guardian.email() == null || guardian.email().isBlank()
+                    ? null : guardian.email().trim().toLowerCase();
+            String phone = guardian.phone() == null || guardian.phone().isBlank() ? null : guardian.phone().trim();
+
+            User user = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
+            if (user != null && studentRepository.findByUserId(user.getId()).isPresent()) {
+                throw new IllegalArgumentException("Le courriel " + email + " appartient déjà à un élève");
+            }
+            if (user == null) {
+                user = userRepository.save(User.builder()
+                        .firstName(guardian.firstName().trim())
+                        .lastName(guardian.lastName().trim())
+                        .email(email)
+                        .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
+                        .passwordSet(false)
+                        .phone(phone)
+                        .active(true)
+                        .approved(true)
+                        .build());
+            } else if (user.getPhone() == null && phone != null) {
+                user.setPhone(phone);
+                userRepository.save(user);
+            }
+
+            User parentUser = user;
+            Parent parent = parentRepository.findByUserId(parentUser.getId())
+                    .orElseGet(() -> parentRepository.save(Parent.builder().user(parentUser).build()));
+            linkGuardian(student, parent, guardian.relationship(), parentRole, linked);
+        }
+    }
+
+    private void linkGuardian(Student student, Parent parent, String relationship, Role parentRole, Set<Long> linked) {
+        if (!linked.add(parent.getId())) {
+            return;
+        }
+        User parentUser = parent.getUser();
+        boolean inSchool = schoolUserRepository.findByUserId(parentUser.getId()).stream()
+                .anyMatch(su -> su.getSchool().getId().equals(student.getSchool().getId())
+                        && "PARENT".equals(su.getRole().getName()));
+        if (!inSchool) {
+            schoolUserRepository.save(SchoolUser.builder()
+                    .user(parentUser).school(student.getSchool()).role(parentRole).build());
+        }
+        parentStudentRepository.save(ParentStudent.builder()
+                .parent(parent)
+                .student(student)
+                .relationship(relationship == null || relationship.isBlank() ? null : relationship.trim())
+                .build());
     }
 
     public StudentDetailDto getStudentDetail(Long studentId, Long ownerId, boolean systemAdmin) {
@@ -333,12 +604,22 @@ public class ClassRosterService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Cet élève n'a pas de classe active"));
 
+        String justification = request.getJustification();
+        if ((justification == null || justification.isBlank())
+                && (request.getStatus() == AttendanceStatus.ABSENT || request.getStatus() == AttendanceStatus.LATE)) {
+            // Une absence signalée par le parent et acceptée par l'école justifie automatiquement la saisie.
+            justification = absenceReportRepository.findCovering(studentId, request.getAttendanceDate(),
+                            AbsenceReportStatus.ACKNOWLEDGED).stream()
+                    .findFirst()
+                    .map(r -> AbsenceReportJustification.of(r.getReason()))
+                    .orElse(justification);
+        }
         Attendance attendance = Attendance.builder()
                 .student(student)
                 .schoolClass(activeEnrollment.getSchoolClass())
                 .attendanceDate(request.getAttendanceDate())
                 .status(request.getStatus())
-                .justification(request.getJustification())
+                .justification(justification)
                 .build();
         attendance = attendanceRepository.save(attendance);
         return toAttendanceInfo(attendance);

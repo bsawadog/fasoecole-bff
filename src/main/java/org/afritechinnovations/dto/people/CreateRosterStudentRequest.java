@@ -32,7 +32,7 @@ public class CreateRosterStudentRequest {
     @Size(max = 30)
     private String phone;
 
-    @NotBlank
+    /** Facultatif : généré automatiquement (MAT-AAAA-NNN) s'il est laissé vide. */
     @Size(max = 50)
     private String registrationNumber;
 

@@ -102,6 +102,7 @@ public class TeacherWorkService {
     private final PasswordEncoder passwordEncoder;
     private final SchoolRepository schoolRepository;
     private final EmailService emailService;
+    private final TeacherProfileService teacherProfileService;
 
     private Clock clock = Clock.systemDefaultZone();
 
@@ -144,13 +145,11 @@ public class TeacherWorkService {
     }
 
     /** Tous les enseignants de l'établissement de la classe : un enseignant déjà affecté peut y enseigner une autre matière. */
-    @Transactional(readOnly = true)
     public List<TeacherWorkDto.TeacherInfo> listClassCandidates(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         return schoolTeachers(schoolClass.getSchool().getId());
     }
 
-    @Transactional(readOnly = true)
     public List<TeacherWorkDto.TeacherInfo> listSchoolTeachers(Long schoolId, Long ownerId, boolean systemAdmin) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
@@ -162,6 +161,7 @@ public class TeacherWorkService {
     }
 
     private List<TeacherWorkDto.TeacherInfo> schoolTeachers(Long schoolId) {
+        teacherProfileService.ensureSchoolProfiles(schoolId);
         Map<Long, Long> classCounts = activeClassCounts(schoolId);
         return teacherRepository.findBySchoolId(schoolId).stream()
                 .map(teacher -> toTeacherInfo(teacher, subjectsOf(teacher.getId()), null,

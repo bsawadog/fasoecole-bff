@@ -20,6 +20,7 @@ public class UserDto {
     private String phone;
     private Boolean active;
     private Boolean approved;
+    private Boolean emailVerified;
     private Long requestedSchoolId;
     private String requestedSchoolName;
     private SchoolType requestedSchoolType;
