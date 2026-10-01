@@ -72,7 +72,8 @@ public class ClassRosterController {
         if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
             throw new AccessDeniedException("Authentification requise");
         }
-        if (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("SUPER_ADMIN")) {
+        if (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("STAFF")
+                && !principal.getRoles().contains("SUPER_ADMIN")) {
             throw new AccessDeniedException("Accès réservé au propriétaire de l'établissement");
         }
         return principal;

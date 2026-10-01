@@ -55,7 +55,8 @@ public class LevelController {
 
     private UserPrincipal requireOwner(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)
-                || (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("SUPER_ADMIN"))) {
+                || (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("STAFF")
+                && !principal.getRoles().contains("SUPER_ADMIN"))) {
             throw new AccessDeniedException("Accès réservé au propriétaire de l'établissement");
         }
         return principal;

@@ -3,6 +3,7 @@ package org.afritechinnovations.security;
 import org.afritechinnovations.model.common.Role;
 import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.model.common.SchoolUser;
+import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.people.Parent;
 import org.afritechinnovations.model.people.ParentStudent;
@@ -42,6 +43,8 @@ class AccessGuardTest {
     @Mock TeacherRepository teachers;
     @Mock ParentRepository parents;
     @Mock ParentStudentRepository parentStudents;
+    @Mock SchoolPermissions permissions;
+
     @InjectMocks AccessGuard guard;
 
     private final School school1 = School.builder().id(1L).owner(User.builder().id(10L).build()).build();
@@ -95,6 +98,20 @@ class AccessGuardTest {
 
         assertDoesNotThrow(() -> guard.requireStudentReader(20L));
         assertThrows(AccessDeniedException.class, () -> guard.requireStudentReader(21L));
+    }
+
+    @Test
+    void staffReachesOnlyDelegatedModules() {
+        when(schools.findById(1L)).thenReturn(Optional.of(school1));
+        when(permissions.staffAllows(1L, 14L, StaffModule.FINANCE)).thenReturn(true);
+        login(14L, "STAFF");
+
+        assertDoesNotThrow(() -> guard.requireSchoolModule(1L, StaffModule.FINANCE));
+        assertThrows(AccessDeniedException.class, () -> guard.requireSchoolModule(1L, StaffModule.GRADES));
+        assertThrows(AccessDeniedException.class, () -> guard.requireOwnedSchool(1L));
+
+        login(10L, "SCHOOL_ADMIN");
+        assertDoesNotThrow(() -> guard.requireSchoolModule(1L, StaffModule.GRADES));
     }
 
     @Test

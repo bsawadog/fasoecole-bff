@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.model.academic.SchoolClass;
 import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.model.common.SchoolUser;
+import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.model.people.Student;
 import org.afritechinnovations.model.people.Teacher;
 import org.afritechinnovations.repository.academic.AcademicYearRepository;
@@ -48,6 +49,7 @@ public class AccessGuard {
     private final TeacherRepository teacherRepository;
     private final ParentRepository parentRepository;
     private final ParentStudentRepository parentStudentRepository;
+    private final SchoolPermissions permissions;
 
     // ------------------------------------------------------------------ identité
 
@@ -87,6 +89,20 @@ public class AccessGuard {
             throw new AccessDeniedException("Action réservée au propriétaire de l'établissement");
         }
         return school;
+    }
+
+    /** Propriétaire, SUPER_ADMIN ou membre actif du personnel ayant reçu l'un des modules indiqués. */
+    public School requireSchoolModule(Long schoolId, StaffModule... modules) {
+        School school = findSchool(schoolId);
+        if (isSuperAdmin() || isOwner(school)) {
+            return school;
+        }
+        for (StaffModule module : modules) {
+            if (permissions.staffAllows(school.getId(), currentUserId(), module)) {
+                return school;
+            }
+        }
+        throw new AccessDeniedException("Vous n'avez pas accès à ce module pour cet établissement");
     }
 
     public boolean ownsSchool(Long schoolId) {
@@ -224,7 +240,8 @@ public class AccessGuard {
         boolean linked = schoolUserRepository.findByUserId(userId).stream()
                 .anyMatch(link -> link.getSchool().getId().equals(school.getId())
                         && link.getRole() != null && STAFF_ROLES.contains(link.getRole().getName()));
-        return linked || teacherRepository.findByUserId(userId).stream()
+        return linked || permissions.isActiveStaff(school.getId(), userId)
+                || teacherRepository.findByUserId(userId).stream()
                 .anyMatch(teacher -> teacher.getSchool().getId().equals(school.getId()));
     }
 

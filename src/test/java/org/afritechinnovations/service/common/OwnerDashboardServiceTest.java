@@ -1,8 +1,12 @@
 package org.afritechinnovations.service.common;
 
+import org.afritechinnovations.dto.academic.OwnerGradeDto;
+import org.afritechinnovations.model.academic.GradePeriodStatus;
 import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.service.academic.OwnerGradeService;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -12,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.util.List;
 import java.util.Optional;
 import java.math.BigDecimal;
 
@@ -28,6 +33,12 @@ class OwnerDashboardServiceTest {
 
     @Mock
     private SchoolRepository schoolRepository;
+
+    @Mock
+    private OwnerGradeService ownerGradeService;
+
+    @Mock
+    SchoolPermissions permissions;
 
     @InjectMocks
     private OwnerDashboardService dashboardService;
@@ -68,5 +79,21 @@ class OwnerDashboardServiceTest {
                 query.contains("SUM(p.amount)") && !query.contains("i.status <> 'CANCELLED'")));
         assertTrue(sql.getAllValues().stream().anyMatch(query ->
                 query.contains("GREATEST(i.amount_due") && query.contains("i.status IN ('PENDING', 'OVERDUE')")));
+    }
+
+    @Test
+    void schoolAverageComesFromTheSameComputationAsGradesPage() {
+        School school = School.builder().id(5L).owner(User.builder().id(10L).build()).build();
+        when(schoolRepository.findById(5L)).thenReturn(Optional.of(school));
+        OwnerGradeDto.PeriodInfo info = new OwnerGradeDto.PeriodInfo(3L, 5L, 1L, "2025-2026", "TERM1",
+                "1er trimestre", null, null, BigDecimal.TEN, GradePeriodStatus.OPEN, null, 2);
+        when(ownerGradeService.dashboardSummary(eq(5L), eq(10L), any())).thenReturn(Optional.of(new OwnerGradeDto.SchoolSummary(
+                info, List.of(), new BigDecimal("11.43"), new BigDecimal("60.0"), 6, 5)));
+
+        var dashboard = dashboardService.getDashboard(5L, 10L);
+
+        assertEquals(new BigDecimal("11.43"), dashboard.schoolAverage());
+        assertEquals("1er trimestre", dashboard.averagePeriodName());
+        assertEquals(5, dashboard.rankedStudents());
     }
 }

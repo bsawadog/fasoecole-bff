@@ -24,6 +24,7 @@ import org.afritechinnovations.repository.finance.PaymentRepository;
 import org.afritechinnovations.repository.people.ParentStudentRepository;
 import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
 import org.afritechinnovations.service.common.EmailService;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,6 +68,9 @@ class OwnerFinanceServiceTest {
     @Mock StudentEnrollmentRepository studentEnrollmentRepository;
     @Mock ParentStudentRepository parentStudentRepository;
     @Mock EmailService emailService;
+    @Mock
+    SchoolPermissions permissions;
+
     @InjectMocks OwnerFinanceService service;
 
     private School school;

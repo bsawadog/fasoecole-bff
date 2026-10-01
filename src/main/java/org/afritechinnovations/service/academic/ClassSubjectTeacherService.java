@@ -45,7 +45,7 @@ public class ClassSubjectTeacherService {
                 .schoolClass(SchoolClass.builder().id(dto.getClassId()).build())
                 .subject(Subject.builder().id(dto.getSubjectId()).build())
                 .teacher(Teacher.builder().id(dto.getTeacherId()).build())
-                .coefficient(dto.getCoefficient() != null ? dto.getCoefficient() : BigDecimal.ONE)
+                .coefficient(dto.getCoefficient())
                 .build();
         return toDto(classSubjectTeacherRepository.save(cst));
     }

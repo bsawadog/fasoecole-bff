@@ -3,6 +3,7 @@ package org.afritechinnovations.controler.people;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.StudentEnrollmentDto;
 import org.afritechinnovations.model.people.EnrollmentStatus;
+import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.service.people.StudentEnrollmentService;
 import org.springframework.http.HttpStatus;
@@ -41,7 +42,7 @@ public class StudentEnrollmentController {
     @ResponseStatus(HttpStatus.CREATED)
     public StudentEnrollmentDto create(@RequestBody StudentEnrollmentDto dto) {
         Long schoolId = guard.schoolOfClass(dto.getClassId());
-        guard.requireOwnedSchool(schoolId);
+        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
         guard.requireSame(schoolId, guard.schoolOfStudent(dto.getStudentId()), "élève");
         guard.requireSame(schoolId, guard.schoolOfYear(dto.getAcademicYearId()), "année scolaire");
         return studentEnrollmentService.create(dto);
@@ -49,14 +50,14 @@ public class StudentEnrollmentController {
 
     @PatchMapping("/{id}/status")
     public StudentEnrollmentDto updateStatus(@PathVariable Long id, @RequestParam EnrollmentStatus status) {
-        guard.requireOwnedSchool(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()));
+        guard.requireSchoolModule(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()), StaffModule.STUDENTS);
         return studentEnrollmentService.updateStatus(id, status);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
-        guard.requireOwnedSchool(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()));
+        guard.requireSchoolModule(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()), StaffModule.STUDENTS);
         studentEnrollmentService.delete(id);
     }
 }

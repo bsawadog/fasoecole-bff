@@ -41,6 +41,8 @@ import org.afritechinnovations.repository.people.ParentRepository;
 import org.afritechinnovations.repository.people.ParentStudentRepository;
 import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
 import org.afritechinnovations.repository.people.StudentRepository;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -56,6 +58,7 @@ import java.util.List;
 @Transactional
 public class ClassRosterService {
 
+    private final SchoolPermissions permissions;
     private final SchoolClassRepository schoolClassRepository;
     private final StudentEnrollmentRepository studentEnrollmentRepository;
     private final ParentStudentRepository parentStudentRepository;
@@ -78,7 +81,8 @@ public class ClassRosterService {
         List<String> teacherNames = teacherNamesForClass(classId);
 
         return studentEnrollmentRepository
-                .findActiveStudentsWithUserByClassId(classId, EnrollmentStatus.ACTIVE)
+                .findStudentsWithUserByClassIdAndStatusIn(classId,
+                        List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED))
                 .stream()
                 .map(StudentEnrollment::getStudent)
                 .map(student -> toRow(student, teacherNames))
@@ -90,7 +94,8 @@ public class ClassRosterService {
         requireOwnedClass(classId, ownerId, systemAdmin);
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new IllegalArgumentException("Élève introuvable: " + studentId));
-        if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(student.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
             throw new AccessDeniedException("Vous ne pouvez modifier que les élèves de votre établissement");
         }
 
@@ -124,7 +129,8 @@ public class ClassRosterService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Ce parent n'est pas rattaché à un élève de cette classe"));
 
-        if (!systemAdmin && !studentInClass.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !studentInClass.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(studentInClass.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
             throw new AccessDeniedException("Vous ne pouvez modifier que les parents de votre établissement");
         }
 
@@ -210,7 +216,8 @@ public class ClassRosterService {
     public StudentDetailDto getStudentDetail(Long studentId, Long ownerId, boolean systemAdmin) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new IllegalArgumentException("Élève introuvable: " + studentId));
-        if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(student.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
             throw new AccessDeniedException("Vous ne pouvez consulter que les élèves de votre établissement");
         }
 
@@ -513,7 +520,8 @@ public class ClassRosterService {
     private Student requireOwnedStudent(Long studentId, Long ownerId, boolean systemAdmin) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new IllegalArgumentException("Élève introuvable: " + studentId));
-        if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(student.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les élèves de votre établissement");
         }
         return student;
@@ -566,7 +574,8 @@ public class ClassRosterService {
     private SchoolClass requireOwnedClass(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = schoolClassRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("Classe introuvable: " + classId));
-        if (!systemAdmin && !schoolClass.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !schoolClass.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(schoolClass.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
             throw new AccessDeniedException("Vous ne pouvez consulter que les classes de votre établissement");
         }
         return schoolClass;

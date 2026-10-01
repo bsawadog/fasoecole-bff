@@ -24,6 +24,8 @@ import org.afritechinnovations.repository.finance.PaymentRepository;
 import org.afritechinnovations.repository.people.ParentStudentRepository;
 import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
 import org.afritechinnovations.service.common.EmailService;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +52,7 @@ import java.util.stream.Collectors;
 @Transactional
 public class OwnerFinanceService {
 
+    private final SchoolPermissions permissions;
     private final SchoolRepository schoolRepository;
     private final FeeTypeRepository feeTypeRepository;
     private final InvoiceRepository invoiceRepository;
@@ -479,7 +482,8 @@ public class OwnerFinanceService {
     private School requireOwnedSchool(Long schoolId, Long ownerId, boolean systemAdmin) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
-        if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))) {
+        if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))
+                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.FINANCE)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les finances de vos établissements");
         }
         return school;

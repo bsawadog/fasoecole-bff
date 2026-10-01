@@ -100,6 +100,13 @@ public class OwnerGradeController {
         return gradeService.updateCoefficient(classId, subjectId, request.coefficient(), p.getId(), isSuperAdmin(p));
     }
 
+    @DeleteMapping("/classes/{classId}/subjects/{subjectId}/coefficient")
+    public List<OwnerGradeDto.ClassSubjectInfo> resetCoefficient(@PathVariable Long classId, @PathVariable Long subjectId,
+                                                                 Authentication authentication) {
+        UserPrincipal p = requireOwner(authentication);
+        return gradeService.updateCoefficient(classId, subjectId, null, p.getId(), isSuperAdmin(p));
+    }
+
     // ------------------------------------------------------------------ évaluations & saisie
 
     @GetMapping("/classes/{classId}/evaluations")
@@ -196,7 +203,8 @@ public class OwnerGradeController {
         if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
             throw new AccessDeniedException("Authentification requise");
         }
-        if (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("SUPER_ADMIN")) {
+        if (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("STAFF")
+                && !principal.getRoles().contains("SUPER_ADMIN")) {
             throw new AccessDeniedException("Accès réservé au propriétaire de l'établissement");
         }
         return principal;

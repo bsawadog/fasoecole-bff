@@ -16,6 +16,7 @@ import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
 import org.afritechinnovations.repository.people.ParentStudentRepository;
 import org.afritechinnovations.repository.academic.GradeRepository;
 import org.afritechinnovations.repository.academic.AttendanceRepository;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,6 +44,9 @@ class ClassRosterPaymentTest {
     @Mock ParentStudentRepository parentStudentRepository;
     @Mock GradeRepository gradeRepository;
     @Mock AttendanceRepository attendanceRepository;
+    @Mock
+    SchoolPermissions permissions;
+
     @InjectMocks ClassRosterService service;
 
     private Invoice invoice;

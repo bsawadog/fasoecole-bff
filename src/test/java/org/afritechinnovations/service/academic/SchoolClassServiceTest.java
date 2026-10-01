@@ -10,6 +10,7 @@ import org.afritechinnovations.repository.academic.AcademicYearRepository;
 import org.afritechinnovations.repository.academic.LevelRepository;
 import org.afritechinnovations.repository.academic.SchoolClassRepository;
 import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -28,6 +29,9 @@ class SchoolClassServiceTest {
     @Mock AcademicYearRepository years;
     @Mock LevelRepository levels;
     @Mock SchoolRepository schools;
+    @Mock
+    SchoolPermissions permissions;
+
     @InjectMocks SchoolClassService service;
 
     private final School school = School.builder().id(1L).owner(User.builder().id(10L).build()).build();

@@ -25,6 +25,7 @@ import org.afritechinnovations.repository.people.TeacherRateRepository;
 import org.afritechinnovations.repository.people.TeacherRepository;
 import org.afritechinnovations.repository.people.TeacherScheduleSlotRepository;
 import org.afritechinnovations.repository.people.TeacherSessionRecordRepository;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,6 +68,9 @@ class TeacherWorkServiceTest {
     @Mock TeacherExtraHourRepository extraHourRepository;
     @Mock TeacherPaymentRepository teacherPaymentRepository;
     @Mock org.afritechinnovations.service.common.EmailService emailService;
+    @Mock
+    SchoolPermissions permissions;
+
     @InjectMocks TeacherWorkService service;
 
     private School school;

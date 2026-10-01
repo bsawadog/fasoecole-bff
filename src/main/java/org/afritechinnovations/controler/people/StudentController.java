@@ -2,6 +2,7 @@ package org.afritechinnovations.controler.people;
 
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.StudentDto;
+import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.service.people.StudentService;
 import org.springframework.http.HttpStatus;
@@ -32,20 +33,20 @@ public class StudentController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public StudentDto create(@RequestBody StudentDto dto) {
-        guard.requireOwnedSchool(dto.getSchoolId());
+        guard.requireSchoolModule(dto.getSchoolId(), StaffModule.STUDENTS);
         return studentService.create(dto);
     }
 
     @PutMapping("/{id}")
     public StudentDto update(@PathVariable Long id, @RequestBody StudentDto dto) {
-        guard.requireOwnedSchool(guard.schoolOfStudent(id));
+        guard.requireSchoolModule(guard.schoolOfStudent(id), StaffModule.STUDENTS);
         return studentService.update(id, dto);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
-        guard.requireOwnedSchool(guard.schoolOfStudent(id));
+        guard.requireSchoolModule(guard.schoolOfStudent(id), StaffModule.STUDENTS);
         studentService.delete(id);
     }
 }

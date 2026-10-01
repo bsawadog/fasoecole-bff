@@ -23,7 +23,7 @@ public class OwnerDashboardController {
         if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
             throw new AccessDeniedException("Authentification requise");
         }
-        if (!principal.getRoles().contains("SCHOOL_ADMIN")) {
+        if (!principal.getRoles().contains("SCHOOL_ADMIN") && !principal.getRoles().contains("STAFF")) {
             throw new AccessDeniedException("Accès réservé au propriétaire de l'établissement");
         }
         return dashboardService.getDashboard(schoolId, principal.getId());

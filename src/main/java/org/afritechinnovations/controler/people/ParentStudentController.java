@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.ParentStudentDto;
 import org.afritechinnovations.model.people.ParentStudent;
 import org.afritechinnovations.repository.people.ParentStudentRepository;
+import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.service.people.ParentService;
 import org.afritechinnovations.service.people.ParentStudentService;
@@ -45,7 +46,7 @@ public class ParentStudentController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ParentStudentDto create(@RequestBody ParentStudentDto dto) {
-        guard.requireOwnedSchool(guard.schoolOfStudent(dto.getStudentId()));
+        guard.requireSchoolModule(guard.schoolOfStudent(dto.getStudentId()), StaffModule.STUDENTS);
         parentService.findById(dto.getParentId());
         return parentStudentService.create(dto);
     }
@@ -55,7 +56,7 @@ public class ParentStudentController {
     public void delete(@PathVariable Long id) {
         ParentStudent link = parentStudentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Lien parent-élève introuvable : " + id));
-        guard.requireOwnedSchool(guard.schoolOfStudent(link.getStudent().getId()));
+        guard.requireSchoolModule(guard.schoolOfStudent(link.getStudent().getId()), StaffModule.STUDENTS);
         parentStudentService.delete(id);
     }
 }

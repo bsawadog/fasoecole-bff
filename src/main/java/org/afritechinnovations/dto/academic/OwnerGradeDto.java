@@ -51,6 +51,7 @@ public final class OwnerGradeDto {
     }
 
     public record ClassSubjectInfo(Long subjectId, String subjectName, BigDecimal coefficient,
+                                   BigDecimal defaultCoefficient, boolean overridden,
                                    List<AssignmentInfo> assignments) {
     }
 

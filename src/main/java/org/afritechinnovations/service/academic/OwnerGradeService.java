@@ -30,6 +30,8 @@ import org.afritechinnovations.repository.academic.SchoolClassRepository;
 import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.repository.common.UserRepository;
 import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -64,6 +67,7 @@ public class OwnerGradeService {
 
     static final Set<String> EVALUATION_TYPES =
             Set.of("DEVOIR", "INTERROGATION", "COMPOSITION", "EXAMEN", "ORAL", "TP", "PROJET");
+    private final SchoolPermissions permissions;
 
     private final SchoolRepository schoolRepository;
     private final AcademicYearRepository academicYearRepository;
@@ -223,6 +227,8 @@ public class OwnerGradeService {
                         rows.get(0).getSubject().getId(),
                         rows.get(0).getSubject().getName(),
                         coefficientOf(rows),
+                        defaultCoefficient(rows),
+                        overrideOf(rows).isPresent(),
                         rows.stream()
                                 .sorted(Comparator.comparing(ClassSubjectTeacher::isActive).reversed())
                                 .map(cst -> new OwnerGradeDto.AssignmentInfo(cst.getId(), cst.getTeacher().getId(),
@@ -232,6 +238,10 @@ public class OwnerGradeService {
                 .toList();
     }
 
+    /**
+     * Ajuste le coefficient de la matière pour cette classe. {@code null} (ou une valeur égale au
+     * coefficient par défaut de la matière) supprime la surcharge : la classe hérite de la matière.
+     */
     public List<OwnerGradeDto.ClassSubjectInfo> updateCoefficient(Long classId, Long subjectId, BigDecimal coefficient,
                                                                   Long ownerId, boolean systemAdmin) {
         requireOwnedClass(classId, ownerId, systemAdmin);
@@ -241,8 +251,12 @@ public class OwnerGradeService {
         if (rows.isEmpty()) {
             throw new IllegalArgumentException("Cette matière n'est pas enseignée dans la classe");
         }
-        BigDecimal value = coefficient.setScale(2, RoundingMode.HALF_UP);
-        rows.forEach(cst -> cst.setCoefficient(value));
+        BigDecimal value = coefficient == null ? null : coefficient.setScale(2, RoundingMode.HALF_UP);
+        if (value != null && value.compareTo(defaultCoefficient(rows)) == 0) {
+            value = null;
+        }
+        BigDecimal override = value;
+        rows.forEach(cst -> cst.setCoefficient(override));
         return listClassSubjects(classId, ownerId, systemAdmin);
     }
 
@@ -483,6 +497,53 @@ public class OwnerGradeService {
         return toClassResults(computation);
     }
 
+    /**
+     * Période de référence de l'établissement, choisie comme sur la page « Notes & bulletins » :
+     * période de l'année courante contenant la date du jour, sinon première période ouverte de l'année courante,
+     * sinon première période de l'année courante, sinon la plus récente.
+     */
+    @Transactional(readOnly = true)
+    public Optional<GradePeriod> referencePeriod(Long schoolId, LocalDate today) {
+        List<GradePeriod> periods = gradePeriodRepository.findBySchoolIdOrdered(schoolId);
+        Long currentYear = academicYearRepository.findBySchoolIdAndIsCurrentTrue(schoolId)
+                .map(AcademicYear::getId).orElse(null);
+        List<GradePeriod> ofYear = periods.stream()
+                .filter(p -> p.getAcademicYear().getId().equals(currentYear)).toList();
+        return ofYear.stream()
+                .filter(p -> !p.getStartDate().isAfter(today) && !p.getEndDate().isBefore(today)).findFirst()
+                .or(() -> ofYear.stream().filter(p -> p.getStatus() == GradePeriodStatus.OPEN).findFirst())
+                .or(() -> ofYear.stream().findFirst())
+                .or(() -> periods.stream().findFirst());
+    }
+
+    /**
+     * Synthèse affichée sur le tableau de bord : celle de la période de référence si elle contient des notes,
+     * sinon celle de la période déjà commencée la plus récente qui en contient.
+     */
+    @Transactional(readOnly = true)
+    public Optional<OwnerGradeDto.SchoolSummary> dashboardSummary(Long schoolId, Long ownerId, LocalDate today) {
+        Optional<GradePeriod> reference = referencePeriod(schoolId, today);
+        if (reference.isEmpty()) {
+            return Optional.empty();
+        }
+        // L'accès a déjà été contrôlé par le tableau de bord (propriétaire ou module DASHBOARD délégué).
+        OwnerGradeDto.SchoolSummary summary = schoolSummary(reference.get().getId(), ownerId, true);
+        if (summary.rankedCount() > 0) {
+            return Optional.of(summary);
+        }
+        List<GradePeriod> started = gradePeriodRepository.findBySchoolIdOrdered(schoolId).stream()
+                .filter(p -> !p.getId().equals(reference.get().getId()) && !p.getStartDate().isAfter(today))
+                .sorted(Comparator.comparing(GradePeriod::getStartDate).reversed())
+                .toList();
+        for (GradePeriod period : started) {
+            OwnerGradeDto.SchoolSummary candidate = schoolSummary(period.getId(), ownerId, false);
+            if (candidate.rankedCount() > 0) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.of(summary);
+    }
+
     @Transactional(readOnly = true)
     public OwnerGradeDto.SchoolSummary schoolSummary(Long periodId, Long ownerId, boolean systemAdmin) {
         GradePeriod period = requireOwnedPeriod(periodId, ownerId, systemAdmin);
@@ -581,6 +642,33 @@ public class OwnerGradeService {
     }
 
     // ================================================================== calcul
+
+    /** Moyennes annuelles d'une classe et seuil de réussite de l'année. */
+    public record AnnualResults(double passMark, Map<Long, Double> averages) {
+    }
+
+    /**
+     * Moyenne annuelle = moyenne des moyennes générales obtenues sur les périodes de l'année de la classe.
+     * L'appelant doit avoir contrôlé l'accès à la classe.
+     */
+    @Transactional(readOnly = true)
+    public AnnualResults annualResults(SchoolClass cls) {
+        List<GradePeriod> periods = gradePeriodRepository.findBySchoolIdOrdered(cls.getSchool().getId()).stream()
+                .filter(p -> p.getAcademicYear().getId().equals(cls.getAcademicYear().getId()))
+                .toList();
+        double passMark = periods.isEmpty() ? 10.0 : periods.get(periods.size() - 1).getPassMark().doubleValue();
+        Map<Long, double[]> sums = new HashMap<>();
+        for (GradePeriod period : periods) {
+            compute(cls, period).general().forEach((studentId, avg) -> {
+                double[] acc = sums.computeIfAbsent(studentId, k -> new double[2]);
+                acc[0] += avg;
+                acc[1] += 1;
+            });
+        }
+        Map<Long, Double> averages = new HashMap<>();
+        sums.forEach((studentId, acc) -> averages.put(studentId, acc[0] / acc[1]));
+        return new AnnualResults(passMark, averages);
+    }
 
     private record SubjectMeta(Long subjectId, String name, BigDecimal coefficient, String teacherNames) {
     }
@@ -817,7 +905,8 @@ public class OwnerGradeService {
     private School requireOwnedSchool(Long schoolId, Long ownerId, boolean systemAdmin) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
-        if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))) {
+        if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))
+                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.GRADES)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les notes de vos établissements");
         }
         return school;
@@ -888,7 +977,9 @@ public class OwnerGradeService {
     // ================================================================== utilitaires
 
     private List<Student> activeRoster(Long classId) {
-        return studentEnrollmentRepository.findActiveStudentsWithUserByClassId(classId, EnrollmentStatus.ACTIVE)
+        // Les élèves d'une année clôturée (COMPLETED) restent sur les résultats et bulletins de leur classe.
+        return studentEnrollmentRepository.findStudentsWithUserByClassIdAndStatusIn(classId,
+                        List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED))
                 .stream()
                 .map(StudentEnrollment::getStudent)
                 .collect(Collectors.toMap(Student::getId, Function.identity(), (a, b) -> a, LinkedHashMap::new))
@@ -982,10 +1073,20 @@ public class OwnerGradeService {
     }
 
     private static BigDecimal coefficientOf(List<ClassSubjectTeacher> rows) {
+        return overrideOf(rows).orElseGet(() -> defaultCoefficient(rows));
+    }
+
+    /** Surcharge définie pour la classe (affectations actives en priorité), si elle existe. */
+    private static Optional<BigDecimal> overrideOf(List<ClassSubjectTeacher> rows) {
         List<ClassSubjectTeacher> active = rows.stream().filter(ClassSubjectTeacher::isActive).toList();
         return (active.isEmpty() ? rows : active).stream()
                 .map(ClassSubjectTeacher::getCoefficient).filter(Objects::nonNull)
-                .max(BigDecimal::compareTo).orElse(BigDecimal.ONE);
+                .max(BigDecimal::compareTo);
+    }
+
+    private static BigDecimal defaultCoefficient(List<ClassSubjectTeacher> rows) {
+        BigDecimal value = rows.isEmpty() ? null : rows.get(0).getSubject().getCoefficient();
+        return value != null ? value : BigDecimal.ONE;
     }
 
     private static String teacherNames(List<ClassSubjectTeacher> rows) {

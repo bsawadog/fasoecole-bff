@@ -29,6 +29,7 @@ import org.afritechinnovations.repository.academic.SchoolClassRepository;
 import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.repository.common.UserRepository;
 import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,6 +76,9 @@ class OwnerGradeServiceTest {
     @Mock ReportCardRepository reportCardRepository;
     @Mock AttendanceRepository attendanceRepository;
     @Mock UserRepository userRepository;
+    @Mock
+    SchoolPermissions permissions;
+
     @InjectMocks OwnerGradeService service;
 
     private School school;
@@ -100,11 +104,14 @@ class OwnerGradeServiceTest {
                 .startDate(LocalDate.of(2026, 9, 1)).endDate(LocalDate.of(2026, 12, 20)).build();
         Teacher teacher = Teacher.builder().id(8L).school(school)
                 .user(User.builder().id(80L).firstName("Paul").lastName("Ouédraogo").build()).build();
+        // Maths hérite du coefficient de la matière (2) ; Français surcharge le sien (3 → 1) pour la classe.
         maths = ClassSubjectTeacher.builder().id(31L).schoolClass(sixA).teacher(teacher)
-                .subject(Subject.builder().id(41L).name("Mathématiques").school(school).build())
-                .coefficient(new BigDecimal("2")).build();
+                .subject(Subject.builder().id(41L).name("Mathématiques").school(school)
+                        .coefficient(new BigDecimal("2")).build())
+                .build();
         french = ClassSubjectTeacher.builder().id(32L).schoolClass(sixA).teacher(teacher)
-                .subject(Subject.builder().id(42L).name("Français").school(school).build())
+                .subject(Subject.builder().id(42L).name("Français").school(school)
+                        .coefficient(new BigDecimal("3")).build())
                 .coefficient(BigDecimal.ONE).build();
         devoir = evaluation(51L, maths, "Devoir 1", "20", "1");
         interro = evaluation(52L, maths, "Interrogation", "10", "2");
@@ -116,7 +123,8 @@ class OwnerGradeServiceTest {
         when(gradePeriodRepository.findById(5L)).thenReturn(Optional.of(term1));
         when(evaluationRepository.findById(51L)).thenReturn(Optional.of(devoir));
         when(classSubjectTeacherRepository.findAllWithTeacherAndSubjectByClassId(3L)).thenReturn(List.of(maths, french));
-        when(studentEnrollmentRepository.findActiveStudentsWithUserByClassId(3L, EnrollmentStatus.ACTIVE))
+        when(studentEnrollmentRepository.findStudentsWithUserByClassIdAndStatusIn(3L,
+                List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED)))
                 .thenReturn(List.of(enrollment(issa), enrollment(awa)));
         when(userRepository.findById(OWNER_ID)).thenReturn(Optional.of(
                 User.builder().id(OWNER_ID).firstName("Mariam").lastName("Traoré").build()));
@@ -148,6 +156,27 @@ class OwnerGradeServiceTest {
         assertEquals(new BigDecimal("50.0"), results.stats().passRate());
         assertEquals(List.of("Français", "Mathématiques"),
                 results.subjects().stream().map(OwnerGradeDto.SubjectColumn::subjectName).toList());
+    }
+
+    @Test
+    void classCoefficientInheritsSubjectDefaultUnlessOverridden() {
+        List<OwnerGradeDto.ClassSubjectInfo> subjects = service.listClassSubjects(3L, OWNER_ID, false);
+        OwnerGradeDto.ClassSubjectInfo mathsInfo = subjects.stream().filter(s -> s.subjectId().equals(41L)).findFirst().orElseThrow();
+        OwnerGradeDto.ClassSubjectInfo frenchInfo = subjects.stream().filter(s -> s.subjectId().equals(42L)).findFirst().orElseThrow();
+        assertEquals(new BigDecimal("2"), mathsInfo.coefficient());
+        assertEquals(false, mathsInfo.overridden());
+        assertEquals(BigDecimal.ONE, frenchInfo.coefficient());
+        assertEquals(new BigDecimal("3"), frenchInfo.defaultCoefficient());
+        assertEquals(true, frenchInfo.overridden());
+
+        when(classSubjectTeacherRepository.findBySchoolClassId(3L)).thenReturn(List.of(maths, french));
+        service.updateCoefficient(3L, 42L, null, OWNER_ID, false);
+        assertNull(french.getCoefficient());
+        // Saisir la valeur par défaut de la matière ne crée pas de surcharge.
+        service.updateCoefficient(3L, 41L, new BigDecimal("2"), OWNER_ID, false);
+        assertNull(maths.getCoefficient());
+        service.updateCoefficient(3L, 41L, new BigDecimal("4"), OWNER_ID, false);
+        assertEquals(new BigDecimal("4.00"), maths.getCoefficient());
     }
 
     @Test

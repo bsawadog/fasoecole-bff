@@ -6,6 +6,7 @@ import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.repository.academic.LevelRepository;
 import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,6 +23,9 @@ import static org.mockito.Mockito.*;
 class LevelServiceTest {
     @Mock LevelRepository levels;
     @Mock SchoolRepository schools;
+    @Mock
+    SchoolPermissions permissions;
+
     @InjectMocks LevelService service;
 
     @Test

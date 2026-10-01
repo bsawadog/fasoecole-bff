@@ -10,6 +10,8 @@ import org.afritechinnovations.repository.academic.SchoolClassRepository;
 import org.afritechinnovations.repository.academic.AcademicYearRepository;
 import org.afritechinnovations.repository.academic.LevelRepository;
 import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.stereotype.Service;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ import java.util.List;
 @Transactional
 public class SchoolClassService {
 
+    private final SchoolPermissions permissions;
     private final SchoolClassRepository schoolClassRepository;
     private final AcademicYearRepository academicYearRepository;
     private final LevelRepository levelRepository;
@@ -114,7 +117,8 @@ public class SchoolClassService {
     }
 
     private void requireOwner(School school, Long ownerId, boolean systemAdmin) {
-        if (!systemAdmin && !school.getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !school.getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.MANAGEMENT)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les classes de votre établissement");
         }
     }

@@ -25,6 +25,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     long countByReferenceStartingWith(String prefix);
 
+    /** Encaissements des frais scolaires sur la période : [date, montant]. */
+    @Query("""
+        SELECT p.paymentDate, p.amount FROM Payment p
+        JOIN p.invoice i
+        JOIN i.student s
+        WHERE s.school.id = :schoolId AND p.paymentDate BETWEEN :from AND :to
+        """)
+    List<Object[]> findAmountsForSchoolBetween(@Param("schoolId") Long schoolId, @Param("from") LocalDate from,
+                                               @Param("to") LocalDate to);
+
     boolean existsByReference(String reference);
 
     @Query("""

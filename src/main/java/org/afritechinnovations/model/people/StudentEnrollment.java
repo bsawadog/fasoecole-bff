@@ -5,7 +5,9 @@ import lombok.*;
 import org.afritechinnovations.model.academic.AcademicYear;
 import org.afritechinnovations.model.academic.SchoolClass;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "student_enrollments")
@@ -40,4 +42,14 @@ public class StudentEnrollment {
     @Builder.Default
     @Column(name = "enrollment_date", nullable = false)
     private LocalDate enrollmentDate = LocalDate.now();
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private EnrollmentDecision decision;
+
+    @Column(name = "decision_average", precision = 5, scale = 2)
+    private BigDecimal decisionAverage;
+
+    @Column(name = "decided_at")
+    private LocalDateTime decidedAt;
 }

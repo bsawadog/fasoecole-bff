@@ -1,9 +1,13 @@
 package org.afritechinnovations.service.common;
 
 import lombok.RequiredArgsConstructor;
+import org.afritechinnovations.dto.academic.OwnerGradeDto;
 import org.afritechinnovations.dto.common.OwnerDashboardDto;
 import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.service.academic.OwnerGradeService;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -21,15 +25,20 @@ import java.util.List;
 public class OwnerDashboardService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final SchoolPermissions permissions;
     private final SchoolRepository schoolRepository;
+    private final OwnerGradeService ownerGradeService;
 
     public OwnerDashboardDto getDashboard(Long schoolId, Long ownerId) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable"));
-        if (!school.getOwner().getId().equals(ownerId)) {
+        if (!school.getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.DASHBOARD)) {
             throw new AccessDeniedException("Vous ne pouvez consulter que vos propres établissements");
         }
         LocalDate today = LocalDate.now();
+        OwnerGradeDto.SchoolSummary results = ownerGradeService.dashboardSummary(schoolId, ownerId, today)
+                .orElse(null);
         return new OwnerDashboardDto(
                 school.getId(),
                 school.getName(),
@@ -91,7 +100,10 @@ public class OwnerDashboardService {
                         FROM report_cards rc JOIN students s ON s.id = rc.student_id
                         WHERE s.school_id = ? AND rc.validated = TRUE
                         """, schoolId),
-                average(schoolId),
+                results == null ? null : results.average(),
+                results == null ? null : results.period().name(),
+                results == null ? null : results.passRate(),
+                results == null ? 0 : results.rankedCount(),
                 count("SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND read_at IS NULL", ownerId),
                 recentPayments(schoolId),
                 recentNotifications(ownerId)
@@ -117,14 +129,6 @@ public class OwnerDashboardService {
     private BigDecimal decimal(String sql, Object... arguments) {
         BigDecimal result = jdbcTemplate.queryForObject(sql, BigDecimal.class, arguments);
         return result == null ? BigDecimal.ZERO : result;
-    }
-
-    private BigDecimal average(Long schoolId) {
-        return jdbcTemplate.queryForObject("""
-                SELECT AVG(rc.average)
-                FROM report_cards rc JOIN students s ON s.id = rc.student_id
-                WHERE s.school_id = ? AND rc.validated = TRUE
-                """, BigDecimal.class, schoolId);
     }
 
     private List<OwnerDashboardDto.RecentPayment> recentPayments(Long schoolId) {

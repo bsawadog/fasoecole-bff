@@ -39,6 +39,8 @@ import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.service.common.EmailService;
 import org.afritechinnovations.repository.common.SchoolUserRepository;
 import org.afritechinnovations.repository.common.UserRepository;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -83,6 +85,7 @@ public class TeacherWorkService {
 
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     private static final BigDecimal SIXTY = BigDecimal.valueOf(60);
+    private final SchoolPermissions permissions;
 
     private final TeacherRepository teacherRepository;
     private final SchoolClassRepository schoolClassRepository;
@@ -112,7 +115,8 @@ public class TeacherWorkService {
     public List<TeacherWorkDto.TeacherInfo> listClassTeachers(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = schoolClassRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("Classe introuvable: " + classId));
-        if (!systemAdmin && !schoolClass.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !schoolClass.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(schoolClass.getSchool().getId(), ownerId, StaffModule.TEACHERS)) {
             throw new AccessDeniedException("Vous ne pouvez consulter que les classes de votre établissement");
         }
         Long schoolId = schoolClass.getSchool().getId();
@@ -150,7 +154,8 @@ public class TeacherWorkService {
     public List<TeacherWorkDto.TeacherInfo> listSchoolTeachers(Long schoolId, Long ownerId, boolean systemAdmin) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
-        if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))) {
+        if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))
+                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.TEACHERS)) {
             throw new AccessDeniedException("Vous ne pouvez consulter que les enseignants de votre établissement");
         }
         return schoolTeachers(schoolId);
@@ -304,7 +309,8 @@ public class TeacherWorkService {
     private SchoolClass requireOwnedClass(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = schoolClassRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("Classe introuvable : " + classId));
-        if (!systemAdmin && !schoolClass.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !schoolClass.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(schoolClass.getSchool().getId(), ownerId, StaffModule.TEACHERS)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les classes de votre établissement");
         }
         return schoolClass;
@@ -831,7 +837,8 @@ public class TeacherWorkService {
     private Teacher requireOwnedTeacher(Long teacherId, Long ownerId, boolean systemAdmin, boolean lock) {
         Optional<Teacher> found = lock ? teacherRepository.findByIdForUpdate(teacherId) : teacherRepository.findById(teacherId);
         Teacher teacher = found.orElseThrow(() -> new IllegalArgumentException("Enseignant introuvable: " + teacherId));
-        if (!systemAdmin && !teacher.getSchool().getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !teacher.getSchool().getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(teacher.getSchool().getId(), ownerId, StaffModule.TEACHERS)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les enseignants de votre établissement");
         }
         return teacher;

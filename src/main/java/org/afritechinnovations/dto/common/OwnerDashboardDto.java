@@ -29,6 +29,9 @@ public record OwnerDashboardDto(
         long excusedToday,
         long validatedReportCards,
         BigDecimal schoolAverage,
+        String averagePeriodName,
+        BigDecimal passRate,
+        int rankedStudents,
         long unreadMessages,
         List<RecentPayment> recentPayments,
         List<RecentNotification> recentNotifications

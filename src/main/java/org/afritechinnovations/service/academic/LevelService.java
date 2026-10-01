@@ -6,6 +6,8 @@ import org.afritechinnovations.model.academic.Level;
 import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.repository.academic.LevelRepository;
 import org.afritechinnovations.repository.common.SchoolRepository;
+import org.afritechinnovations.model.common.StaffModule;
+import org.afritechinnovations.security.SchoolPermissions;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +19,7 @@ import java.util.List;
 @Transactional
 public class LevelService {
 
+    private final SchoolPermissions permissions;
     private final LevelRepository levelRepository;
     private final SchoolRepository schoolRepository;
 
@@ -70,7 +73,8 @@ public class LevelService {
     }
 
     private void requireOwner(School school, Long ownerId, boolean systemAdmin) {
-        if (!systemAdmin && !school.getOwner().getId().equals(ownerId)) {
+        if (!systemAdmin && !school.getOwner().getId().equals(ownerId)
+                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.MANAGEMENT)) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les niveaux de votre établissement");
         }
     }

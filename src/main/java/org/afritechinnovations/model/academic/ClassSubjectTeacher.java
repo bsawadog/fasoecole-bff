@@ -33,9 +33,9 @@ public class ClassSubjectTeacher {
     @JoinColumn(name = "teacher_id", nullable = false)
     private Teacher teacher;
 
-    @Builder.Default
-    @Column(nullable = false, precision = 4, scale = 2)
-    private BigDecimal coefficient = BigDecimal.ONE;
+    /** Surcharge propre à la classe ; {@code null} = coefficient de la matière. */
+    @Column(precision = 4, scale = 2)
+    private BigDecimal coefficient;
 
     @Builder.Default
     @Column(nullable = false)

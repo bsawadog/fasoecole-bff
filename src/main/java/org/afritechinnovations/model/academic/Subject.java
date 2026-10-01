@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.afritechinnovations.model.common.School;
 
+import java.math.BigDecimal;
+
 @Entity
 @Table(name = "subjects")
 @Getter
@@ -26,4 +28,9 @@ public class Subject {
 
     @Column(length = 30)
     private String code;
+
+    /** Coefficient par défaut, appliqué aux classes qui ne le surchargent pas. */
+    @Builder.Default
+    @Column(nullable = false, precision = 4, scale = 2)
+    private BigDecimal coefficient = BigDecimal.ONE;
 }
