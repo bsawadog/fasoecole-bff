@@ -43,4 +43,16 @@ public class Invoice {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private InvoiceStatus status = InvoiceStatus.PENDING;
+
+    @Builder.Default
+    @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Column(name = "discount_reason", length = 255)
+    private String discountReason;
+
+    /** Montant réellement exigible après réduction ou exonération. */
+    public BigDecimal netAmount() {
+        return amountDue.subtract(discountAmount == null ? BigDecimal.ZERO : discountAmount);
+    }
 }

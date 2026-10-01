@@ -28,6 +28,11 @@ public class Grade {
     @JoinColumn(name = "class_subject_teacher_id", nullable = false)
     private ClassSubjectTeacher classSubjectTeacher;
 
+    /** Null pour les notes historiques saisies avant le module d'évaluations. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "evaluation_id")
+    private Evaluation evaluation;
+
     @Column(nullable = false, length = 20)
     private String term;
 

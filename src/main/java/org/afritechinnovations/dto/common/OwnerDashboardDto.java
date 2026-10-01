@@ -21,6 +21,7 @@ public record OwnerDashboardDto(
         long pendingInvoices,
         BigDecimal outstandingAmount,
         BigDecimal receivedAmount,
+        BigDecimal expectedAmount,
         long attendanceRecorded,
         long presentToday,
         long absentToday,

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.ApproveUserRequest;
 import org.afritechinnovations.dto.common.CreateUserRequest;
 import org.afritechinnovations.dto.common.UserDto;
+import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.security.UserPrincipal;
 import org.afritechinnovations.service.common.UserService;
 import org.springframework.security.access.AccessDeniedException;
@@ -20,6 +21,7 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
+    private final AccessGuard guard;
 
     @GetMapping("/me")
     public UserDto getCurrentUser(Authentication authentication) {
@@ -31,6 +33,7 @@ public class UserController {
 
     @GetMapping
     public List<UserDto> getActive() {
+        guard.requireSuperAdmin();
         return userService.findActive();
     }
 
@@ -58,33 +61,40 @@ public class UserController {
 
     @GetMapping("/{id}")
     public UserDto getById(@PathVariable Long id) {
+        guard.requireUserManager(id);
         return userService.findById(id);
     }
 
     @GetMapping("/by-email")
     public UserDto getByEmail(@RequestParam String email) {
+        guard.requireSuperAdmin();
         return userService.findByEmail(email);
     }
 
+    /** Les comptes sont créés par l'inscription publique ; la création directe est réservée à la plateforme. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public UserDto create(@RequestBody CreateUserRequest request) {
+        guard.requireSuperAdmin();
         return userService.create(request);
     }
 
     @PutMapping("/{id}")
     public UserDto update(@PathVariable Long id, @RequestBody UserDto dto) {
+        guard.requireUserManager(id);
         return userService.update(id, dto);
     }
 
     @PatchMapping("/{id}/deactivate")
     public void deactivate(@PathVariable Long id) {
+        guard.requireSuperAdmin();
         userService.deactivate(id);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
+        guard.requireSuperAdmin();
         userService.delete(id);
     }
 

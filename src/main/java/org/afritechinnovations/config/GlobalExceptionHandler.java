@@ -6,6 +6,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -43,6 +45,16 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Corps de requête invalide ou mal formé");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Paramètre invalide: " + ex.getName());
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
         return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
@@ -51,6 +63,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataConflict(DataIntegrityViolationException ex) {
         return buildResponse(HttpStatus.CONFLICT, "Un compte ou une demande existe déjà avec ces informations");
+    }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(Exception ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, "Ressource introuvable");
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodNotSupported(Exception ex) {
+        return buildResponse(HttpStatus.METHOD_NOT_ALLOWED, "Méthode HTTP non supportée");
+    }
+
+    @ExceptionHandler(org.springframework.mail.MailException.class)
+    public ResponseEntity<Map<String, Object>> handleMail(Exception ex) {
+        log.error("Échec d'envoi de courriel", ex);
+        return buildResponse(HttpStatus.SERVICE_UNAVAILABLE,
+                "Le courriel n'a pas pu être envoyé. Vérifiez la configuration SMTP du serveur et réessayez.");
     }
 
     @ExceptionHandler(Exception.class)

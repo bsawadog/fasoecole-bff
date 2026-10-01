@@ -74,7 +74,9 @@ public record StudentDetailDto(
             String status,
             BigDecimal totalPaid,
             BigDecimal balance,
-            List<PaymentInfo> payments
+            List<PaymentInfo> payments,
+            BigDecimal discountAmount,
+            String discountReason
     ) {
     }
 

@@ -15,6 +15,14 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     @Query("""
         SELECT a FROM Attendance a
+        WHERE a.schoolClass.id = :classId AND a.attendanceDate BETWEEN :start AND :end
+        """)
+    List<Attendance> findByClassBetween(@Param("classId") Long classId,
+                                        @Param("start") LocalDate start,
+                                        @Param("end") LocalDate end);
+
+    @Query("""
+        SELECT a FROM Attendance a
         JOIN FETCH a.student s
         JOIN FETCH s.user u
         WHERE a.schoolClass.id = :classId

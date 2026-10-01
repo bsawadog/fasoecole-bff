@@ -1,0 +1,3 @@
+ALTER TABLE schools DROP CONSTRAINT IF EXISTS schools_type_check;
+ALTER TABLE schools ADD CONSTRAINT schools_type_check
+    CHECK (type IN ('PRESCOLAIRE', 'PRIMAIRE', 'SECONDAIRE', 'MIXTE', 'UNIVERSITE', 'FORMATION'));

@@ -33,4 +33,15 @@ public class FeeType {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private FeeFrequency frequency = FeeFrequency.ONE_TIME;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "level_id")
+    private org.afritechinnovations.model.academic.Level level;
+
+    @Column(length = 255)
+    private String description;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private boolean active = true;
 }

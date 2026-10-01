@@ -1,6 +1,7 @@
 package org.afritechinnovations.dto.people;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.DecimalMin;
 import lombok.Getter;
 import lombok.Setter;
 import org.afritechinnovations.model.finance.PaymentMethod;
@@ -13,6 +14,7 @@ import java.time.LocalDate;
 public class CreateStudentPaymentRequest {
 
     @NotNull(message = "Le montant est obligatoire")
+    @DecimalMin(value = "0.01", message = "Le montant doit être supérieur à zéro")
     private BigDecimal amount;
 
     private LocalDate paymentDate;

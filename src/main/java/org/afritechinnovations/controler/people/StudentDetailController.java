@@ -85,6 +85,25 @@ public class StudentDetailController {
                 principal.getRoles().contains("SUPER_ADMIN"));
     }
 
+    @PutMapping("/{studentId}/invoices/{invoiceId}/payments/{paymentId}")
+    public StudentDetailDto.InvoiceInfo updatePayment(@PathVariable Long studentId, @PathVariable Long invoiceId,
+                                                       @PathVariable Long paymentId,
+                                                       @Valid @RequestBody CreateStudentPaymentRequest request,
+                                                       Authentication authentication) {
+        UserPrincipal principal = requireOwner(authentication);
+        return classRosterService.updatePayment(studentId, invoiceId, paymentId, request, principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
+    @DeleteMapping("/{studentId}/invoices/{invoiceId}/payments/{paymentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePayment(@PathVariable Long studentId, @PathVariable Long invoiceId, @PathVariable Long paymentId,
+                              Authentication authentication) {
+        UserPrincipal principal = requireOwner(authentication);
+        classRosterService.deletePayment(studentId, invoiceId, paymentId, principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
     @PutMapping("/{studentId}/invoices/{invoiceId}/cancel")
     public StudentDetailDto.InvoiceInfo cancelInvoice(@PathVariable Long studentId, @PathVariable Long invoiceId,
                                Authentication authentication) {
@@ -103,4 +122,3 @@ public class StudentDetailController {
         return principal;
     }
 }
-

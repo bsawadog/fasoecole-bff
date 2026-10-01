@@ -5,6 +5,7 @@ import lombok.*;
 import org.afritechinnovations.model.people.Teacher;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "class_subject_teacher",
@@ -35,4 +36,11 @@ public class ClassSubjectTeacher {
     @Builder.Default
     @Column(nullable = false, precision = 4, scale = 2)
     private BigDecimal coefficient = BigDecimal.ONE;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private boolean active = true;
+
+    @Column(name = "deactivated_at")
+    private LocalDateTime deactivatedAt;
 }

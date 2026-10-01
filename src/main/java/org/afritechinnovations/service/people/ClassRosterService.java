@@ -371,6 +371,9 @@ public class ClassRosterService {
         if (!feeType.getSchool().getId().equals(student.getSchool().getId())) {
             throw new AccessDeniedException("Ce type de frais n'appartient pas à l'établissement de l'élève");
         }
+        if (!feeType.isActive()) {
+            throw new IllegalArgumentException("Ce type de frais est archivé");
+        }
 
         AcademicYear academicYear = request.getAcademicYearId() != null
                 ? academicYearRepository.findById(request.getAcademicYearId())
@@ -392,12 +395,11 @@ public class ClassRosterService {
 
     public StudentDetailDto.InvoiceInfo addPayment(Long studentId, Long invoiceId, CreateStudentPaymentRequest request,
                                                     Long ownerId, boolean systemAdmin) {
-        requireOwnedStudent(studentId, ownerId, systemAdmin);
-        Invoice invoice = invoiceRepository.findById(invoiceId)
-                .orElseThrow(() -> new IllegalArgumentException("Facture introuvable: " + invoiceId));
-        if (!invoice.getStudent().getId().equals(studentId)) {
-            throw new IllegalArgumentException("Cette facture n'appartient pas à cet élève");
+        Invoice invoice = requireOwnedInvoice(studentId, invoiceId, ownerId, systemAdmin);
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED) {
+            throw new IllegalArgumentException("Impossible d'encaisser un frais annulé");
         }
+        validatePaymentAmount(request.getAmount(), invoice, null);
 
         Payment payment = Payment.builder()
                 .invoice(invoice)
@@ -409,13 +411,71 @@ public class ClassRosterService {
         paymentRepository.save(payment);
 
         List<Payment> payments = paymentRepository.findByInvoiceId(invoiceId);
-        BigDecimal totalPaid = payments.stream().map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (totalPaid.compareTo(invoice.getAmountDue()) >= 0) {
-            invoice.setStatus(InvoiceStatus.PAID);
-            invoice = invoiceRepository.save(invoice);
-        }
-
+        updateInvoicePaymentStatus(invoice, payments);
         return toInvoiceInfo(invoice, payments);
+    }
+
+    public StudentDetailDto.InvoiceInfo updatePayment(Long studentId, Long invoiceId, Long paymentId,
+                                                       CreateStudentPaymentRequest request, Long ownerId, boolean systemAdmin) {
+        Invoice invoice = requireOwnedInvoice(studentId, invoiceId, ownerId, systemAdmin);
+        Payment payment = requireInvoicePayment(invoiceId, paymentId);
+        validatePaymentAmount(request.getAmount(), invoice, paymentId);
+        payment.setAmount(request.getAmount());
+        payment.setPaymentDate(request.getPaymentDate() != null ? request.getPaymentDate() : payment.getPaymentDate());
+        payment.setMethod(request.getMethod());
+        paymentRepository.save(payment);
+        List<Payment> payments = paymentRepository.findByInvoiceId(invoiceId);
+        updateInvoicePaymentStatus(invoice, payments);
+        return toInvoiceInfo(invoice, payments);
+    }
+
+    public void deletePayment(Long studentId, Long invoiceId, Long paymentId, Long ownerId, boolean systemAdmin) {
+        Invoice invoice = requireOwnedInvoice(studentId, invoiceId, ownerId, systemAdmin);
+        Payment payment = requireInvoicePayment(invoiceId, paymentId);
+        paymentRepository.delete(payment);
+        updateInvoicePaymentStatus(invoice, paymentRepository.findByInvoiceId(invoiceId));
+    }
+
+    private Invoice requireOwnedInvoice(Long studentId, Long invoiceId, Long ownerId, boolean systemAdmin) {
+        requireOwnedStudent(studentId, ownerId, systemAdmin);
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new IllegalArgumentException("Facture introuvable: " + invoiceId));
+        if (!invoice.getStudent().getId().equals(studentId)) {
+            throw new IllegalArgumentException("Cette facture n'appartient pas à cet élève");
+        }
+        return invoice;
+    }
+
+    private Payment requireInvoicePayment(Long invoiceId, Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new IllegalArgumentException("Paiement introuvable: " + paymentId));
+        if (!payment.getInvoice().getId().equals(invoiceId)) {
+            throw new IllegalArgumentException("Ce paiement n'appartient pas à ce frais");
+        }
+        return payment;
+    }
+
+    private void validatePaymentAmount(BigDecimal amount, Invoice invoice, Long excludedPaymentId) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new IllegalArgumentException("Le montant doit être supérieur à zéro");
+        }
+        BigDecimal otherPayments = paymentRepository.findByInvoiceId(invoice.getId()).stream()
+                .filter(payment -> !payment.getId().equals(excludedPaymentId))
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (otherPayments.add(amount).compareTo(invoice.netAmount()) > 0) {
+            throw new IllegalArgumentException("Le total payé ne peut pas dépasser le montant dû");
+        }
+    }
+
+    private void updateInvoicePaymentStatus(Invoice invoice, List<Payment> payments) {
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED) {
+            return;
+        }
+        BigDecimal totalPaid = payments.stream().map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        invoice.setStatus(totalPaid.compareTo(invoice.netAmount()) >= 0 ? InvoiceStatus.PAID
+                : invoice.getDueDate().isBefore(LocalDate.now()) ? InvoiceStatus.OVERDUE : InvoiceStatus.PENDING);
+        invoiceRepository.save(invoice);
     }
 
     public void deleteInvoice(Long studentId, Long invoiceId, Long ownerId, boolean systemAdmin) {
@@ -443,7 +503,11 @@ public class ClassRosterService {
     private synchronized String generatePaymentReference() {
         String yearPrefix = String.valueOf(LocalDate.now().getYear());
         long countThisYear = paymentRepository.countByReferenceStartingWith(yearPrefix + "-");
-        return yearPrefix + "-" + String.format("%04d", countThisYear + 1);
+        String reference;
+        do {
+            reference = yearPrefix + "-" + String.format("%04d", ++countThisYear);
+        } while (paymentRepository.existsByReference(reference));
+        return reference;
     }
 
     private Student requireOwnedStudent(Long studentId, Long ownerId, boolean systemAdmin) {
@@ -469,7 +533,8 @@ public class ClassRosterService {
 
     private StudentDetailDto.InvoiceInfo toInvoiceInfo(Invoice invoice, List<Payment> payments) {
         BigDecimal totalPaid = payments.stream().map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal balance = invoice.getAmountDue().subtract(totalPaid);
+        BigDecimal balance = invoice.getStatus() == InvoiceStatus.CANCELLED
+                ? BigDecimal.ZERO : invoice.netAmount().subtract(totalPaid);
         List<StudentDetailDto.PaymentInfo> paymentInfos = payments.stream()
                 .map(p -> new StudentDetailDto.PaymentInfo(p.getId(), p.getAmount(), p.getPaymentDate(),
                         p.getMethod().name(), p.getReference()))
@@ -483,12 +548,16 @@ public class ClassRosterService {
                 invoice.getStatus().name(),
                 totalPaid,
                 balance,
-                paymentInfos
+                paymentInfos,
+                invoice.getDiscountAmount() == null ? BigDecimal.ZERO : invoice.getDiscountAmount(),
+                invoice.getDiscountReason()
         );
     }
 
     private StudentDetailDto.BillingSummary buildBillingSummary(List<StudentDetailDto.InvoiceInfo> invoices) {
-        BigDecimal totalDue = invoices.stream().map(StudentDetailDto.InvoiceInfo::amountDue).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalDue = invoices.stream()
+                .filter(invoice -> !InvoiceStatus.CANCELLED.name().equals(invoice.status()))
+                .map(invoice -> invoice.amountDue().subtract(invoice.discountAmount())).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalPaid = invoices.stream().map(StudentDetailDto.InvoiceInfo::totalPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalBalance = invoices.stream().map(StudentDetailDto.InvoiceInfo::balance).reduce(BigDecimal.ZERO, BigDecimal::add);
         return new StudentDetailDto.BillingSummary(totalDue, totalPaid, totalBalance);
@@ -506,6 +575,7 @@ public class ClassRosterService {
     private List<String> teacherNamesForClass(Long classId) {
         return classSubjectTeacherRepository.findAllWithTeacherByClassId(classId)
                 .stream()
+                .filter(ClassSubjectTeacher::isActive)
                 .map(ClassSubjectTeacher::getTeacher)
                 .map(teacher -> teacher.getUser().getFirstName() + " " + teacher.getUser().getLastName())
                 .distinct()

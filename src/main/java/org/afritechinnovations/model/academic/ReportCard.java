@@ -5,6 +5,7 @@ import lombok.*;
 import org.afritechinnovations.model.people.Student;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "report_cards")
@@ -41,4 +42,19 @@ public class ReportCard {
     @Builder.Default
     @Column(nullable = false)
     private Boolean validated = false;
+
+    @Column(name = "class_id")
+    private Long classId;
+
+    @Column(name = "period_id")
+    private Long periodId;
+
+    @Column(name = "class_size")
+    private Integer classSize;
+
+    @Column(length = 40)
+    private String mention;
+
+    @Column(name = "generated_at")
+    private java.time.LocalDateTime generatedAt;
 }

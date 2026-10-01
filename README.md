@@ -52,6 +52,15 @@ La configuration est répartie entre un fichier commun et un fichier par environ
 | `application-dev.yml` | Environnement de développement/recette partagé, valeurs via variables d'environnement |
 | `application-prod.yml` | Production, toutes les valeurs sensibles obligatoires via variables d'environnement |
 
+### URL publiques prévues
+
+| Profil | SPA (origine CORS et liens de réinitialisation) | API |
+|---|---|---|
+| `dev` | `https://app.dev.fasoecole.com` | `https://api.dev.fasoecole.com/api` |
+| `prod` | `https://app.fasoecole.com` | `https://api.fasoecole.com/api` |
+
+`fasoecole.com` est un domaine proposé, non encore acquis ni configuré sur AWS. Les profils `dev` et `prod` utilisent ces URL du SPA par défaut pour `CORS_ALLOWED_ORIGINS` et `FRONTEND_BASE_URL` ; les définir dans chaque environnement AWS si le domaine définitif diffère. `CORS_ALLOWED_ORIGINS` attend l'origine HTTPS du SPA (sans `/api` ni barre finale) et `FRONTEND_BASE_URL` la base des liens de réinitialisation du mot de passe. Le profil `local` reste sur `http://localhost:4200`.
+
 ### Changer de profil
 
 Via variable d'environnement :
@@ -170,8 +179,12 @@ Le compte propriétaire local est `admin@fasoecole.com` avec le mot de passe `pa
 
 `GET /api/owner/dashboard?schoolId={id}` fournit les effectifs et indicateurs de l'établissement connecté : élèves, enseignants, classes, niveaux, parents, demandes de compte, encaissements, solde restant sur les factures ouvertes, présences du jour, bulletins validés, messages non lus et notifications récentes. L'API vérifie côté serveur que l'établissement appartient bien au propriétaire connecté. Les revenus et impayés sont calculés depuis les lignes de paiement et de facture existantes ; ils ne sont pas des données de démonstration calculées côté interface.
 
+La situation financière affiche le total attendu (somme des frais non annulés), l'encaissé (tous les paiements réellement enregistrés) et le reste à recouvrer (solde des frais ouverts). Dans la fiche élève, un frais annulé reste visible avec un solde à payer nul ; ses éventuels paiements déjà encaissés restent comptabilisés dans l'encaissé et l'historique. Dans ce cas, l'encaissé et le reste à recouvrer ne totalisent pas forcément le montant attendu : l'annulation ne rembourse pas les paiements antérieurs.
+
 Les annonces et événements n'ont pas encore de modèle métier dans la base actuelle. Le tableau de bord ne les présente donc pas comme s'ils existaient ; ils pourront être ajoutés avec les modules calendrier et communication.
 
 ## Migrations de base de données
 
 Les scripts Flyway se trouvent dans `src/main/resources/db/migration` et sont exécutés automatiquement au démarrage de l'application.
+
+La migration V6 ajoute les types `PRESCOLAIRE` et `MIXTE` sans modifier les établissements, niveaux ou classes existants. Un établissement mixte peut activer des niveaux du préscolaire au lycée ; les autres types restent disponibles. Chaque classe doit utiliser une année scolaire et un niveau appartenant au même établissement. Le catalogue proposé dans la gestion de l'établissement n'ajoute un niveau qu'à la demande du propriétaire. Les universités peuvent activer les niveaux Licence, Master et Doctorat ; les centres de formation peuvent activer CAP, BEP, BT et BTS. Ces suggestions sont des niveaux, pas encore un modèle de filière ou de diplôme.

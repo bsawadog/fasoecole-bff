@@ -75,6 +75,12 @@ public class OwnerDashboardService {
                         JOIN students s ON s.id = i.student_id
                         WHERE s.school_id = ?
                         """, schoolId),
+                decimal("""
+                        SELECT COALESCE(SUM(i.amount_due), 0)
+                        FROM invoices i
+                        JOIN students s ON s.id = i.student_id
+                        WHERE s.school_id = ? AND i.status <> 'CANCELLED'
+                        """, schoolId),
                 attendanceCount(schoolId, today, null),
                 attendanceCount(schoolId, today, "PRESENT"),
                 attendanceCount(schoolId, today, "ABSENT"),

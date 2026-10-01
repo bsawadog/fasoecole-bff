@@ -14,6 +14,19 @@ public interface GradeRepository extends JpaRepository<Grade, Long> {
     List<Grade> findByStudentIdAndTerm(Long studentId, String term);
 
     @Query("""
+        SELECT g FROM Grade g
+        JOIN FETCH g.classSubjectTeacher cst
+        JOIN FETCH cst.subject s
+        LEFT JOIN FETCH g.evaluation e
+        WHERE cst.schoolClass.id = :classId AND g.term = :term
+        """)
+    List<Grade> findForClassAndTerm(@Param("classId") Long classId, @Param("term") String term);
+
+    List<Grade> findByEvaluationId(Long evaluationId);
+
+    long countByEvaluationId(Long evaluationId);
+
+    @Query("""
         SELECT cst.subject.name AS subjectName,
                AVG(g.value / g.maxValue * 20) AS averageOn20
         FROM Grade g

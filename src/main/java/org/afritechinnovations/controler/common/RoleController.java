@@ -3,6 +3,7 @@ package org.afritechinnovations.controler.common;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.RoleDto;
 import org.afritechinnovations.model.common.RoleName;
+import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.service.common.RoleService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ import java.util.List;
 public class RoleController {
 
     private final RoleService roleService;
+    private final AccessGuard guard;
 
     @GetMapping
     public List<RoleDto> getAll() {
@@ -34,12 +36,14 @@ public class RoleController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public RoleDto create(@RequestBody RoleDto dto) {
+        guard.requireSuperAdmin();
         return roleService.create(dto);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
+        guard.requireSuperAdmin();
         roleService.delete(id);
     }
 }

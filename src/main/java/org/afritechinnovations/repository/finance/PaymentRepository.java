@@ -12,7 +12,20 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     List<Payment> findByInvoiceId(Long invoiceId);
 
+    @Query("""
+        SELECT p FROM Payment p
+        JOIN FETCH p.invoice i
+        JOIN FETCH i.student s
+        JOIN FETCH s.user u
+        JOIN FETCH i.feeType ft
+        WHERE s.school.id = :schoolId
+        ORDER BY p.paymentDate DESC, p.id DESC
+        """)
+    List<Payment> findAllWithDetailsBySchoolId(@Param("schoolId") Long schoolId);
+
     long countByReferenceStartingWith(String prefix);
+
+    boolean existsByReference(String reference);
 
     @Query("""
         SELECT s.school.name AS schoolName, SUM(p.amount) AS totalCollected
