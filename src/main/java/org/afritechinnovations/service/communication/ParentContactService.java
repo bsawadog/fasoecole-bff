@@ -9,12 +9,14 @@ import org.afritechinnovations.model.communication.AbsenceReport;
 import org.afritechinnovations.model.communication.AbsenceReportStatus;
 import org.afritechinnovations.model.communication.SchoolConversation;
 import org.afritechinnovations.model.communication.SchoolConversationMessage;
+import org.afritechinnovations.model.communication.ConversationParticipant;
 import org.afritechinnovations.model.people.Student;
 import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.repository.common.UserRepository;
 import org.afritechinnovations.repository.communication.AbsenceReportRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationMessageRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationRepository;
+import org.afritechinnovations.repository.communication.ConversationParticipantRepository;
 import org.afritechinnovations.service.self.FamilySpaceService;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,7 @@ public class ParentContactService {
     private final AbsenceReportRepository reportRepository;
     private final SchoolConversationRepository conversationRepository;
     private final SchoolConversationMessageRepository messageRepository;
+    private final ConversationParticipantRepository participantRepository;
     private final SchoolRepository schoolRepository;
     private final UserRepository userRepository;
 
@@ -79,6 +82,7 @@ public class ParentContactService {
                 .reportedBy(userRepository.getReferenceById(userId))
                 .startDate(start)
                 .endDate(end)
+                .attendanceType(request.attendanceType())
                 .reason(request.reason().trim())
                 .status(AbsenceReportStatus.PENDING)
                 .build());
@@ -134,6 +138,9 @@ public class ParentContactService {
                 .unreadBySchool(true)
                 .unreadByParent(false)
                 .build());
+        participantRepository.saveAll(List.of(
+                ConversationParticipant.builder().conversation(conversation).user(parent).lastReadAt(now).build(),
+                ConversationParticipant.builder().conversation(conversation).school(school).build()));
         messageRepository.save(SchoolConversationMessage.builder()
                 .conversation(conversation)
                 .sender(parent)
@@ -147,6 +154,8 @@ public class ParentContactService {
     public FamilyContactDto.ConversationThread thread(Long userId, Long conversationId) {
         SchoolConversation conversation = requireOwnConversation(userId, conversationId);
         conversation.setUnreadByParent(false);
+        conversation.getParticipants().stream().filter(p -> p.getUser() != null && p.getUser().getId().equals(userId))
+                .forEach(p -> p.setLastReadAt(LocalDateTime.now()));
         return FamilyContactMapper.thread(conversation, messageRepository.findThread(conversationId), false);
     }
 
@@ -165,6 +174,8 @@ public class ParentContactService {
         conversation.setLastMessageAt(now);
         conversation.setUnreadBySchool(true);
         conversation.setUnreadByParent(false);
+        conversation.getParticipants().stream().filter(p -> p.getUser() != null && p.getUser().getId().equals(userId))
+                .forEach(p -> p.setLastReadAt(now));
         return FamilyContactMapper.thread(conversation, messageRepository.findThread(conversationId), false);
     }
 

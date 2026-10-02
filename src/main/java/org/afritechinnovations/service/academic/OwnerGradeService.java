@@ -354,12 +354,15 @@ public class OwnerGradeService {
         Evaluation evaluation = requireOwnedEvaluation(evaluationId, ownerId, systemAdmin);
         SchoolClass cls = evaluation.getClassSubjectTeacher().getSchoolClass();
         List<Grade> grades = gradeRepository.findByEvaluationId(evaluationId);
-        Map<Long, BigDecimal> values = grades.stream()
-                .collect(Collectors.toMap(g -> g.getStudent().getId(), Grade::getValue, (a, b) -> a));
+        Map<Long, Grade> gradesByStudent = grades.stream()
+                .collect(Collectors.toMap(g -> g.getStudent().getId(), Function.identity(), (a, b) -> a));
         List<Student> roster = activeRoster(cls.getId());
         List<OwnerGradeDto.SheetRow> rows = roster.stream()
-                .map(s -> new OwnerGradeDto.SheetRow(s.getId(), fullName(s.getUser()), s.getRegistrationNumber(),
-                        values.get(s.getId())))
+                .map(s -> {
+                    Grade grade = gradesByStudent.get(s.getId());
+                    return new OwnerGradeDto.SheetRow(s.getId(), fullName(s.getUser()), s.getRegistrationNumber(),
+                            grade == null ? null : grade.getValue(), grade == null ? null : grade.getAppreciation());
+                })
                 .toList();
         return new OwnerGradeDto.GradeSheet(toEvaluationInfo(evaluation, grades, roster.size()),
                 toPeriodInfo(evaluation.getPeriod()), cls.getName(), rows);
@@ -395,6 +398,9 @@ public class OwnerGradeService {
                 continue;
             }
             if (old != null && value != null && old.compareTo(value) == 0) {
+                if (current != null && entry.appreciation() != null) {
+                    current.setAppreciation(entry.appreciation().isBlank() ? null : entry.appreciation().trim());
+                }
                 continue;
             }
             changes.add(new Change(entry.studentId(), current, old, value));
@@ -420,6 +426,7 @@ public class OwnerGradeService {
                         .term(evaluation.getPeriod().getCode())
                         .type(evaluation.getType())
                         .value(change.newValue())
+                        .appreciation(normalizeAppreciation(appreciationFor(request.grades(), change.studentId())))
                         .maxValue(evaluation.getMaxValue())
                         .gradeDate(evaluation.getEvalDate())
                         .build());
@@ -431,6 +438,8 @@ public class OwnerGradeService {
                 deleted++;
             } else {
                 change.grade().setValue(change.newValue());
+                String appreciation = appreciationFor(request.grades(), change.studentId());
+                if (appreciation != null) change.grade().setAppreciation(normalizeAppreciation(appreciation));
                 action = "UPDATE";
                 updated++;
             }
@@ -439,6 +448,15 @@ public class OwnerGradeService {
         }
         int unchanged = request.grades().size() - changes.size();
         return new OwnerGradeDto.SaveGradesResult(created, updated, deleted, unchanged);
+    }
+
+    private static String appreciationFor(List<OwnerGradeDto.GradeEntry> entries, Long studentId) {
+        return entries.stream().filter(entry -> entry.studentId().equals(studentId)).findFirst()
+                .map(OwnerGradeDto.GradeEntry::appreciation).orElse(null);
+    }
+
+    private static String normalizeAppreciation(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Transactional(readOnly = true)

@@ -8,10 +8,14 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     List<Attendance> findByStudentIdOrderByAttendanceDateDesc(Long studentId);
+
+    Optional<Attendance> findByStudentIdAndSchoolClassIdAndAttendanceDate(Long studentId, Long classId,
+                                                                          LocalDate attendanceDate);
 
     @Query("""
         SELECT a FROM Attendance a

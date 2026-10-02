@@ -3,13 +3,17 @@ package org.afritechinnovations.controler.self;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.academic.OwnerGradeDto;
+import org.afritechinnovations.dto.communication.FamilyContactDto;
 import org.afritechinnovations.dto.self.SelfServiceDto;
 import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.service.self.TeacherSpaceService;
+import org.afritechinnovations.service.communication.SchoolInboxService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.time.LocalDate;
 
 /** Espace enseignant : uniquement les classes et matières affectées à l'utilisateur connecté. */
 @RestController
@@ -18,6 +22,7 @@ import java.util.List;
 public class TeacherSpaceController {
 
     private final TeacherSpaceService service;
+    private final SchoolInboxService inboxService;
     private final AccessGuard guard;
 
     @GetMapping("/classes")
@@ -28,6 +33,37 @@ public class TeacherSpaceController {
     @GetMapping("/classes/{classId}/students")
     public List<SelfServiceDto.RosterStudent> students(@PathVariable Long classId) {
         return service.students(guard.currentUserId(), classId);
+    }
+
+    @GetMapping("/classes/{classId}/family-reports")
+    public List<FamilyContactDto.AbsenceReportItem> familyReports(
+            @PathVariable Long classId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return service.familyReports(guard.currentUserId(), classId, date);
+    }
+
+    @PostMapping("/classes/{classId}/family-reports/{reportId}/record-attendance")
+    public FamilyContactDto.AbsenceReportItem recordFamilyReport(@PathVariable Long classId,
+                                                                 @PathVariable Long reportId) {
+        return service.recordFamilyReport(guard.currentUserId(), classId, reportId);
+    }
+
+    @GetMapping("/classes/{classId}/conversations")
+    public List<FamilyContactDto.ConversationSummary> conversations(@PathVariable Long classId) {
+        return inboxService.teacherConversations(guard.currentUserId(), classId);
+    }
+
+    @GetMapping("/classes/{classId}/conversations/{conversationId}")
+    public FamilyContactDto.ConversationThread conversation(@PathVariable Long classId,
+                                                             @PathVariable Long conversationId) {
+        return inboxService.teacherThread(guard.currentUserId(), classId, conversationId);
+    }
+
+    @PostMapping("/classes/{classId}/conversations/{conversationId}/messages")
+    public FamilyContactDto.ConversationThread reply(@PathVariable Long classId,
+                                                     @PathVariable Long conversationId,
+                                                     @Valid @RequestBody FamilyContactDto.ReplyRequest request) {
+        return inboxService.teacherReply(guard.currentUserId(), classId, conversationId, request);
     }
 
     @GetMapping("/schedule")

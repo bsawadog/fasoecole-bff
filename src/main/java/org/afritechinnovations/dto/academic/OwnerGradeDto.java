@@ -81,13 +81,20 @@ public final class OwnerGradeDto {
             @DecimalMax(value = "10", message = "Le poids ne peut dépasser 10") BigDecimal weight) {
     }
 
-    public record SheetRow(Long studentId, String fullName, String registrationNumber, BigDecimal value) {
+    public record SheetRow(Long studentId, String fullName, String registrationNumber, BigDecimal value,
+                           String appreciation) {
+        public SheetRow(Long studentId, String fullName, String registrationNumber, BigDecimal value) {
+            this(studentId, fullName, registrationNumber, value, null);
+        }
     }
 
     public record GradeSheet(EvaluationInfo evaluation, PeriodInfo period, String className, List<SheetRow> rows) {
     }
 
-    public record GradeEntry(@NotNull Long studentId, BigDecimal value) {
+    public record GradeEntry(@NotNull Long studentId, BigDecimal value, @Size(max = 500) String appreciation) {
+        public GradeEntry(Long studentId, BigDecimal value) {
+            this(studentId, value, null);
+        }
     }
 
     public record SaveGradesRequest(@NotNull @Valid List<GradeEntry> grades, @Size(max = 255) String reason) {

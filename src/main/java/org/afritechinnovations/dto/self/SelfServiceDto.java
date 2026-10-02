@@ -49,7 +49,11 @@ public final class SelfServiceDto {
     }
 
     public record GradeItem(Long id, String subjectName, String title, String type, LocalDate date,
-                            BigDecimal value, BigDecimal maxValue) {
+                            BigDecimal value, BigDecimal maxValue, String appreciation) {
+        public GradeItem(Long id, String subjectName, String title, String type, LocalDate date,
+                         BigDecimal value, BigDecimal maxValue) {
+            this(id, subjectName, title, type, date, value, maxValue, null);
+        }
     }
 
     public record PeriodGrades(Long periodId, String periodName, GradePeriodStatus status, LocalDate startDate,

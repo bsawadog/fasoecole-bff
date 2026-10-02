@@ -46,6 +46,11 @@ public class AbsenceReport {
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
+    @Column(name = "attendance_type", nullable = false, length = 10)
+    private FamilyAttendanceType attendanceType = FamilyAttendanceType.ABSENT;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private AbsenceReportStatus status = AbsenceReportStatus.PENDING;
 

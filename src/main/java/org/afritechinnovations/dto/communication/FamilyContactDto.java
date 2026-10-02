@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.afritechinnovations.model.communication.AbsenceReportStatus;
+import org.afritechinnovations.model.communication.FamilyAttendanceType;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,8 +21,12 @@ public final class FamilyContactDto {
     public record AbsenceReportRequest(
             @NotNull(message = "La date de début est obligatoire") LocalDate startDate,
             @NotNull(message = "La date de fin est obligatoire") LocalDate endDate,
+            @NotNull(message = "Le type de signalement est obligatoire") FamilyAttendanceType attendanceType,
             @NotBlank(message = "Le motif est obligatoire")
             @Size(max = 500, message = "Le motif ne doit pas dépasser 500 caractères") String reason) {
+        public AbsenceReportRequest(LocalDate startDate, LocalDate endDate, String reason) {
+            this(startDate, endDate, FamilyAttendanceType.ABSENT, reason);
+        }
     }
 
     public record AbsenceDecision(
@@ -29,7 +34,7 @@ public final class FamilyContactDto {
     }
 
     public record AbsenceReportItem(Long id, Long studentId, String studentName, String registrationNumber,
-                                    LocalDate startDate, LocalDate endDate, String reason,
+                                    LocalDate startDate, LocalDate endDate, FamilyAttendanceType attendanceType, String reason,
                                     AbsenceReportStatus status, String reportedByName, String reportedByPhone,
                                     String schoolComment, String handledByName, LocalDateTime handledAt,
                                     LocalDateTime createdAt, int justifiedAttendances) {
@@ -43,7 +48,12 @@ public final class FamilyContactDto {
             @NotBlank(message = "L'objet est obligatoire")
             @Size(max = 160, message = "L'objet ne doit pas dépasser 160 caractères") String subject,
             @NotBlank(message = "Le message est obligatoire")
-            @Size(max = 4000, message = "Le message ne doit pas dépasser 4000 caractères") String content) {
+            @Size(max = 4000, message = "Le message ne doit pas dépasser 4000 caractères") String content,
+            List<Long> recipientUserIds,
+            boolean recipientSchool) {
+        public NewConversationRequest(Long schoolId, Long studentId, String subject, String content) {
+            this(schoolId, studentId, subject, content, List.of(), true);
+        }
     }
 
     public record ReplyRequest(
@@ -51,19 +61,23 @@ public final class FamilyContactDto {
             @Size(max = 4000, message = "Le message ne doit pas dépasser 4000 caractères") String content) {
     }
 
+    public record Recipient(Long userId, String fullName, String role) { }
+
+    public record ConversationRecipientsRequest(@NotNull Long schoolId, Long studentId) { }
+
     public record ConversationSummary(Long id, Long schoolId, String schoolName, Long parentUserId, String parentName,
                                       String parentPhone, String parentEmail, Long studentId, String studentName,
                                       String subject, LocalDateTime createdAt, LocalDateTime lastMessageAt,
-                                      boolean unread) {
+                                      boolean unread, List<String> recipientNames) {
     }
 
-    public record ConversationMessage(Long id, boolean fromSchool, String senderName, String content,
-                                      LocalDateTime sentAt) {
+    public record ConversationMessage(Long id, boolean fromSchool, Long senderId, boolean mine, String senderName,
+                                      String content, LocalDateTime sentAt, List<String> readBy) {
     }
 
     public record ConversationThread(ConversationSummary conversation, List<ConversationMessage> messages) {
     }
 
-    public record InboxSummary(long pendingAbsenceReports, long unreadConversations) {
+    public record InboxSummary(long pendingAbsenceReports, long unreadMessages) {
     }
 }

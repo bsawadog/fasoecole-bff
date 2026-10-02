@@ -5,8 +5,17 @@ import org.afritechinnovations.dto.academic.OwnerGradeDto;
 import org.afritechinnovations.dto.self.SelfServiceDto;
 import org.afritechinnovations.model.academic.ClassSubjectTeacher;
 import org.afritechinnovations.model.academic.Evaluation;
+import org.afritechinnovations.model.academic.Attendance;
+import org.afritechinnovations.model.academic.AttendanceStatus;
 import org.afritechinnovations.model.academic.SchoolClass;
 import org.afritechinnovations.model.common.User;
+import org.afritechinnovations.repository.common.UserRepository;
+import org.afritechinnovations.model.communication.AbsenceReport;
+import org.afritechinnovations.model.communication.AbsenceReportStatus;
+import org.afritechinnovations.model.communication.FamilyAttendanceType;
+import org.afritechinnovations.dto.communication.FamilyContactDto;
+import org.afritechinnovations.repository.academic.AttendanceRepository;
+import org.afritechinnovations.repository.communication.AbsenceReportRepository;
 import org.afritechinnovations.model.people.EnrollmentStatus;
 import org.afritechinnovations.model.people.StudentEnrollment;
 import org.afritechinnovations.model.people.Teacher;
@@ -23,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,6 +62,9 @@ public class TeacherSpaceService {
     private final TeacherScheduleSlotRepository scheduleSlotRepository;
     private final EvaluationRepository evaluationRepository;
     private final OwnerGradeService gradeService;
+    private final AbsenceReportRepository absenceReportRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final UserRepository userRepository;
 
     // ------------------------------------------------------------------ classes et élèves
 
@@ -89,6 +102,64 @@ public class TeacherSpaceService {
                         se.getStudent().getRegistrationNumber(), se.getStudent().getGender(),
                         se.getStudent().getBirthDate()))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<FamilyContactDto.AbsenceReportItem> familyReports(Long userId, Long classId, LocalDate date) {
+        SchoolClass schoolClass = requireTaughtClass(userId, classId);
+        Set<Long> studentIds = roster(classId).stream().map(se -> se.getStudent().getId())
+                .collect(Collectors.toSet());
+        return absenceReportRepository.findBySchool(schoolClass.getSchool().getId()).stream()
+                .filter(report -> studentIds.contains(report.getStudent().getId()))
+                .filter(report -> report.getStatus() == AbsenceReportStatus.PENDING)
+                .filter(report -> !date.isBefore(report.getStartDate()) && !date.isAfter(report.getEndDate()))
+                .map(report -> org.afritechinnovations.service.communication.FamilyContactMapper.report(report, 0))
+                .toList();
+    }
+
+    public FamilyContactDto.AbsenceReportItem recordFamilyReport(Long userId, Long classId, Long reportId) {
+        SchoolClass schoolClass = requireTaughtClass(userId, classId);
+        AbsenceReport report = absenceReportRepository.findById(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("Signalement introuvable : " + reportId));
+        boolean enrolled = roster(classId).stream()
+                .anyMatch(enrollment -> enrollment.getStudent().getId().equals(report.getStudent().getId()));
+        if (!enrolled || !report.getSchool().getId().equals(schoolClass.getSchool().getId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Cet élève ne relève pas de cette classe");
+        }
+        if (report.getStatus() != AbsenceReportStatus.PENDING) {
+            throw new IllegalArgumentException("Ce signalement a déjà été traité");
+        }
+        if (!report.getStartDate().equals(report.getEndDate())) {
+            throw new IllegalArgumentException("Ce signalement concerne plusieurs jours ; traitez-le depuis la boîte de l'établissement");
+        }
+        AttendanceStatus attendanceStatus = report.getAttendanceType() == FamilyAttendanceType.LATE
+                ? AttendanceStatus.LATE : AttendanceStatus.ABSENT;
+        Attendance attendance = attendanceRepository.findByStudentIdAndSchoolClassIdAndAttendanceDate(
+                        report.getStudent().getId(), classId, report.getStartDate())
+                .orElseGet(() -> Attendance.builder()
+                        .student(report.getStudent())
+                        .schoolClass(schoolClass)
+                        .attendanceDate(report.getStartDate())
+                        .build());
+        attendance.setStatus(attendanceStatus);
+        attendance.setJustification(report.getReason());
+        attendanceRepository.save(attendance);
+
+        report.setStatus(AbsenceReportStatus.ACKNOWLEDGED);
+        report.setSchoolComment("Enregistré par l’enseignant.");
+        report.setHandledBy(userRepository.getReferenceById(userId));
+        report.setHandledAt(LocalDateTime.now());
+        absenceReportRepository.save(report);
+        return org.afritechinnovations.service.communication.FamilyContactMapper.report(report, 1);
+    }
+
+    public boolean teachesStudent(Long userId, Long studentId) {
+        Set<Long> classIds = activeAssignments(userId).stream()
+                .map(assignment -> assignment.getSchoolClass().getId()).collect(Collectors.toSet());
+        return studentEnrollmentRepository.findByStudentId(studentId).stream()
+                .anyMatch(enrollment -> enrollment.getStatus() == EnrollmentStatus.ACTIVE
+                        && classIds.contains(enrollment.getSchoolClass().getId()));
     }
 
     @Transactional(readOnly = true)

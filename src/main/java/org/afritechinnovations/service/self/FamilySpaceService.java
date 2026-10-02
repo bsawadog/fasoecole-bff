@@ -179,7 +179,7 @@ public class FamilySpaceService {
             List<SelfServiceDto.GradeItem> items = grades.stream()
                     .map(g -> new SelfServiceDto.GradeItem(g.getId(), g.getClassSubjectTeacher().getSubject().getName(),
                             g.getEvaluation() == null ? null : g.getEvaluation().getTitle(), g.getType(),
-                            g.getGradeDate(), g.getValue(), g.getMaxValue()))
+                            g.getGradeDate(), g.getValue(), g.getMaxValue(), g.getAppreciation()))
                     .sorted(Comparator.comparing(SelfServiceDto.GradeItem::date).reversed())
                     .toList();
             boolean published = period.getStatus() == GradePeriodStatus.PUBLISHED;

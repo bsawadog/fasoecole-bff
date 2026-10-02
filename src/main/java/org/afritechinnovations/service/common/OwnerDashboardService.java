@@ -104,7 +104,13 @@ public class OwnerDashboardService {
                 results == null ? null : results.period().name(),
                 results == null ? null : results.passRate(),
                 results == null ? 0 : results.rankedCount(),
-                count("SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND read_at IS NULL", ownerId),
+                count("SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND read_at IS NULL", ownerId)
+                        + count("""
+                        SELECT COUNT(*) FROM school_conversation_messages m
+                        JOIN conversation_participants p ON p.conversation_id = m.conversation_id
+                        WHERE p.school_id = ? AND m.from_school = FALSE
+                          AND (p.last_read_at IS NULL OR m.sent_at > p.last_read_at)
+                        """, schoolId),
                 recentPayments(schoolId),
                 recentNotifications(ownerId)
         );

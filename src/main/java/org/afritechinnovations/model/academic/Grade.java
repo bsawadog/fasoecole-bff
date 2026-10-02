@@ -42,6 +42,9 @@ public class Grade {
     @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal value;
 
+    @Column(length = 500)
+    private String appreciation;
+
     @Builder.Default
     @Column(name = "max_value", nullable = false, precision = 5, scale = 2)
     private BigDecimal maxValue = BigDecimal.valueOf(20);

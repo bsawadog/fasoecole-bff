@@ -7,6 +7,8 @@ import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.people.Student;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Fil d'échange entre un parent et l'établissement (traité par le propriétaire ou le personnel autorisé). */
 @Entity
@@ -27,8 +29,12 @@ public class SchoolConversation {
     private School school;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "parent_user_id", nullable = false)
+    @JoinColumn(name = "parent_user_id")
     private User parentUser;
+
+    @OneToMany(mappedBy = "conversation", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<ConversationParticipant> participants = new ArrayList<>();
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id")
