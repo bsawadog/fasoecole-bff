@@ -21,7 +21,7 @@ public interface SchoolConversationRepository extends JpaRepository<SchoolConver
 
     @Query("""
         SELECT c FROM SchoolConversation c
-        JOIN FETCH c.parentUser
+        LEFT JOIN FETCH c.parentUser
         LEFT JOIN FETCH c.student s
         LEFT JOIN FETCH s.user
         WHERE c.school.id = :schoolId
