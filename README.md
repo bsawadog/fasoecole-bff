@@ -19,15 +19,15 @@ Plateforme de gestion scolaire (Spring Boot 3.4.1 / Java 21 / PostgreSQL / Flywa
    ```powershell
    mvn compile
    ```
-3. Lancer l'application (le profil `local` est actif par défaut) :
+3. Lancer l'application en activant explicitement le profil Spring `local` :
    ```powershell
-   mvn spring-boot:run
+   mvn test spring-boot:run -Dspring-boot.run.profiles=local
    ```
 4. L'API est disponible sur `http://localhost:8080`. Flyway crée automatiquement les tables au démarrage.
 
 ## Voir les logs
 
-Les logs s'affichent dans la console qui lance `mvn spring-boot:run` (ou dans l'onglet **Run**/**Console** d'IntelliJ si lancé depuis l'IDE).
+Les logs s'affichent dans la console Maven. Dans IntelliJ, configure les objectifs Maven `test spring-boot:run -Dspring-boot.run.profiles=local` et le répertoire de travail `C:\Mes Projets\Faso Ecole\fasoecole-bff` (le dossier qui contient `pom.xml`).
 
 ## Visualiser la base de données avec DBeaver
 
@@ -43,7 +43,7 @@ Créer une nouvelle connexion PostgreSQL avec :
 
 ## Profils Spring (`application.yml`)
 
-La configuration est répartie entre un fichier commun et un fichier par environnement, sélectionné via `spring.profiles.active` (par défaut : `local`).
+La configuration est répartie entre un fichier commun et un fichier par environnement, sélectionné via `spring.profiles.active`. `application.yml` ne sélectionne aucun profil ; celui-ci doit être précisé au lancement ou fourni par la variable `SPRING_PROFILES_ACTIVE`.
 
 | Fichier | Rôle |
 |---|---|
@@ -66,7 +66,7 @@ La configuration est répartie entre un fichier commun et un fichier par environ
 Via variable d'environnement :
 ```powershell
 $env:SPRING_PROFILES_ACTIVE = "dev"
-mvn spring-boot:run
+mvn test spring-boot:run
 ```
 
 Ou via argument JVM :
@@ -76,7 +76,7 @@ java -jar target\fasoecole-1.0-SNAPSHOT.jar --spring.profiles.active=prod
 
 ### Variables d'environnement par profil
 
-**`local`** : aucune variable requise, tout est préconfiguré (Postgres Docker local).
+**`local`** : les paramètres PostgreSQL sont préconfigurés pour Docker local ; le profil doit être activé explicitement.
 
 **`dev`** :
 
@@ -105,7 +105,7 @@ java -jar target\fasoecole-1.0-SNAPSHOT.jar --spring.profiles.active=prod
 
 | Variable | Description | Défaut |
 |---|---|---|
-| `SPRING_PROFILES_ACTIVE` | Profil actif (`local`, `dev`, `prod`) | `local` |
+| `SPRING_PROFILES_ACTIVE` | Profil actif (`local`, `dev`, `prod`) | *(à définir au lancement)* |
 | `SERVER_PORT` | Port HTTP de l'application | `8080` |
 | `JWT_EXPIRATION_MS` | Durée de validité du token JWT (ms) | `86400000` (24h) |
 
@@ -152,6 +152,8 @@ Pour envoyer les liens de réinitialisation avec Gmail, activez la validation en
 | `SMTP_AUTH` | `true` |
 | `SMTP_STARTTLS` | `true` |
 | `FRONTEND_BASE_URL` | `http://localhost:4200` |
+
+Pour IntelliJ IDEA, copiez `env-variable-local.env.example` vers `local.env` à la racine du backend et remplacez l'adresse et le mot de passe d'application. Le fichier `.env` local est ignoré par Git. Dans **Run → Edit Configurations**, ouvrez la configuration Maven et ajoutez ce fichier dans **Environment variables**. Gardez les objectifs `test spring-boot:run -Dspring-boot.run.profiles=local` et le répertoire de travail du backend (celui qui contient `pom.xml`). Le champ **Profiles** d'IntelliJ active des profils Maven, pas des profils Spring. `src/main/resources/env-variable-local.json` n'est pas un fichier `.env` chargeable par IntelliJ.
 
 Le lien expire après 30 minutes par défaut (`PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES`). Les jetons sont générés aléatoirement et seul leur hash est stocké. La réponse de demande de réinitialisation reste identique qu'un compte existe ou non.
 

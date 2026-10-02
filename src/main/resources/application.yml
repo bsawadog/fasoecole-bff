@@ -14,9 +14,6 @@ spring:
           starttls:
             enable: ${SMTP_STARTTLS:true}
 
-  profiles:
-    active: ${SPRING_PROFILES_ACTIVE:local}
-
   jpa:
     properties:
       hibernate:

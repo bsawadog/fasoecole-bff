@@ -4,17 +4,31 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 
 @Service
 public class EmailService {
 
+    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
+
     private final JavaMailSender mailSender;
     private final String from;
 
-    public EmailService(JavaMailSender mailSender, @Value("${app.mail.from}") String from) {
+    public EmailService(JavaMailSender mailSender, @Value("${app.mail.from}") String from,
+                        @Value("${MAIL_FROM:}") String mailFrom, Environment environment) {
         this.mailSender = mailSender;
         this.from = from;
+        if (environment.acceptsProfiles(Profiles.of("local"))) {
+            log.info("Local MAIL_FROM='{}'; resolved app.mail.from='{}'", display(mailFrom), display(from));
+        }
+    }
+
+    private String display(String value) {
+        return value == null || value.isBlank() ? "<blank>" : value;
     }
 
     public void sendText(String recipient, String subject, String body) {

@@ -30,7 +30,7 @@ public class OwnerStaffController {
     /** Établissements et modules accessibles à l'utilisateur connecté dans l'espace propriétaire. */
     @GetMapping("/my-access")
     public List<OwnerStaffDto.SchoolAccess> myAccess() {
-        return staffService.accessOf(guard.currentUserId());
+        return staffService.accessOf(guard.currentUserId(), guard.isSuperAdmin());
     }
 
     @GetMapping("/schools/{schoolId}")

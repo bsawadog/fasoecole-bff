@@ -146,8 +146,11 @@ public class SchoolInboxService {
 
     public FamilyContactDto.ConversationThread teacherThread(Long userId, Long classId, Long conversationId) {
         SchoolConversation conversation = requireTeacherConversation(userId, classId, conversationId);
-        conversation.setUnreadBySchool(false);
-        markSchoolRead(conversation, LocalDateTime.now());
+        boolean personalParticipant = participantRepository.findByConversationIdAndUserId(conversationId, userId).isPresent();
+        if (!personalParticipant) {
+            conversation.setUnreadBySchool(false);
+            markSchoolRead(conversation, LocalDateTime.now());
+        }
         conversation.getParticipants().stream().filter(p -> p.getUser() != null && p.getUser().getId().equals(userId))
                 .forEach(p -> p.setLastReadAt(LocalDateTime.now()));
         return participantRepository.findByConversationIdAndUserId(conversationId, userId).isPresent()
@@ -159,21 +162,23 @@ public class SchoolInboxService {
                                                               FamilyContactDto.ReplyRequest request) {
         SchoolConversation conversation = requireTeacherConversation(userId, classId, conversationId);
         LocalDateTime now = LocalDateTime.now();
+        boolean personalParticipant = participantRepository.findByConversationIdAndUserId(conversationId, userId).isPresent();
         messageRepository.save(SchoolConversationMessage.builder()
                 .conversation(conversation)
                 .sender(currentUser())
-                .fromSchool(true)
+                .fromSchool(!personalParticipant)
                 .content(request.content().trim())
                 .sentAt(now)
                 .build());
         conversation.setLastMessageAt(now);
-        conversation.setUnreadByParent(true);
-        conversation.setUnreadBySchool(false);
-        markSchoolRead(conversation, now);
+        conversation.setUnreadByParent(!personalParticipant);
+        conversation.setUnreadBySchool(personalParticipant);
         conversation.getParticipants().stream().filter(p -> p.getUser() != null && p.getUser().getId().equals(userId))
                 .forEach(p -> p.setLastReadAt(now));
-        markSchoolRead(conversation, now);
-        return FamilyContactMapper.thread(conversation, messageRepository.findThread(conversationId), true);
+        if (!personalParticipant) markSchoolRead(conversation, now);
+        return personalParticipant
+                ? FamilyContactMapper.threadForUser(conversation, messageRepository.findThread(conversationId), userId)
+                : FamilyContactMapper.thread(conversation, messageRepository.findThread(conversationId), true);
     }
 
     // ------------------------------------------------------------------ utilitaires

@@ -95,7 +95,7 @@ public class PasswordResetService {
             emailService.sendPasswordReset(user.getEmail(), resetUrl, tokenExpirationMinutes);
         } catch (MailException ex) {
             tokenRepository.deleteByUserId(user.getId());
-            log.error("Password reset email delivery failed; SMTP configuration should be checked");
+            log.error("Password reset email delivery failed: {}: {}", ex.getClass().getSimpleName(), ex.getMessage());
         }
     }
 

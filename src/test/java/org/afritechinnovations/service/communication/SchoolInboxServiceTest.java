@@ -8,11 +8,13 @@ import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.communication.AbsenceReport;
 import org.afritechinnovations.model.communication.AbsenceReportStatus;
+import org.afritechinnovations.model.communication.ConversationParticipant;
 import org.afritechinnovations.model.communication.SchoolConversation;
 import org.afritechinnovations.model.people.Student;
 import org.afritechinnovations.repository.academic.AttendanceRepository;
 import org.afritechinnovations.repository.common.UserRepository;
 import org.afritechinnovations.repository.communication.AbsenceReportRepository;
+import org.afritechinnovations.repository.communication.ConversationParticipantRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationMessageRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationRepository;
 import org.afritechinnovations.security.AccessGuard;
@@ -43,6 +45,7 @@ class SchoolInboxServiceTest {
     @Mock AttendanceRepository attendances;
     @Mock SchoolConversationRepository conversations;
     @Mock SchoolConversationMessageRepository messages;
+    @Mock ConversationParticipantRepository participants;
     @Mock UserRepository users;
     @InjectMocks SchoolInboxService service;
 
@@ -113,6 +116,8 @@ class SchoolInboxServiceTest {
                 .parentUser(User.builder().id(7L).firstName("Awa").lastName("Kaboré").build()).subject("s")
                 .unreadBySchool(true).unreadByParent(false).build();
         when(conversations.findById(8L)).thenReturn(Optional.of(conversation));
+        when(participants.findByConversationIdAndSchoolId(8L, 1L))
+                .thenReturn(Optional.of(ConversationParticipant.builder().conversation(conversation).school(school).build()));
         service.reply(8L, new FamilyContactDto.ReplyRequest("Bien reçu"));
         assertTrue(conversation.isUnreadByParent());
         assertFalse(conversation.isUnreadBySchool());

@@ -1,5 +1,6 @@
 package org.afritechinnovations.controler.common;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.common.SchoolDto;
 import org.afritechinnovations.dto.common.RegistrationSchoolDto;
@@ -63,7 +64,7 @@ public class SchoolController {
     /** Un propriétaire peut ouvrir un nouvel établissement à son nom ; la plateforme peut l'attribuer à quiconque. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public SchoolDto create(@RequestBody SchoolDto dto) {
+    public SchoolDto create(@Valid @RequestBody SchoolDto dto) {
         if (!guard.isSuperAdmin()) {
             if (!guard.current().getRoles().contains("SCHOOL_ADMIN")) {
                 throw new AccessDeniedException("Seul un propriétaire peut créer un établissement");
@@ -75,7 +76,7 @@ public class SchoolController {
     }
 
     @PutMapping("/{id}")
-    public SchoolDto update(@PathVariable Long id, @RequestBody SchoolDto dto) {
+    public SchoolDto update(@PathVariable Long id, @Valid @RequestBody SchoolDto dto) {
         guard.requireOwnedSchool(id);
         return schoolService.update(id, dto);
     }

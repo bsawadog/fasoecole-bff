@@ -11,6 +11,7 @@ import org.afritechinnovations.model.people.Student;
 import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.repository.common.UserRepository;
 import org.afritechinnovations.repository.communication.AbsenceReportRepository;
+import org.afritechinnovations.repository.communication.ConversationParticipantRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationMessageRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationRepository;
 import org.afritechinnovations.service.self.FamilySpaceService;
@@ -40,6 +41,7 @@ class ParentContactServiceTest {
     @Mock AbsenceReportRepository reports;
     @Mock SchoolConversationRepository conversations;
     @Mock SchoolConversationMessageRepository messages;
+    @Mock ConversationParticipantRepository participants;
     @Mock SchoolRepository schools;
     @Mock UserRepository users;
     @InjectMocks ParentContactService service;

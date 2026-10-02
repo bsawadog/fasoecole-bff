@@ -58,9 +58,14 @@ public class OwnerStaffService {
     /** Établissements accessibles dans l'espace propriétaire : ceux possédés puis ceux délégués. */
     @Transactional(readOnly = true)
     public List<OwnerStaffDto.SchoolAccess> accessOf(Long userId) {
+        return accessOf(userId, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OwnerStaffDto.SchoolAccess> accessOf(Long userId, boolean systemAdmin) {
         Map<Long, OwnerStaffDto.SchoolAccess> access = new LinkedHashMap<>();
         List<String> allModules = Arrays.stream(StaffModule.values()).map(Enum::name).toList();
-        schoolRepository.findByOwnerId(userId).forEach(school -> access.put(school.getId(),
+        (systemAdmin ? schoolRepository.findAll() : schoolRepository.findByOwnerId(userId)).forEach(school -> access.put(school.getId(),
                 new OwnerStaffDto.SchoolAccess(school.getId(), school.getName(), typeOf(school), true,
                         "Propriétaire", allModules)));
         for (SchoolStaff staff : staffRepository.findByUserWithSchool(userId)) {
