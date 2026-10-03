@@ -36,8 +36,11 @@ public class AcademicYear {
     @Column(name = "is_current", nullable = false)
     private Boolean isCurrent = false;
 
+    @Column(name = "closed_at")
     private java.time.LocalDateTime closedAt;
+    @Column(name = "closed_by")
     private Long closedBy;
+    @Column(name = "next_year_id")
     private Long nextYearId;
 
     public boolean isClosed() { return closedAt != null; }

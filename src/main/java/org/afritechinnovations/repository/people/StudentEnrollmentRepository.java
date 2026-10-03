@@ -12,6 +12,19 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
 
     List<StudentEnrollment> findByStudentId(Long studentId);
 
+    @Query(value="""
+        SELECT EXISTS (
+          SELECT 1 FROM student_enrollments e WHERE e.id=:enrollmentId AND (
+            EXISTS (SELECT 1 FROM grades g JOIN class_subject_teacher a ON a.id=g.class_subject_teacher_id
+                    WHERE g.student_id=e.student_id AND a.class_id=e.class_id)
+            OR EXISTS (SELECT 1 FROM attendances a WHERE a.student_id=e.student_id AND a.class_id=e.class_id)
+            OR EXISTS (SELECT 1 FROM invoices i WHERE i.student_id=e.student_id
+                       AND i.academic_year_id=e.academic_year_id AND i.status<>'CANCELLED')
+          )
+        )
+        """,nativeQuery=true)
+    boolean hasAcademicActivity(@Param("enrollmentId") Long enrollmentId);
+
     @Query("""
         SELECT se FROM StudentEnrollment se
         JOIN FETCH se.student s

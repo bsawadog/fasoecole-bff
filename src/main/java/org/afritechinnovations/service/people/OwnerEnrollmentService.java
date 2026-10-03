@@ -231,9 +231,14 @@ public class OwnerEnrollmentService {
                 if (!p.getAcademicYear().getId().equals(sourceYear.getId())) {
                     continue;
                 }
+                LocalDate periodStart = p.getStartDate().plusDays(shift);
+                LocalDate periodEnd = p.getEndDate().plusDays(shift);
+                if (periodStart.isBefore(year.getStartDate())) periodStart = year.getStartDate();
+                if (periodEnd.isAfter(year.getEndDate())) periodEnd = year.getEndDate();
+                if (!periodEnd.isAfter(periodStart)) throw new IllegalArgumentException("La nouvelle année ne permet pas de reprendre toutes les périodes : adaptez ses dates.");
                 gradePeriodRepository.save(GradePeriod.builder()
                         .school(school).academicYear(year).code(p.getCode()).name(p.getName())
-                        .startDate(p.getStartDate().plusDays(shift)).endDate(p.getEndDate().plusDays(shift))
+                        .startDate(periodStart).endDate(periodEnd)
                         .passMark(p.getPassMark())
                         .build());
                 periodsCopied++;
@@ -434,6 +439,7 @@ public class OwnerEnrollmentService {
         StudentEnrollment e = enrollmentRepository.findById(enrollmentId)
                 .orElseThrow(() -> new IllegalArgumentException("Inscription introuvable : " + enrollmentId));
         requireClosureOwner(e.getSchoolClass().getSchool().getId(), userId, systemAdmin);
+        academicYearRepository.lockSchoolYears(e.getSchoolClass().getSchool().getId());
         if (e.getStatus() != EnrollmentStatus.COMPLETED) {
             throw new IllegalArgumentException("Aucune décision à annuler pour cette inscription");
         }
@@ -446,6 +452,10 @@ public class OwnerEnrollmentService {
         if (later.stream().anyMatch(x -> x.getStatus() != EnrollmentStatus.ACTIVE
                 && x.getStatus() != EnrollmentStatus.TRANSFERRED)) {
             throw new IllegalArgumentException("L'année suivante de cet élève est déjà clôturée : annulez d'abord sa décision");
+        }
+        if (later.stream().map(x -> x.getAcademicYear().getId()).distinct().count() > 1
+                || later.stream().anyMatch(x -> x.getAcademicYear().isClosed() || enrollmentRepository.hasAcademicActivity(x.getId()))) {
+            throw new IllegalArgumentException("Une inscription ultérieure contient des données ou plusieurs années sont engagées : l'annulation est refusée pour conserver l'historique.");
         }
         later.forEach(enrollmentRepository::delete);
         e.setStatus(EnrollmentStatus.ACTIVE);

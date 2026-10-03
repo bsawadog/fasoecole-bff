@@ -9,6 +9,10 @@ import java.util.List;
 
 public interface SchoolRepository extends JpaRepository<School, Long> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT s FROM School s WHERE s.id = :id")
+    java.util.Optional<School> lockById(@org.springframework.data.repository.query.Param("id") Long id);
+
     List<School> findByStatus(SchoolStatus status);
 
     List<School> findByType(SchoolType type);

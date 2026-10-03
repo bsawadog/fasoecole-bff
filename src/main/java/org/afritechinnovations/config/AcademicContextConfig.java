@@ -28,6 +28,6 @@ public class AcademicContextConfig implements WebMvcConfigurer {
                 request.setAttribute("selectedAcademicYear",year);
                 return true;
             }
-        }).addPathPatterns("/api/**").excludePathPatterns("/api/auth/**","/api/schools/registration-options");
+        }).addPathPatterns("/api/**").excludePathPatterns("/api/auth/**","/api/schools/registration-options","/api/owner/export/**");
     }
 }

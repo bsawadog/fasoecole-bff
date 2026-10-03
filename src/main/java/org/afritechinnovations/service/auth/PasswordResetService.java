@@ -72,6 +72,7 @@ public class PasswordResetService {
         }
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setMustChangePassword(false);
         user.revokeSessions();
         // Le lien a été reçu dans la boîte : l'adresse est prouvée.
         boolean newlyVerified = !Boolean.TRUE.equals(user.getEmailVerified()) || !Boolean.TRUE.equals(user.getPasswordSet());

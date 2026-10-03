@@ -194,7 +194,7 @@ public class TeacherSpaceService {
         for (Teacher teacher : teacherRepository.findByUserId(userId)) {
             Map<Long, String> subjectsByClass = classSubjectTeacherRepository
                     .findAllWithSubjectAndClassByTeacherId(teacher.getId()).stream()
-                    .filter(ClassSubjectTeacher::isActive)
+                    .filter(a -> a.isActive() || a.getSchoolClass().getAcademicYear().isClosed())
                 .filter(a -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(a.getSchoolClass().getAcademicYear()))
                     .collect(Collectors.groupingBy(cst -> cst.getSchoolClass().getId(),
                             Collectors.mapping(cst -> cst.getSubject().getName(),
@@ -270,7 +270,8 @@ public class TeacherSpaceService {
     private List<ClassSubjectTeacher> activeAssignments(Long userId) {
         return teacherRepository.findByUserId(userId).stream()
                 .flatMap(t -> classSubjectTeacherRepository.findAllWithSubjectAndClassByTeacherId(t.getId()).stream())
-                .filter(ClassSubjectTeacher::isActive)
+                .filter(a -> a.getSchoolClass().getSchool().getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
+                .filter(a -> a.isActive() || a.getSchoolClass().getAcademicYear().isClosed())
                 .toList();
     }
 
@@ -299,6 +300,8 @@ public class TeacherSpaceService {
         Evaluation evaluation = evaluationRepository.findById(evaluationId)
                 .orElseThrow(() -> new IllegalArgumentException("Évaluation introuvable : " + evaluationId));
         ClassSubjectTeacher cst = evaluation.getClassSubjectTeacher();
+        if (cst.getSchoolClass().getSchool().getStatus() != org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
+            throw new AccessDeniedException("Cet établissement est désactivé");
         if (!cst.isActive() || !cst.getTeacher().getUser().getId().equals(userId)) {
             throw new AccessDeniedException("Cette évaluation ne relève pas de vos matières");
         }

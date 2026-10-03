@@ -897,8 +897,11 @@ public class ClassRosterService {
     }
 
     private List<StudentDetailDto.InvoiceInfo> buildInvoiceInfos(Long studentId) {
-        return invoiceRepository.findByStudentId(studentId).stream()
-                .filter(i -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(i.getAcademicYear()))
+        List<Invoice> invoices = invoiceRepository.findByStudentId(studentId);
+        Long yearId = invoices.isEmpty() ? null : org.afritechinnovations.service.academic.SelectedAcademicYear.id(invoices.get(0).getStudent().getSchool().getId());
+        Set<Long> carried = yearId == null ? Set.of() : new java.util.HashSet<>(invoiceRepository.carriedInvoiceIds(yearId));
+        return invoices.stream()
+                .filter(i -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(i.getAcademicYear()) || carried.contains(i.getId()))
                 .map(invoice -> toInvoiceInfo(invoice, paymentRepository.findByInvoiceId(invoice.getId())))
                 .sorted(Comparator.comparing(StudentDetailDto.InvoiceInfo::dueDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();

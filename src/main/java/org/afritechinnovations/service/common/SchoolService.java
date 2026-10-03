@@ -18,6 +18,8 @@ import java.util.List;
 public class SchoolService {
 
     private final SchoolRepository schoolRepository;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final org.afritechinnovations.security.AccessGuard guard;
 
     public List<SchoolDto> findByStatus(SchoolStatus status) {
         return schoolRepository.findByStatus(status)
@@ -71,9 +73,16 @@ public class SchoolService {
     }
 
     public SchoolDto updateStatus(Long id, SchoolStatus status) {
-        School school = schoolRepository.findById(id)
+        guard.requireSuperAdmin();
+        if (status == null) throw new IllegalArgumentException("Le statut est obligatoire");
+        School school = schoolRepository.lockById(id)
                 .orElseThrow(() -> new IllegalArgumentException("École introuvable: " + id));
+        if (school.getStatus() == status) return toDto(school);
+        jdbc.update("INSERT INTO school_status_events(school_id,actor_id,previous_status,new_status) VALUES(?,?,?,?)",
+                id, guard.currentUserId(), school.getStatus().name(), status.name());
         school.setStatus(status);
+        if (status == SchoolStatus.ACTIVE) school.setActivatedAt(java.time.LocalDateTime.now());
+        else school.setDeactivatedAt(java.time.LocalDateTime.now());
         return toDto(schoolRepository.save(school));
     }
 
@@ -84,6 +93,7 @@ public class SchoolService {
             throw new IllegalArgumentException("Seul un établissement en cours de création peut être finalisé");
         }
         school.setStatus(SchoolStatus.ACTIVE);
+        if (school.getActivatedAt() == null) school.setActivatedAt(java.time.LocalDateTime.now());
         return toDto(schoolRepository.save(school));
     }
 

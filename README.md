@@ -396,3 +396,40 @@ Les tests couvrent l’inscription, la preuve du courriel, l’approbation, l’
 - Les demandes invalides peuvent encore être soumises : le numéro bloque l’approbation et l’accès, tandis que la limitation des tentatives freine les soumissions automatiques.
 
 Redémarrer le backend pour appliquer **V33**, puis recharger le frontend. Les tests unitaires couvrent les identifiants obligatoires, les dossiers inconnus, les écoles distinctes, les risques de prise de contrôle, la réutilisation des dossiers, les comptes en attente et la conservation des identifiants dans l’activation. La persistance et SMTP restent simulés dans ces tests.
+
+## Années scolaires, employés et clôture
+
+Le sélecteur de l'en-tête permet de choisir un établissement et une année scolaire. Une année clôturée reste consultable ; ses données scolaires sont protégées contre les modifications.
+
+Dans l'espace propriétaire/admin :
+- **Créer un employé** crée un enseignant avant son affectation aux classes, ou un autre membre du personnel avec ses accès autorisés. Une invitation permet de choisir son mot de passe.
+- **Inscriptions** gère les admissions ; les passages sont dans **Clôturer année**.
+- **Clôturer année** prépare la nouvelle année et copie les classes, les affectations et la configuration des périodes. L'admin valide les passages, redoublements et départs. Les notes ne sont jamais copiées.
+- La finalisation exige de traiter les signalements en attente et les décisions des élèves. Les soldes de caisse et de banque sont saisis puis confirmés. Les impayés sont reportés comme références aux factures originales, sans créer de seconde dette.
+- La clôture et l'activation de la nouvelle année sont réalisées dans une même transaction. Les interfaces abonnées aux changements de l'établissement actualisent leurs données ; la sélection par défaut suit la nouvelle année courante.
+
+Redémarrer le backend pour appliquer **V34** avec Flyway, puis recharger le frontend. Avant une clôture réelle, vérifier les décisions et les soldes : la clôture protège les archives et ne propose pas d'annulation.
+
+## Administration de la plateforme
+
+- Le rôle global SUPER_ADMIN est enregistré dans user_platform_roles et ne dépend pas d'une école. L'inscription publique ne permet pas d'obtenir ce rôle.
+- L'accueil /admin affiche les établissements et leurs propriétaires : recherche, filtre par statut, pagination, activation/désactivation avec confirmation et contact par courriel ou téléphone. La liste est actualisée toutes les 20 secondes.
+- Les changements de statut sont enregistrés dans school_status_events avec l'auteur et l'heure. Les dates des anciens établissements actifs sont initialisées avec leur date de création ; les changements ultérieurs utilisent l'heure réelle.
+- Un mot de passe temporaire impose un changement dans Mon profil avant l'accès aux API métier. Le changement invalide les sessions : se reconnecter avec le nouveau mot de passe.
+- La migration V36 ajoute ces données. Le compte personnel SUPER_ADMIN est provisionné uniquement dans la base locale, sans identifiants dans les migrations ou le dépôt.
+
+## Export des données de l'établissement
+
+Le propriétaire dispose du module **Exporter mes données** (/proprietaire/export). Les accès délégués au personnel ne donnent pas droit à cet export complet.
+
+- Le téléchargement Excel produit un véritable classeur .xlsx nommé donnees_etablissement_YYYY-MM-DD_HH-mm-ss.xlsx, avec une feuille par domaine, des colonnes en français, des filtres, une légende et un sommaire.
+- Toutes les années sont incluses : identités et coordonnées, liens parent-enfant, employés, inscriptions, passages, affectations, notes, bulletins, présences, signalements, emplois du temps, paie, frais, factures, paiements, impayés reportés, soldes d'ouverture, dépenses, budgets, publications, rendez-vous et conversations accessibles à l'établissement.
+- L'option ZIP contient ce classeur et les fichiers joints du portail et de ces conversations. Les feuilles d'inventaire indiquent leurs chemins dans l'archive. Les documents enregistrés comme liens externes sont seulement référencés : leur contenu n'est pas téléchargé.
+- L'export utilise un instantané REPEATABLE_READ. Il ignore le choix d'année de l'interface et reste accessible au propriétaire d'un établissement suspendu ou archivé. Aucun mot de passe ni jeton d'authentification n'est exporté ; les échanges privés hors des conversations accessibles à l'établissement sont exclus.
+- Les factures restent les dettes originales : ne pas additionner une deuxième fois les lignes d'impayés reportés. Les soldes actuels et au report sont distingués.
+- Les textes trop longs pour Excel sont conservés intégralement dans Textes longs. Les grandes feuilles sont réparties lorsque la limite de lignes Excel est atteinte. Les valeurs utilisateur sont écrites comme texte, sans formules exécutables.
+- Le fichier temporaire est transmis puis supprimé du serveur. Aucune nouvelle migration n'est nécessaire. Redémarrer le backend et recharger le frontend après installation.
+
+API : GET /api/owner/export/schools, GET /api/owner/export/schools/{schoolId}/excel et GET /api/owner/export/schools/{schoolId}/archive. Les deux téléchargements vérifient le propriétaire réel de l'école (ou SUPER_ADMIN). L'export est une copie de consultation, sans import automatique ni récupération des données déjà supprimées.
+
+Le format du classeur suit [SpreadsheetML / Open XML](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/structure-of-a-spreadsheetml-document) ; la génération utilise les API Java standard ZIP/XML sans dépendance Excel supplémentaire.

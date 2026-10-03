@@ -40,7 +40,7 @@ public class OwnerDashboardService {
         Long selectedYear = org.afritechinnovations.service.academic.SelectedAcademicYear.id(schoolId);
         if (selectedYear == null) selectedYear = jdbcTemplate.query("SELECT id FROM academic_years WHERE school_id=? AND is_current=TRUE", (r,n) -> r.getLong(1), schoolId).stream().findFirst().orElse(-1L);
         final Long yearId = selectedYear;
-        LocalDate today = LocalDate.now();
+        LocalDate today = org.afritechinnovations.service.academic.SelectedAcademicYear.viewDate(schoolId, LocalDate.now());
         OwnerGradeDto.SchoolSummary results = ownerGradeService.dashboardSummary(schoolId, ownerId, today)
                 .orElse(null);
         return new OwnerDashboardDto(
@@ -118,7 +118,7 @@ public class OwnerDashboardService {
                         WHERE p.school_id = ? AND m.from_school = FALSE
                           AND (p.last_read_at IS NULL OR m.sent_at > p.last_read_at)
                         """, schoolId),
-                recentPayments(schoolId),
+                recentPayments(schoolId, yearId),
                 recentNotifications(ownerId),
                 handledAttendanceReports(schoolId, today),
                 count("""
@@ -187,7 +187,7 @@ public class OwnerDashboardService {
         return result == null ? BigDecimal.ZERO : result;
     }
 
-    private List<OwnerDashboardDto.RecentPayment> recentPayments(Long schoolId) {
+    private List<OwnerDashboardDto.RecentPayment> recentPayments(Long schoolId, Long yearId) {
         return jdbcTemplate.query("""
                 SELECT p.id, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
                        p.amount, p.payment_date, p.method, p.reference
@@ -195,7 +195,9 @@ public class OwnerDashboardService {
                 JOIN invoices i ON i.id = p.invoice_id
                 JOIN students s ON s.id = i.student_id
                 JOIN users u ON u.id = s.user_id
-                WHERE s.school_id = ?
+                WHERE s.school_id = ? AND EXISTS (
+                    SELECT 1 FROM academic_years y WHERE y.id = ?
+                    AND p.payment_date BETWEEN y.start_date AND y.end_date)
                 ORDER BY p.payment_date DESC, p.id DESC
                 LIMIT 5
                 """, (result, rowNumber) -> new OwnerDashboardDto.RecentPayment(
@@ -205,7 +207,7 @@ public class OwnerDashboardService {
                 result.getDate("payment_date").toLocalDate(),
                 result.getString("method"),
                 result.getString("reference")
-        ), schoolId);
+        ), schoolId, yearId);
     }
 
     private List<OwnerDashboardDto.RecentNotification> recentNotifications(Long ownerId) {

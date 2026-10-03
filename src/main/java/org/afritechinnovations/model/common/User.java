@@ -16,6 +16,16 @@ public class User {
 
     @Builder.Default
     @ElementCollection
+    @CollectionTable(name = "user_platform_roles", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "role", nullable = false, length = 30)
+    private java.util.Set<String> platformRoles = new java.util.HashSet<>();
+
+    @Builder.Default
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
+    @Builder.Default
+    @ElementCollection
     @CollectionTable(name = "user_requested_children", joinColumns = @JoinColumn(name = "user_id"))
     @OrderColumn(name = "child_index")
     @Column(name = "registration_number", nullable = false, length = 50)

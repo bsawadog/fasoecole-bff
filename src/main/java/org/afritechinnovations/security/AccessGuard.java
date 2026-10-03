@@ -256,8 +256,13 @@ public class AccessGuard {
     }
 
     private School findSchool(Long schoolId) {
-        return schoolRepository.findById(required(schoolId, "établissement"))
+        School school = schoolRepository.findById(required(schoolId, "établissement"))
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
+        if (!isSuperAdmin() && (school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.SUSPENDED
+                || school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.ARCHIVED)) {
+            throw new AccessDeniedException("Cet établissement est désactivé. Contactez l’administrateur de la plateforme.");
+        }
+        return school;
     }
 
     private Student findStudent(Long studentId) {

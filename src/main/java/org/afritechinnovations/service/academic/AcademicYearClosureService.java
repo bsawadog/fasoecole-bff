@@ -60,17 +60,18 @@ public class AcademicYearClosureService {
                     throw new IllegalArgumentException("Un élève admis ou redoublant n'est pas réinscrit dans la nouvelle année sélectionnée.");
             }
         }
-        if (locked.stream().anyMatch(y -> from.getId().equals(y.getNextYearId()) || to.getId().equals(y.getNextYearId())))
+        if (from.getNextYearId() != null || locked.stream().anyMatch(y -> to.getId().equals(y.getNextYearId())))
             throw new IllegalArgumentException("Cette année est déjà liée à une clôture.");
 
         // Carry old outstanding invoices as references, including earlier-year carryovers.
         int carried = jdbc.update("""
             INSERT INTO academic_year_receivables(academic_year_id,invoice_id,amount_at_closure)
             SELECT ?,i.id,i.amount_due-COALESCE(i.discount_amount,0)-COALESCE(p.paid,0)
-            FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(amount) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id
-            WHERE i.status<>'CANCELLED' AND i.amount_due-COALESCE(i.discount_amount,0)-COALESCE(p.paid,0)>0
+            FROM invoices i JOIN students s ON s.id=i.student_id
+            LEFT JOIN (SELECT invoice_id,SUM(amount) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id
+            WHERE s.school_id=? AND i.status<>'CANCELLED' AND i.amount_due-COALESCE(i.discount_amount,0)-COALESCE(p.paid,0)>0
               AND (i.academic_year_id=? OR EXISTS(SELECT 1 FROM academic_year_receivables r WHERE r.academic_year_id=? AND r.invoice_id=i.id))
-            """, to.getId(), from.getId(), from.getId());
+            """, to.getId(), schoolId, from.getId(), from.getId());
         jdbc.update("INSERT INTO academic_year_balances(academic_year_id,account,opening_balance) VALUES (?,'CASH',?),(?,'BANK',?)",
                 to.getId(), request.cashBalance(), to.getId(), request.bankBalance());
         from.setIsCurrent(false);
@@ -97,8 +98,8 @@ public class AcademicYearClosureService {
                     FROM academic_year_receivables r JOIN invoices i ON i.id=r.invoice_id
                     JOIN students s ON s.id=i.student_id JOIN users u ON u.id=s.user_id
                     LEFT JOIN (SELECT invoice_id,SUM(amount) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id
-                    WHERE r.academic_year_id=? ORDER BY u.last_name,u.first_name
-                    """,yearId));
+                    WHERE r.academic_year_id=? AND s.school_id=? ORDER BY u.last_name,u.first_name
+                    """,yearId,schoolId));
     }
 
     private void requireOwner(Long schoolId, Long userId, boolean systemAdmin) {

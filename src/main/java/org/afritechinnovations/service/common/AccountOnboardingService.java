@@ -31,6 +31,7 @@ public class AccountOnboardingService {
         List<String> steps = new ArrayList<>();
         if (!Boolean.TRUE.equals(user.getActive())) steps.add("ACCOUNT_INACTIVE");
         if (!Boolean.TRUE.equals(user.getPasswordSet())) steps.add("PASSWORD_REQUIRED");
+        if (user.isMustChangePassword()) steps.add("PASSWORD_CHANGE_REQUIRED");
         if (!Boolean.TRUE.equals(user.getEmailVerified())) steps.add("EMAIL_VERIFICATION_REQUIRED");
         if (!Boolean.TRUE.equals(user.getApproved())) steps.add("APPROVAL_REQUIRED");
         var roles = memberships.findByUserId(user.getId()).stream().map(m -> m.getRole().getName()).toList();

@@ -292,6 +292,7 @@ public class UserService {
             throw new IllegalArgumentException("Le nouveau mot de passe doit être différent de l'actuel");
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setMustChangePassword(false);
         user.revokeSessions();
         userRepository.save(user);
     }
@@ -323,15 +324,16 @@ public class UserService {
                 .approved(user.getApproved())
                 .emailVerified(user.getEmailVerified())
                 .passwordSet(user.getPasswordSet())
+                .mustChangePassword(user.isMustChangePassword())
                 .invitationDeliveryStatus(emailVerificationService.deliveryStatus(user.getId()))
                 .onboardingSteps(onboardingService.steps(user))
                 .requestedSchoolId(user.getRequestedSchoolId())
                 .requestedSchoolName(requestedSchool == null ? null : requestedSchool.getName())
                 .requestedSchoolType(requestedSchool == null ? null : requestedSchool.getType())
                 .requestedRole(user.getRequestedRole())
-                .roles(schoolUserRepository.findByUserId(user.getId()).stream()
+                .roles(java.util.stream.Stream.concat(user.getPlatformRoles().stream(), schoolUserRepository.findByUserId(user.getId()).stream()
                         .map(SchoolUser::getRole)
-                        .map(Role::getName)
+                        .map(Role::getName))
                         .distinct()
                         .toList())
                 .createdAt(user.getCreatedAt())

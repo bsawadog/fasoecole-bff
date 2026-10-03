@@ -78,6 +78,7 @@ public class FamilySpaceService {
 
     public List<SelfServiceDto.StudentOverview> students(Long userId) {
         return accessible(userId).values().stream()
+                .filter(a -> a.student().getSchool().getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
                 .filter(a -> org.afritechinnovations.service.academic.SelectedAcademicYear.schoolMatches(a.student().getSchool().getId()))
                 .map(a -> overview(a.student(), a.relationship()))
                 .sorted(Comparator.comparing(SelfServiceDto.StudentOverview::fullName, String.CASE_INSENSITIVE_ORDER))
@@ -288,6 +289,8 @@ public class FamilySpaceService {
 
     private Accessible requireAccess(Long userId, Long studentId) {
         Accessible a = accessible(userId).get(studentId);
+        if (a != null && a.student().getSchool().getStatus() != org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
+            throw new AccessDeniedException("Cet établissement est désactivé");
         if (a == null) {
             throw new AccessDeniedException("Vous n'avez pas accès au dossier de cet élève");
         }

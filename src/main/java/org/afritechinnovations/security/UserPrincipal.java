@@ -19,6 +19,7 @@ public class UserPrincipal implements UserDetails {
     private final boolean approved;
     private final boolean emailVerified;
     private final boolean passwordSet;
+    private final boolean mustChangePassword;
     private final long sessionVersion;
     private final List<String> roles;
 
@@ -30,8 +31,9 @@ public class UserPrincipal implements UserDetails {
         this.approved = Boolean.TRUE.equals(user.getApproved());
         this.emailVerified = Boolean.TRUE.equals(user.getEmailVerified());
         this.passwordSet = Boolean.TRUE.equals(user.getPasswordSet());
+        this.mustChangePassword = user.isMustChangePassword();
         this.sessionVersion = user.getSessionVersion();
-        this.roles = roles;
+        this.roles = java.util.stream.Stream.concat(roles.stream(), user.getPlatformRoles().stream()).distinct().toList();
     }
 
     @Override
