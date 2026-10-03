@@ -44,9 +44,11 @@ public class SchoolAccessRequestController {
     }
 
     @PostMapping("/api/school-access-requests/{id}/approve")
-    public SchoolAccessRequestDto approve(@PathVariable Long id) {
+    public SchoolAccessRequestDto approve(@PathVariable Long id,
+            @Valid @RequestBody(required = false) org.afritechinnovations.dto.common.StudentAdmissionRequest admission) {
         UserPrincipal approver = requireApprover();
-        return service.approve(id, approver.getId(), isSystemAdmin(approver));
+        return service.approve(id, approver.getId(), isSystemAdmin(approver),
+                admission == null ? null : admission.classId(), admission == null ? null : admission.registrationNumber());
     }
 
     @PostMapping("/api/school-access-requests/{id}/reject")

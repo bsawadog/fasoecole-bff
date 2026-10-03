@@ -12,6 +12,10 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
 
     Optional<EmailVerificationToken> findByTokenHash(String tokenHash);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM EmailVerificationToken t WHERE t.tokenHash = :hash")
+    Optional<EmailVerificationToken> findByTokenHashForUpdate(@Param("hash") String hash);
+
     Optional<EmailVerificationToken> findByUserId(Long userId);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

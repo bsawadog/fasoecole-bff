@@ -16,6 +16,14 @@ import java.time.LocalDate;
 @Builder
 public class Teacher {
 
+    @Column(name = "employee_number", nullable = false, length = 50)
+    private String employeeNumber;
+
+    @PrePersist
+    protected void assignEmployeeNumber() {
+        if (employeeNumber == null || employeeNumber.isBlank()) employeeNumber = "EMP-" + java.util.UUID.randomUUID();
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

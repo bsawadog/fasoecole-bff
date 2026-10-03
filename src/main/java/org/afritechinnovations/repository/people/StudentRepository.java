@@ -14,6 +14,10 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     Optional<Student> findBySchoolIdAndRegistrationNumber(Long schoolId, String registrationNumber);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Student s WHERE s.school.id = :schoolId AND s.registrationNumber = :number")
+    Optional<Student> findBySchoolIdAndRegistrationNumberForUpdate(@Param("schoolId") Long schoolId, @Param("number") String number);
+
     Optional<Student> findByUserId(Long userId);
 
     /** Un même compte peut être élève dans plusieurs établissements. */

@@ -37,6 +37,9 @@ public class OwnerDashboardService {
                 && !permissions.staffAllows(school.getId(), ownerId, StaffModule.DASHBOARD)) {
             throw new AccessDeniedException("Vous ne pouvez consulter que vos propres établissements");
         }
+        Long selectedYear = org.afritechinnovations.service.academic.SelectedAcademicYear.id(schoolId);
+        if (selectedYear == null) selectedYear = jdbcTemplate.query("SELECT id FROM academic_years WHERE school_id=? AND is_current=TRUE", (r,n) -> r.getLong(1), schoolId).stream().findFirst().orElse(-1L);
+        final Long yearId = selectedYear;
         LocalDate today = LocalDate.now();
         OwnerGradeDto.SchoolSummary results = ownerGradeService.dashboardSummary(schoolId, ownerId, today)
                 .orElse(null);
@@ -45,13 +48,14 @@ public class OwnerDashboardService {
                 school.getName(),
                 school.getType(),
                 today,
-                count("SELECT COUNT(*) FROM students WHERE school_id = ?", schoolId),
+                count("SELECT COUNT(DISTINCT student_id) FROM student_enrollments WHERE academic_year_id = ? AND status IN ('ACTIVE','COMPLETED','GRADUATED')", yearId),
                 count("""
                         SELECT COUNT(DISTINCT t.id)
                         FROM teachers t JOIN users u ON u.id = t.user_id
                         WHERE t.school_id = ? AND u.active = TRUE AND u.approved = TRUE
-                        """, schoolId),
-                count("SELECT COUNT(*) FROM classes WHERE school_id = ?", schoolId),
+                          AND EXISTS(SELECT 1 FROM class_subject_teacher a JOIN classes c ON c.id=a.class_id WHERE a.teacher_id=t.id AND c.academic_year_id=?)
+                        """, schoolId, yearId),
+                count("SELECT COUNT(*) FROM classes WHERE school_id = ? AND academic_year_id = ?", schoolId, yearId),
                 count("SELECT COUNT(*) FROM levels WHERE school_id = ?", schoolId),
                 count("""
                         SELECT COUNT(DISTINCT su.user_id)
@@ -65,10 +69,10 @@ public class OwnerDashboardService {
                 count("""
                         SELECT COUNT(*)
                         FROM invoices i JOIN students s ON s.id = i.student_id
-                        WHERE s.school_id = ? AND i.status <> 'CANCELLED'
+                        WHERE s.school_id = ? AND i.academic_year_id = ? AND i.status <> 'CANCELLED'
                           AND i.amount_due - COALESCE(i.discount_amount,0) >
                               COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id=i.id),0)
-                        """, schoolId),
+                        """, schoolId, yearId),
                 decimal("""
                         SELECT COALESCE(SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0) - COALESCE(paid.amount, 0), 0)), 0)
                         FROM invoices i
@@ -78,31 +82,31 @@ public class OwnerDashboardService {
                             FROM payments
                             GROUP BY invoice_id
                         ) paid ON paid.invoice_id = i.id
-                        WHERE s.school_id = ? AND i.status <> 'CANCELLED'
-                        """, schoolId),
+                        WHERE s.school_id = ? AND i.academic_year_id = ? AND i.status <> 'CANCELLED'
+                        """, schoolId, yearId),
                 decimal("""
                         SELECT COALESCE(SUM(p.amount), 0)
                         FROM payments p
                         JOIN invoices i ON i.id = p.invoice_id
                         JOIN students s ON s.id = i.student_id
-                        WHERE s.school_id = ?
-                        """, schoolId),
+                        WHERE s.school_id = ? AND p.payment_date BETWEEN (SELECT start_date FROM academic_years WHERE id=?) AND (SELECT end_date FROM academic_years WHERE id=?)
+                        """, schoolId, yearId, yearId),
                 decimal("""
                         SELECT COALESCE(SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0),0)), 0)
                         FROM invoices i
                         JOIN students s ON s.id = i.student_id
-                        WHERE s.school_id = ? AND i.status <> 'CANCELLED'
-                        """, schoolId),
-                attendanceCount(schoolId, today, null),
-                attendanceCount(schoolId, today, "PRESENT"),
-                attendanceCount(schoolId, today, "ABSENT"),
-                attendanceCount(schoolId, today, "LATE"),
-                attendanceCount(schoolId, today, "EXCUSED"),
+                        WHERE s.school_id = ? AND i.academic_year_id = ? AND i.status <> 'CANCELLED'
+                        """, schoolId, yearId),
+                attendanceCount(schoolId, yearId, today, null),
+                attendanceCount(schoolId, yearId, today, "PRESENT"),
+                attendanceCount(schoolId, yearId, today, "ABSENT"),
+                attendanceCount(schoolId, yearId, today, "LATE"),
+                attendanceCount(schoolId, yearId, today, "EXCUSED"),
                 count("""
                         SELECT COUNT(*)
                         FROM report_cards rc JOIN students s ON s.id = rc.student_id
-                        WHERE s.school_id = ? AND rc.validated = TRUE
-                        """, schoolId),
+                        WHERE s.school_id = ? AND rc.academic_year_id = ? AND rc.validated = TRUE
+                        """, schoolId, yearId),
                 results == null ? null : results.average(),
                 results == null ? null : results.period().name(),
                 results == null ? null : results.passRate(),
@@ -167,15 +171,15 @@ public class OwnerDashboardService {
         return result == null ? 0 : result;
     }
 
-    private long attendanceCount(Long schoolId, LocalDate date, String status) {
+    private long attendanceCount(Long schoolId, Long yearId, LocalDate date, String status) {
         String sql = """
                 SELECT COUNT(*)
                 FROM attendances a JOIN classes c ON c.id = a.class_id
-                WHERE c.school_id = ? AND a.attendance_date = ?
+                WHERE c.school_id = ? AND c.academic_year_id = ? AND a.attendance_date = ?
                 """ + (status == null ? "" : " AND a.status = ?");
         return status == null
-                ? count(sql, schoolId, Date.valueOf(date))
-                : count(sql, schoolId, Date.valueOf(date), status);
+                ? count(sql, schoolId, yearId, Date.valueOf(date))
+                : count(sql, schoolId, yearId, Date.valueOf(date), status);
     }
 
     private BigDecimal decimal(String sql, Object... arguments) {

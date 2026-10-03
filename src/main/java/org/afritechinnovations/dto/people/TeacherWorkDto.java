@@ -11,7 +11,8 @@ public final class TeacherWorkDto {
     }
 
     public record TeacherInfo(Long id, Long schoolId, String firstName, String lastName, String email, String phone,
-                              String specialty, List<String> subjects, Boolean activeInClass, long classCount) {
+                              String specialty, List<String> subjects, Boolean activeInClass, long classCount,
+                              Long userId, Boolean emailVerified, String invitationDeliveryStatus, String employeeNumber) {
     }
 
     public record TeacherDetail(TeacherInfo teacher, String rateType, BigDecimal rate,

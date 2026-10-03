@@ -35,4 +35,14 @@ public class AcademicYear {
     @Builder.Default
     @Column(name = "is_current", nullable = false)
     private Boolean isCurrent = false;
+
+    private java.time.LocalDateTime closedAt;
+    private Long closedBy;
+    private Long nextYearId;
+
+    public boolean isClosed() { return closedAt != null; }
+
+    public void requireOpen() {
+        if (isClosed()) throw new IllegalArgumentException("Cette année est clôturée et consultable uniquement.");
+    }
 }

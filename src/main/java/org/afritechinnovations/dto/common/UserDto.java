@@ -13,6 +13,12 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class UserDto {
+    @Builder.Default
+    private java.util.List<String> childRegistrationNumbers = java.util.List.of();
+    @Builder.Default
+    private java.util.List<String> childReview = java.util.List.of();
+    private String schoolIdentifier;
+    private String identifierReview;
     private Long id;
     private String firstName;
     private String lastName;
@@ -21,6 +27,9 @@ public class UserDto {
     private Boolean active;
     private Boolean approved;
     private Boolean emailVerified;
+    private Boolean passwordSet;
+    private String invitationDeliveryStatus;
+    private List<String> onboardingSteps;
     private Long requestedSchoolId;
     private String requestedSchoolName;
     private SchoolType requestedSchoolType;

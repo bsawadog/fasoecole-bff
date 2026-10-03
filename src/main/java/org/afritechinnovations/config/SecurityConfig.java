@@ -72,6 +72,12 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, exception) -> {
+                    response.setStatus(401);
+                    response.setContentType("application/json");
+                    response.setCharacterEncoding("UTF-8");
+                    response.getWriter().write("{\"status\":401,\"message\":\"Authentification requise\"}");
+                }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/schools/registration-options").permitAll()
@@ -86,18 +92,8 @@ public class SecurityConfig {
                             if (current == null || !(current.getPrincipal() instanceof UserPrincipal principal)) {
                                 return new AuthorizationDecision(false);
                             }
-                            if (principal.isActive() && principal.isApproved()) {
-                                return new AuthorizationDecision(true);
-                            }
-                            String method = context.getRequest().getMethod();
-                            String path = context.getRequest().getServletPath();
-                            boolean profileOnly = principal.isActive()
-                                    && ((("/api/users/me".equals(path))
-                                            && (HttpMethod.GET.matches(method) || HttpMethod.PUT.matches(method)))
-                                        || ("/api/users/me/password".equals(path) && HttpMethod.PUT.matches(method))
-                                        || ("/api/users/me/email-verification".equals(path)
-                                            && HttpMethod.POST.matches(method)));
-                            return new AuthorizationDecision(profileOnly);
+                            return new AuthorizationDecision(org.afritechinnovations.security.AccountAccessPolicy.allows(
+                                    principal, context.getRequest().getMethod(), context.getRequest().getServletPath()));
                         })
                 )
                 .authenticationProvider(authenticationProvider())

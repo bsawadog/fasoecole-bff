@@ -13,4 +13,9 @@ public class ApproveUserRequest {
 
     @NotNull
     private RoleName role;
+
+    private Long classId;
+
+    @jakarta.validation.constraints.Size(max = 50)
+    private String registrationNumber;
 }

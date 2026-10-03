@@ -195,12 +195,13 @@ public class TeacherSpaceService {
             Map<Long, String> subjectsByClass = classSubjectTeacherRepository
                     .findAllWithSubjectAndClassByTeacherId(teacher.getId()).stream()
                     .filter(ClassSubjectTeacher::isActive)
+                .filter(a -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(a.getSchoolClass().getAcademicYear()))
                     .collect(Collectors.groupingBy(cst -> cst.getSchoolClass().getId(),
                             Collectors.mapping(cst -> cst.getSubject().getName(),
                                     Collectors.collectingAndThen(Collectors.toCollection(java.util.TreeSet::new),
                                             set -> String.join(", ", set)))));
             for (TeacherScheduleSlot slot : scheduleSlotRepository.findAllWithClassByTeacherId(teacher.getId())) {
-                if (!isEffective(slot, today)) {
+                if (!org.afritechinnovations.service.academic.SelectedAcademicYear.matches(slot.getSchoolClass().getAcademicYear()) || !isEffective(slot, org.afritechinnovations.service.academic.SelectedAcademicYear.viewDate(slot.getSchoolClass().getSchool().getId(), today))) {
                     continue;
                 }
                 SchoolClass cls = slot.getSchoolClass();

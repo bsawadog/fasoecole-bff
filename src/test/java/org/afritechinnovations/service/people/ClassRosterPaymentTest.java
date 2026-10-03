@@ -47,6 +47,7 @@ class ClassRosterPaymentTest {
     @Mock
     SchoolPermissions permissions;
 
+    @Mock org.afritechinnovations.service.auth.EmailVerificationService invitations;
     @InjectMocks ClassRosterService service;
 
     private Invoice invoice;

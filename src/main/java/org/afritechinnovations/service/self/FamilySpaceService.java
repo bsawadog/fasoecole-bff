@@ -78,6 +78,7 @@ public class FamilySpaceService {
 
     public List<SelfServiceDto.StudentOverview> students(Long userId) {
         return accessible(userId).values().stream()
+                .filter(a -> org.afritechinnovations.service.academic.SelectedAcademicYear.schoolMatches(a.student().getSchool().getId()))
                 .map(a -> overview(a.student(), a.relationship()))
                 .sorted(Comparator.comparing(SelfServiceDto.StudentOverview::fullName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
@@ -224,7 +225,7 @@ public class FamilySpaceService {
         LocalDate today = LocalDate.now();
         List<SelfServiceDto.ScheduleEntry> entries = new ArrayList<>();
         for (TeacherScheduleSlot slot : scheduleSlotRepository.findAllWithTeacherByClassId(cls.getId())) {
-            if (!TeacherSpaceService.isEffective(slot, today)) {
+            if (!TeacherSpaceService.isEffective(slot, org.afritechinnovations.service.academic.SelectedAcademicYear.viewDate(student.getSchool().getId(), today))) {
                 continue;
             }
             entries.add(new SelfServiceDto.ScheduleEntry(slot.getId(), slot.getDayOfWeek(), slot.getStartTime(),
@@ -240,6 +241,7 @@ public class FamilySpaceService {
     public List<SelfServiceDto.AttendanceItem> attendance(Long userId, Long studentId) {
         Student student = requireAccess(userId, studentId).student();
         return attendanceRepository.findByStudentIdOrderByAttendanceDateDesc(student.getId()).stream()
+                .filter(a -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(a.getSchoolClass().getAcademicYear()))
                 .filter(a -> a.getStatus() != AttendanceStatus.PRESENT)
                 .map(a -> new SelfServiceDto.AttendanceItem(a.getId(), a.getAttendanceDate(), a.getStatus(),
                         a.getJustification()))
@@ -249,6 +251,7 @@ public class FamilySpaceService {
     public List<SelfServiceDto.InvoiceItem> invoices(Long userId, Long studentId) {
         Student student = requireAccess(userId, studentId).student();
         return invoiceRepository.findByStudentId(student.getId()).stream()
+                .filter(i -> invoiceInView(i))
                 .filter(i -> i.getStatus() != InvoiceStatus.CANCELLED)
                 .sorted(Comparator.comparing(Invoice::getDueDate))
                 .map(i -> {
@@ -302,6 +305,7 @@ public class FamilySpaceService {
         long unjustified = 0;
         long lates = 0;
         for (Attendance a : attendanceRepository.findByStudentIdOrderByAttendanceDateDesc(student.getId())) {
+            if(!org.afritechinnovations.service.academic.SelectedAcademicYear.matches(a.getSchoolClass().getAcademicYear())) continue;
             if (year != null && (a.getAttendanceDate().isBefore(year.getStartDate())
                     || a.getAttendanceDate().isAfter(year.getEndDate()))) {
                 continue;
@@ -322,7 +326,7 @@ public class FamilySpaceService {
         int overdue = 0;
         LocalDate today = LocalDate.now();
         for (Invoice invoice : invoiceRepository.findByStudentId(student.getId())) {
-            if (invoice.getStatus() == InvoiceStatus.CANCELLED) {
+            if (!invoiceInView(invoice) || invoice.getStatus() == InvoiceStatus.CANCELLED) {
                 continue;
             }
             BigDecimal net = invoice.getAmountDue().subtract(nz(invoice.getDiscountAmount()));
@@ -346,14 +350,21 @@ public class FamilySpaceService {
 
     /** Inscription active ; à défaut la plus récente (année clôturée). */
     private Optional<StudentEnrollment> currentEnrollment(Long studentId) {
-        List<StudentEnrollment> enrollments = enrollmentRepository.findByStudentId(studentId);
+        List<StudentEnrollment> enrollments = enrollmentRepository.findByStudentId(studentId).stream()
+                .filter(e -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(e.getAcademicYear())).toList();
         return enrollments.stream()
-                .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE)
+                .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE && (org.afritechinnovations.service.academic.SelectedAcademicYear.id(e.getAcademicYear().getSchool().getId()) != null || Boolean.TRUE.equals(e.getAcademicYear().getIsCurrent())))
                 .findFirst()
                 .or(() -> enrollments.stream()
                         .filter(e -> e.getStatus() == EnrollmentStatus.COMPLETED
                                 || e.getStatus() == EnrollmentStatus.GRADUATED)
                         .max(Comparator.comparing((StudentEnrollment e) -> e.getAcademicYear().getStartDate())));
+    }
+
+    private boolean invoiceInView(Invoice invoice) {
+        if(org.afritechinnovations.service.academic.SelectedAcademicYear.matches(invoice.getAcademicYear())) return true;
+        Long yearId = org.afritechinnovations.service.academic.SelectedAcademicYear.id(invoice.getStudent().getSchool().getId());
+        return yearId != null && invoiceRepository.carriedInvoiceIds(yearId).contains(invoice.getId());
     }
 
     private BigDecimal paid(Invoice invoice) {

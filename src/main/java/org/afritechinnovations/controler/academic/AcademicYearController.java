@@ -17,6 +17,15 @@ public class AcademicYearController {
 
     private final AcademicYearService academicYearService;
     private final AccessGuard guard;
+    private final org.afritechinnovations.repository.common.SchoolRepository schools;
+
+    @GetMapping("/context-schools")
+    public List<java.util.Map<String,Object>> contextSchools() {
+        return schools.findAll().stream().filter(s -> {
+            try { guard.requireSchoolMember(s.getId()); return true; }
+            catch (org.springframework.security.access.AccessDeniedException e) { return false; }
+        }).map(s -> java.util.Map.<String,Object>of("id",s.getId(),"name",s.getName())).toList();
+    }
 
     @GetMapping
     public List<AcademicYearDto> getBySchool(@RequestParam Long schoolId) {

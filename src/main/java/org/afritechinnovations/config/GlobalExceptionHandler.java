@@ -62,6 +62,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataConflict(DataIntegrityViolationException ex) {
+        Throwable cause = ex.getMostSpecificCause();
+        if (cause.getMessage() != null && cause.getMessage().contains("année scolaire est clôturée")) {
+            return buildResponse(HttpStatus.CONFLICT, "Cette année scolaire est clôturée et consultable uniquement.");
+        }
         return buildResponse(HttpStatus.CONFLICT, "Un compte ou une demande existe déjà avec ces informations");
     }
 
@@ -86,6 +90,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
         log.error("Erreur non gérée", ex);
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Une erreur interne est survenue");
+    }
+
+    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, Object>> handleConcurrentUpdate(Exception ex) {
+        return buildResponse(HttpStatus.CONFLICT, "Le compte a été modifié simultanément. Actualisez la page et réessayez.");
     }
 
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)

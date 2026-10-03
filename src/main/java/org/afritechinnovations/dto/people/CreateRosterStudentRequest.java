@@ -25,8 +25,8 @@ public class CreateRosterStudentRequest {
     @Size(max = 150)
     private String email;
 
-    @NotBlank
-    @Size(min = 8, max = 100)
+    /** Ancien champ conservé pour compatibilité ; le mot de passe est choisi par invitation. */
+    @Size(max = 100)
     private String password;
 
     @Size(max = 30)

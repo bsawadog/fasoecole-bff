@@ -54,14 +54,25 @@ public class UserController {
 
     @PostMapping("/me/email-verification")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public void resendEmailVerification() {
-        userService.resendEmailVerification(guard.currentUserId());
+    public java.util.Map<String, Boolean> resendEmailVerification() {
+        return java.util.Map.of("emailSent", userService.resendEmailVerification(guard.currentUserId()));
     }
 
     @GetMapping
     public List<UserDto> getActive() {
         guard.requireSuperAdmin();
         return userService.findActive();
+    }
+
+    @PostMapping("/{id}/invitation")
+    public java.util.Map<String, Boolean> resendInvitation(@PathVariable Long id, Authentication authentication) {
+        UserPrincipal approver = requireApprover(authentication);
+        var target = userService.findById(id);
+        if (!guard.isSuperAdmin()) {
+            if (target.getRequestedSchoolId() != null && !Boolean.TRUE.equals(target.getApproved())) guard.requireOwnedSchool(target.getRequestedSchoolId());
+            else guard.requireUserManager(id);
+        }
+        return java.util.Map.of("emailSent", userService.resendInvitation(id));
     }
 
     @GetMapping("/pending")
@@ -82,7 +93,9 @@ public class UserController {
                 request.getSchoolId(),
                 request.getRole(),
                 approver.getId(),
-                systemAdmin
+                systemAdmin,
+                request.getClassId(),
+                request.getRegistrationNumber()
         );
     }
 
@@ -101,7 +114,7 @@ public class UserController {
     /** Les comptes sont créés par l'inscription publique ; la création directe est réservée à la plateforme. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public UserDto create(@RequestBody CreateUserRequest request) {
+    public UserDto create(@Valid @RequestBody CreateUserRequest request) {
         guard.requireSuperAdmin();
         return userService.create(request);
     }

@@ -67,7 +67,7 @@ class SchoolInboxServiceTest {
         AbsenceReport report = AbsenceReport.builder().id(3L).student(child).school(school)
                 .startDate(monday).endDate(monday.plusDays(1)).reason("Fièvre")
                 .status(AbsenceReportStatus.PENDING).build();
-        when(reports.findById(3L)).thenReturn(Optional.of(report));
+        when(reports.findByIdForUpdate(3L)).thenReturn(Optional.of(report));
         Attendance inRange = attendance(monday, AttendanceStatus.ABSENT, null);
         Attendance alreadyJustified = attendance(monday.plusDays(1), AttendanceStatus.LATE, "Bus");
         Attendance outOfRange = attendance(monday.plusDays(3), AttendanceStatus.ABSENT, null);

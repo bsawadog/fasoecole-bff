@@ -13,6 +13,12 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class SchoolAccessRequestDto {
+    @Builder.Default
+    private java.util.List<String> childRegistrationNumbers = java.util.List.of();
+    @Builder.Default
+    private java.util.List<String> childReview = java.util.List.of();
+    private String schoolIdentifier;
+    private String identifierReview;
     private Long id;
     private Long userId;
     private String firstName;

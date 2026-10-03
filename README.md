@@ -269,6 +269,82 @@ ni l'exécution des migrations ni les valeurs de la base réelle.
 
 ### Exécution des migrations
 
+### Parcours et sécurité des comptes
+
+| Création | Vérification et mot de passe | Mise en service |
+| --- | --- | --- |
+| Inscription publique enseignant, parent ou élève | Le titulaire choisit son mot de passe puis confirme son courriel | Approbation du propriétaire ; le parent lié à un enfant peut recevoir un accès automatique tracé |
+| Enseignant créé par l'établissement | Invitation par courriel ; le titulaire choisit son mot de passe | Profil et affectation classe/matière créés par l'établissement |
+| Élève créé par l'établissement | Invitation par courriel ; le titulaire choisit son mot de passe | Dossier, matricule, année et inscription active créés ensemble |
+| Parent ajouté à un enfant | Invitation si un courriel est fourni ; réutilisation du compte existant par courriel | Rattachement explicite à l'enfant ; preuve du courriel exigée pour l'accès automatique |
+| Personnel administratif | Invitation ou notification d'accès pour un compte déjà vérifié | Modules limités par la délégation du propriétaire |
+| Compte créé directement par la plateforme | Invitation ; aucun mot de passe transmis par l'administrateur | Les rôles sont attribués séparément par la plateforme |
+
+Les rôles `SUPER_ADMIN`, `SCHOOL_ADMIN` et `STAFF` ne sont jamais acceptés dans l'inscription publique,
+une demande d'activation ou une approbation publique. Les comptes actifs mais incomplets peuvent
+consulter/modifier leur profil, changer leur mot de passe et renvoyer le lien ; les API métier exigent
+un compte actif, approuvé, un courriel vérifié et un mot de passe défini. L'interface les dirige vers
+**Mon profil**, qui affiche les étapes restantes (courriel, approbation, enfant, classe ou matière).
+
+L'approbation publique d'un élève ou enseignant nécessite désormais un identifiant attribué par
+l'établissement et rattache le compte au dossier correspondant. La classe et les affectations du
+dossier existant sont conservées ; l'approbation ne crée pas une nouvelle inscription ni un dossier
+en doublon. Une inscription ou un transfert scolaire reste une opération explicite de l'établissement.
+Une réinitialisation reste possible pendant l'attente d'approbation : elle prouve le courriel mais
+n'accorde pas à elle seule les droits métier.
+
+Les liens utilisent des jetons aléatoires dont seul le hash SHA-256 est stocké. Ils expirent, sont
+liés au courriel destinataire et consommés sous verrou de base pour empêcher deux utilisations
+simultanées. Une adresse modifiée invalide les anciens liens. Un changement ou une réinitialisation
+du mot de passe augmente la version de session : les anciens JWT sont refusés, et le frontend
+déconnecte la session révoquée. Une réinitialisation concurrente à la connexion ne peut pas produire
+un nouveau JWT valide avec l'ancien mot de passe.
+
+Le résultat des invitations est visible dans les listes élèves/enseignants et les demandes de compte :
+`SENT` signifie que le serveur SMTP a accepté l'envoi, **pas** que le destinataire l'a reçu dans sa boîte.
+`FAILED` permet de repérer un échec et de renvoyer un lien. Le personnel dispose de **Envoyer un lien** ;
+aucun mot de passe provisoire n'est affiché ou envoyé. Le champ API historique `temporaryPassword`
+reste `null`. La remise SMTP reste synchrone ; une reprise manuelle génère un nouveau lien et remplace
+l'ancien. Il ne s'agit pas d'une file d'envoi avec reprise automatique après arrêt du serveur.
+
+L'inscription publique retourne toujours `202` et la même réponse sans JWT, que le compte soit
+nouveau ou déjà connu. Les protections locales limitent à 20 connexions/minute et 10 appels aux
+parcours de liens/minute par IP, plus 3 envois de liens/minute par compte (vérification, activation et
+réinitialisation réunies). Une limite d'envoi conserve le précédent lien valide. Les compteurs sont
+en mémoire et propres à chaque instance : un déploiement avec plusieurs instances doit utiliser
+un limiteur partagé ou la passerelle. Le filtre ne fait pas confiance à un `X-Forwarded-For` envoyé
+par le client ; la configuration d'un proxy de confiance doit être traitée au déploiement.
+
+**Migration V31 :** redémarrer le backend pour l'appliquer. Les comptes et anciens jetons sont
+conservés ; les anciens liens sans destinataire enregistré sont refusés et doivent être renvoyés.
+Les comptes déjà présents dont le courriel n'est pas vérifié doivent le confirmer depuis **Mon profil**.
+La migration n'active aucun profil Spring et ne remplace aucune configuration d'environnement.
+
+### Tests du parcours de compte
+
+```powershell
+# Dans fasoecole-bff
+mvn test
+
+# Dans fasoecole-spa
+npm test -- --watch=false
+npm run build:prod
+```
+
+Les suites couvrent les trois profils publics, les invitations de l'école et du personnel, la preuve
+du courriel, les approbations, les dossiers et classes, les accès interdits, les erreurs SMTP, les
+liens expirés/remplacés/réutilisés, les limites de tentatives et les sessions révoquées. Les tests HTTP
+emploient la vraie chaîne Spring Security et le fournisseur d'authentification ; les tests composés
+du parcours utilisent le vrai hachage BCrypt et les services de compte. La persistance et SMTP sont
+simulés dans ces tests : une réception Gmail réelle et les courses de transactions PostgreSQL ne
+sont pas démontrées par les tests unitaires. La migration V31 a aussi été vérifiée séparément sur
+des tables temporaires PostgreSQL, avec annulation de la transaction.
+
+Les workflows GitHub Actions exécutent déjà ces suites avant de construire les applications.
+Les tests Angular utilisent au maximum deux workers pour limiter la consommation mémoire de jsdom.
+Le budget de styles par composant est de 8 ko (avertissement) et 12 ko (erreur), adapté aux modules
+actuels ; le budget du chargement initial reste inchangé.
+
 ### Modules de l'espace enseignant
 
 Le menu enseignant comporte **Mes classes**, **Notes**, **Mon emploi du temps**, **Présences et retards**,
@@ -293,3 +369,30 @@ Redémarrer le backend après la mise à jour pour appliquer les migrations.
 Les scripts Flyway se trouvent dans `src/main/resources/db/migration` et sont exécutés automatiquement au démarrage de l'application.
 
 La migration V6 ajoute les types `PRESCOLAIRE` et `MIXTE` sans modifier les établissements, niveaux ou classes existants. Un établissement mixte peut activer des niveaux du préscolaire au lycée ; les autres types restent disponibles. Chaque classe doit utiliser une année scolaire et un niveau appartenant au même établissement. Le catalogue proposé dans la gestion de l'établissement n'ajoute un niveau qu'à la demande du propriétaire. Les universités peuvent activer les niveaux Licence, Master et Doctorat ; les centres de formation peuvent activer CAP, BEP, BT et BTS. Ces suggestions sont des niveaux, pas encore un modèle de filière ou de diplôme.
+
+## Inscription parent et matricules des enfants
+
+- À l’inscription publique, un parent indique l’établissement et au moins un matricule de ses enfants dans cet établissement (maximum 20, 50 caractères chacun). Les matricules sont du texte : les zéros initiaux sont conservés et les doublons supprimés.
+- La demande conserve les matricules déclarés ; aucune recherche de noms d’enfants n’est révélée au demandeur et aucun lien parent–enfant n’est créé à ce stade.
+- Dans **Demandes de compte**, l’admin autorisé voit les matricules, les noms correspondants et les matricules introuvables. Il doit vérifier le lien familial : connaître un matricule ne prouve pas la parentalité.
+- À l’approbation, tous les matricules doivent exister dans l’établissement demandé. Le dossier parent et les liens manquants sont créés dans la même transaction que l’accès à l’établissement ; les liens existants sont conservés sans doublons. Un matricule introuvable bloque toute l’approbation.
+- Un parent peut corriger ses matricules initiaux dans **Mon profil** tant que son inscription est en attente. Les anciennes demandes sans matricule doivent être complétées, sauf si des liens vers les enfants de cette école existent déjà.
+- Depuis l’accueil parent, **Ajouter un établissement** mène à la demande d’accès dans le profil. Le parent choisit la nouvelle école et renseigne les matricules de ses enfants dans cette école. L’accès et les associations nécessitent son approbation ; une demande supplémentaire erronée peut être annulée puis recréée.
+- Les invitations à un compte existant conservent leurs matricules dans le jeton d’activation et ne modifient les informations du compte qu’après preuve du courriel. Un renvoi conserve ce contexte.
+- La migration **V32** ajoute trois tables de déclarations (inscription, demande supplémentaire, activation), sans modifier les associations existantes. Redémarrer le backend pour l’appliquer via Flyway.
+
+Les tests couvrent l’inscription, la preuve du courriel, l’approbation, l’association des enfants, les demandes supplémentaires, la confidentialité des correspondances, les matricules inconnus et les liens déjà existants. Les repositories et SMTP sont simulés dans les tests unitaires.
+
+## Matricule élève et numéro d’employé à l’inscription
+
+- À l’inscription publique, les profils **STUDENT** et **TEACHER** doivent fournir `schoolIdentifier` : respectivement leur matricule et leur numéro d’employé, propres à l’établissement choisi. La demande d’accès à une autre école exige aussi le numéro dans cette autre école.
+- Le champ reste du texte (maximum 50 caractères, zéros initiaux conservés). Les correspondances nominatives sont réservées à la revue de l’admin autorisé : aucune recherche publique n’expose le répertoire des personnes.
+- L’approbation exige un dossier existant avec ce numéro dans cette école. Le rattachement conserve le dossier, ses classes, ses affectations et les autres données. Un numéro inconnu, un dossier associé à un compte ayant choisi un mot de passe ou invité avec un autre courriel bloque l’approbation.
+- Un dossier sans courriel et sans mot de passe choisi peut être rattaché après vérification explicite de l’identité par l’admin. Son ancien accès technique à cette école est retiré sans supprimer le compte ni ses éventuels autres accès.
+- Le titulaire peut corriger son identifiant initial dans **Mon profil** tant que le compte est en attente. Les anciennes demandes sans numéro doivent être complétées avant approbation.
+- Pour un nouvel admis sans numéro, l’établissement crée le dossier et envoie une invitation. La création scolaire peut aussi réutiliser le compte public en attente avec le même courriel, le même profil et la même école, sans remplacer son mot de passe ni l’approuver automatiquement.
+- Les enseignants ont maintenant un **numéro d’employé**, unique par école, visible dans leur liste et saisissable lors de la création scolaire. La migration **V33** attribue `EMP-<id>` aux dossiers existants ; les nouveaux dossiers sans numéro saisi en reçoivent un automatiquement.
+- Les invitations scolaires restent un parcours administrateur déjà autorisé ; leur confirmation de courriel et le choix de mot de passe restent nécessaires. Les numéros ne remplacent jamais la vérification d’identité, la preuve du courriel ni l’approbation.
+- Les demandes invalides peuvent encore être soumises : le numéro bloque l’approbation et l’accès, tandis que la limitation des tentatives freine les soumissions automatiques.
+
+Redémarrer le backend pour appliquer **V33**, puis recharger le frontend. Les tests unitaires couvrent les identifiants obligatoires, les dossiers inconnus, les écoles distinctes, les risques de prise de contrôle, la réutilisation des dossiers, les comptes en attente et la conservation des identifiants dans l’activation. La persistance et SMTP restent simulés dans ces tests.

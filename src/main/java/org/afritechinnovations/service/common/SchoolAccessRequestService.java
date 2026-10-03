@@ -41,9 +41,10 @@ public class SchoolAccessRequestService {
     private final SchoolRepository schoolRepository;
     private final SchoolUserRepository schoolUserRepository;
     private final RoleRepository roleRepository;
+    private final ParentChildAdmissionService parentChildAdmission;
+    private final SchoolIdentityAdmissionService identityAdmission;
     private final ParentRepository parentRepository;
     private final ParentStudentRepository parentStudentRepository;
-    private final org.afritechinnovations.service.people.TeacherProfileService teacherProfileService;
 
     @Transactional(readOnly = true)
     public List<SchoolAccessRequestDto> findMine(Long userId) {
@@ -53,7 +54,7 @@ public class SchoolAccessRequestService {
     public SchoolAccessRequestDto create(Long userId, CreateSchoolAccessRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + userId));
-        if (!Boolean.TRUE.equals(user.getApproved())) {
+        if (!Boolean.TRUE.equals(user.getActive()) || !Boolean.TRUE.equals(user.getApproved()) || !Boolean.TRUE.equals(user.getEmailVerified()) || !Boolean.TRUE.equals(user.getPasswordSet())) {
             throw new AccessDeniedException("Votre compte doit d'abord être validé par votre établissement");
         }
         List<SchoolUser> links = schoolUserRepository.findByUserId(userId);
@@ -67,6 +68,8 @@ public class SchoolAccessRequestService {
         if (!REQUESTABLE_ROLES.contains(role)) {
             throw new IllegalArgumentException("Le profil demandé doit être enseignant, parent ou élève");
         }
+        var identifier = SchoolIdentityAdmissionService.normalize(role, request.getSchoolIdentifier());
+        var childNumbers = ParentChildAdmissionService.normalize(request.getChildRegistrationNumbers(), role == RoleName.PARENT);
         School school = schoolRepository.findById(request.getSchoolId())
                 .filter(s -> s.getStatus() == SchoolStatus.ACTIVE)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement sélectionné introuvable ou inactif"));
@@ -82,7 +85,9 @@ public class SchoolAccessRequestService {
         return toDto(requestRepository.save(SchoolAccessRequest.builder()
                 .user(user)
                 .school(school)
+                .schoolIdentifier(identifier)
                 .requestedRole(role)
+                .childRegistrationNumbers(role == RoleName.PARENT ? new java.util.ArrayList<>(childNumbers) : new java.util.ArrayList<>())
                 .build()));
     }
 
@@ -106,7 +111,12 @@ public class SchoolAccessRequestService {
                     ? List.of()
                     : requestRepository.findByStatusInAndSchoolIdInOrderByCreatedAtAsc(statuses, schoolIds);
         }
-        return pending.stream().map(this::toDto).toList();
+        return pending.stream().map(request -> {
+            var dto = toDto(request);
+            if (request.getRequestedRole() == RoleName.PARENT) dto.setChildReview(parentChildAdmission.review(request.getSchool().getId(), request.getChildRegistrationNumbers()));
+            if (request.getRequestedRole() == RoleName.STUDENT || request.getRequestedRole() == RoleName.TEACHER) dto.setIdentifierReview(identityAdmission.review(request.getSchool().getId(), request.getRequestedRole(), request.getSchoolIdentifier()));
+            return dto;
+        }).toList();
     }
 
     /** Le propriétaire valide un accès accordé automatiquement : il disparaît de la liste à traiter. */
@@ -138,10 +148,25 @@ public class SchoolAccessRequestService {
     }
 
     public SchoolAccessRequestDto approve(Long requestId, Long approverId, boolean systemAdmin) {
+        return approve(requestId, approverId, systemAdmin, null, null);
+    }
+
+    public SchoolAccessRequestDto approve(Long requestId, Long approverId, boolean systemAdmin, Long classId, String registrationNumber) {
         SchoolAccessRequest request = findPending(requestId);
+        org.afritechinnovations.security.RegistrationRoles.requireAllowed(request.getRequestedRole());
+        if (!Boolean.TRUE.equals(request.getUser().getEmailVerified()) || !Boolean.TRUE.equals(request.getUser().getActive())
+                || !Boolean.TRUE.equals(request.getUser().getApproved()) || !Boolean.TRUE.equals(request.getUser().getPasswordSet())) {
+            throw new IllegalArgumentException("Le compte doit être actif, approuvé et son courriel confirmé avant l'approbation");
+        }
         requireOwner(request.getSchool(), approverId, systemAdmin);
         if (request.getSchool().getStatus() != SchoolStatus.ACTIVE) {
             throw new IllegalArgumentException("Impossible d'accorder l'accès à un établissement inactif");
+        }
+        if (request.getRequestedRole() == RoleName.PARENT) {
+            parentChildAdmission.attachApproved(request.getUser(), request.getSchool().getId(), request.getChildRegistrationNumbers());
+        }
+        if (request.getRequestedRole() == RoleName.TEACHER || request.getRequestedRole() == RoleName.STUDENT) {
+            identityAdmission.attachApproved(request.getUser(), request.getSchool(), request.getRequestedRole(), request.getSchoolIdentifier());
         }
         String roleName = request.getRequestedRole().name();
         boolean alreadyLinked = schoolUserRepository.findByUserId(request.getUser().getId()).stream()
@@ -155,12 +180,6 @@ public class SchoolAccessRequestService {
                     .school(request.getSchool())
                     .role(role)
                     .build());
-        }
-        if (request.getRequestedRole() == RoleName.TEACHER) {
-            teacherProfileService.ensureProfile(request.getUser(), request.getSchool());
-        }
-        if (request.getRequestedRole() == RoleName.PARENT && parentRepository.findByUserId(request.getUser().getId()).isEmpty()) {
-            parentRepository.save(org.afritechinnovations.model.people.Parent.builder().user(request.getUser()).build());
         }
         return decide(request, SchoolAccessStatus.APPROVED, approverId);
     }
@@ -197,6 +216,8 @@ public class SchoolAccessRequestService {
         User user = request.getUser();
         School school = request.getSchool();
         return SchoolAccessRequestDto.builder()
+                .childRegistrationNumbers(List.copyOf(request.getChildRegistrationNumbers()))
+                .schoolIdentifier(request.getSchoolIdentifier())
                 .id(request.getId())
                 .userId(user.getId())
                 .firstName(user.getFirstName())

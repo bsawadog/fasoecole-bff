@@ -101,6 +101,8 @@ class FamilySpaceServiceTest {
 
     @Test
     void onlyAGuardianCanActForTheChild() {
+        when(parentStudents.findByParentId(70L)).thenReturn(List.of(ParentStudent.builder()
+                .parent(Parent.builder().id(70L).user(parentUser).build()).student(childA).build()));
         assertEquals(11L, service.requireGuardedChild(7L, 11L).getId());
         when(students.findAllByUserId(20L)).thenReturn(List.of(childA));
         when(parents.findByUserId(20L)).thenReturn(Optional.empty());

@@ -103,6 +103,7 @@ public class TeacherWorkService {
     private final SchoolRepository schoolRepository;
     private final EmailService emailService;
     private final TeacherProfileService teacherProfileService;
+    private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
 
     private Clock clock = Clock.systemDefaultZone();
 
@@ -261,15 +262,47 @@ public class TeacherWorkService {
                                                          Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         Subject subject = requireSchoolSubject(request.getSubjectId(), schoolClass);
+        Teacher teacher = createTeacherProfile(schoolClass.getSchool(), request);
+        User user = teacher.getUser();
+        classSubjectTeacherRepository.save(ClassSubjectTeacher.builder()
+                .schoolClass(schoolClass)
+                .subject(subject)
+                .teacher(teacher)
+                .build());
+        invitations.sendInvitation(user);
+        return toTeacherInfo(teacher, List.of(subject.getName()), true, 1);
+    }
+
+    public TeacherWorkDto.TeacherInfo createSchoolTeacher(Long schoolId, org.afritechinnovations.dto.people.CreateTeacherRequest request, Long userId, boolean systemAdmin) {
+        School school = schoolRepository.findById(schoolId).orElseThrow(() -> new IllegalArgumentException("Établissement introuvable."));
+        if (!systemAdmin && (school.getOwner()==null || !school.getOwner().getId().equals(userId)))
+            throw new AccessDeniedException("Création réservée au propriétaire.");
+        Teacher teacher = createTeacherProfile(school, request);
+        invitations.sendInvitation(teacher.getUser());
+        return toTeacherInfo(teacher, List.of(), null, 0);
+    }
+
+    private Teacher createTeacherProfile(School school, org.afritechinnovations.dto.people.CreateTeacherRequest request) {
+        String employeeNumber = blankToNull(request.getEmployeeNumber());
+        if (employeeNumber != null && teacherRepository.findBySchoolIdAndEmployeeNumber(school.getId(), employeeNumber).isPresent()) {
+            throw new IllegalArgumentException("Ce numéro d’employé existe déjà dans cet établissement");
+        }
         String email = request.getEmail().trim().toLowerCase();
-        if (userRepository.existsByEmailIgnoreCase(email)) {
+        User pending = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if ((pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
+                || !Boolean.TRUE.equals(pending.getActive()) || pending.getRequestedRole() != org.afritechinnovations.model.common.RoleName.TEACHER
+                || !school.getId().equals(pending.getRequestedSchoolId()))) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec ce courriel : " + email);
         }
-        User user = userRepository.save(User.builder()
+        if (pending != null && teacherRepository.findByUserId(pending.getId()).stream().anyMatch(t -> t.getSchool().getId().equals(school.getId()))) {
+            throw new IllegalArgumentException("Ce compte possède déjà un dossier enseignant dans cet établissement");
+        }
+        User user = pending != null ? pending : userRepository.save(User.builder()
                 .firstName(request.getFirstName().trim())
                 .lastName(request.getLastName().trim())
                 .email(email)
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                .passwordSet(false)
                 .phone(blankToNull(request.getPhone()))
                 .active(true)
                 .approved(true)
@@ -278,21 +311,17 @@ public class TeacherWorkService {
                 .orElseThrow(() -> new IllegalStateException("Rôle non configuré : TEACHER"));
         schoolUserRepository.save(SchoolUser.builder()
                 .user(user)
-                .school(schoolClass.getSchool())
+                .school(school)
                 .role(teacherRole)
                 .build());
         Teacher teacher = teacherRepository.save(Teacher.builder()
                 .user(user)
-                .school(schoolClass.getSchool())
+                .school(school)
+                .employeeNumber(employeeNumber)
                 .specialty(blankToNull(request.getSpecialty()))
                 .hireDate(request.getHireDate())
                 .build());
-        classSubjectTeacherRepository.save(ClassSubjectTeacher.builder()
-                .schoolClass(schoolClass)
-                .subject(subject)
-                .teacher(teacher)
-                .build());
-        return toTeacherInfo(teacher, List.of(subject.getName()), true, 1);
+        return teacher;
     }
 
     public TeacherWorkDto.TeacherInfo assignClassTeacher(Long classId, AssignClassTeacherRequest request,
@@ -982,7 +1011,8 @@ public class TeacherWorkService {
                                                      long classCount) {
         User user = teacher.getUser();
         return new TeacherWorkDto.TeacherInfo(teacher.getId(), teacher.getSchool().getId(), user.getFirstName(), user.getLastName(),
-                user.getEmail(), user.getPhone(), teacher.getSpecialty(), subjects, activeInClass, classCount);
+                user.getEmail(), user.getPhone(), teacher.getSpecialty(), subjects, activeInClass, classCount,
+                user.getId(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()), teacher.getEmployeeNumber());
     }
 
     private TeacherWorkDto.SlotInfo toSlotInfo(TeacherScheduleSlot slot) {

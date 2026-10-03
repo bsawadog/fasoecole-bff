@@ -14,6 +14,9 @@ import java.time.LocalDateTime;
 @Builder
 public class PasswordResetToken {
 
+    @Column(name = "recipient_email", length = 150)
+    private String recipientEmail;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

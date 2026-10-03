@@ -21,7 +21,7 @@ public final class OwnerStaffDto {
 
     public record StaffRow(Long id, Long userId, String firstName, String lastName, String email, String phone,
                            String jobTitle, List<String> modules, boolean active, boolean managedAccount,
-                           LocalDateTime createdAt) {
+                           LocalDateTime createdAt, Boolean emailVerified, String invitationDeliveryStatus) {
     }
 
     public record StaffRequest(
@@ -30,10 +30,10 @@ public final class OwnerStaffDto {
             @Email(message = "Adresse e-mail invalide") @Size(max = 150) String email,
             @Size(max = 30) String phone,
             @NotBlank(message = "La fonction est obligatoire") @Size(max = 80) String jobTitle,
-            @NotEmpty(message = "Sélectionnez au moins un module") Set<StaffModule> modules) {
+            @jakarta.validation.constraints.NotNull Set<StaffModule> modules) {
     }
 
-    /** Réponse de création : le mot de passe provisoire n'est renvoyé qu'une seule fois. */
+    /** temporaryPassword reste null pour compatibilité ; seul le titulaire choisit son mot de passe. */
     public record StaffCreated(StaffRow staff, String temporaryPassword, boolean existingAccount,
                                boolean emailSent) {
     }

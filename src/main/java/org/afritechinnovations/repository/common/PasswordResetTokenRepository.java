@@ -9,5 +9,9 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
 
     Optional<PasswordResetToken> findByTokenHash(String tokenHash);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT t FROM PasswordResetToken t WHERE t.tokenHash = :hash")
+    Optional<PasswordResetToken> findByTokenHashForUpdate(@org.springframework.data.repository.query.Param("hash") String hash);
+
     void deleteByUserId(Long userId);
 }

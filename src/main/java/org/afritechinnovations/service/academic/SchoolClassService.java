@@ -32,6 +32,7 @@ public class SchoolClassService {
     public List<SchoolClassDto> findBySchool(Long schoolId) {
         return schoolClassRepository.findBySchoolId(schoolId)
                 .stream()
+                .filter(c -> SelectedAcademicYear.matches(c.getAcademicYear()))
                 .map(this::toDto)
                 .toList();
     }

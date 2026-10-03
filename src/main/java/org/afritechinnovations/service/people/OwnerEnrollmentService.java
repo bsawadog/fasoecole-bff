@@ -94,6 +94,7 @@ public class OwnerEnrollmentService {
         if (!schoolClass.getSchool().getId().equals(schoolId)) {
             throw new IllegalArgumentException("Cette classe n'appartient pas à l'établissement");
         }
+        schoolClass.getAcademicYear().requireOpen();
         if (schoolClass.getCapacity() != null
                 && enrollmentRepository.findBySchoolClassIdAndStatus(schoolClass.getId(), EnrollmentStatus.ACTIVE).size()
                 >= schoolClass.getCapacity()) {
@@ -171,7 +172,8 @@ public class OwnerEnrollmentService {
 
     public OwnerEnrollmentDto.NewYearResult createYear(Long schoolId, OwnerEnrollmentDto.NewYearRequest request,
                                                        Long userId, boolean systemAdmin) {
-        School school = requireSchool(schoolId, userId, systemAdmin);
+        School school = requireClosureOwner(schoolId, userId, systemAdmin);
+        academicYearRepository.lockSchoolYears(schoolId);
         String label = request.label().trim();
         if (request.endDate().isBefore(request.startDate()) || request.endDate().isEqual(request.startDate())) {
             throw new IllegalArgumentException("La date de fin doit suivre la date de début");
@@ -238,6 +240,7 @@ public class OwnerEnrollmentService {
             }
         }
 
+        if (request.makeCurrent() && existing.stream().anyMatch(y -> Boolean.TRUE.equals(y.getIsCurrent()))) throw new IllegalArgumentException("Utilisez la clôture pour changer l’année en cours.");
         if (request.makeCurrent()) {
             makeCurrent(year, existing);
         }
@@ -251,7 +254,11 @@ public class OwnerEnrollmentService {
                 .orElseThrow(() -> new IllegalArgumentException("Année scolaire introuvable : " + yearId));
         Long schoolId = year.getSchool().getId();
         requireSchool(schoolId, userId, systemAdmin);
-        makeCurrent(year, academicYearRepository.findBySchoolId(schoolId));
+        year.requireOpen();
+        requireClosureOwner(schoolId,userId,systemAdmin);
+        List<AcademicYear> locked = academicYearRepository.lockSchoolYears(schoolId);
+        if (locked.stream().anyMatch(y -> Boolean.TRUE.equals(y.getIsCurrent()) && !y.getId().equals(yearId))) throw new IllegalArgumentException("Utilisez la clôture pour changer l’année en cours.");
+        makeCurrent(year, locked);
         return new OwnerEnrollmentDto.Overview(yearInfos(schoolId));
     }
 
@@ -295,7 +302,7 @@ public class OwnerEnrollmentService {
             List<OwnerEnrollmentDto.StudentPlan> students = new ArrayList<>();
             for (StudentEnrollment e : rows) {
                 Double average = results.averages().get(e.getStudent().getId());
-                EnrollmentDecision suggestion = average == null || average >= results.passMark()
+                EnrollmentDecision suggestion = average == null ? null : average >= results.passMark()
                         ? (nextLevel.isPresent() ? EnrollmentDecision.PROMOTED : EnrollmentDecision.GRADUATED)
                         : EnrollmentDecision.REPEATED;
                 Long suggestedClass = targetClassFor(cls, suggestion, nextLevel, toClasses)
@@ -318,7 +325,7 @@ public class OwnerEnrollmentService {
                         target != null ? target.getSchoolClass().getName() : null));
             }
             classPlans.add(new OwnerEnrollmentDto.ClassPlan(cls.getId(), cls.getName(), cls.getLevel().getId(),
-                    cls.getLevel().getName(), nextLevel.isEmpty(), students));
+                    cls.getLevel().getName(), nextLevel.isEmpty(), nextLevel.map(Level::getId).orElse(null), students));
         }
 
         List<OwnerEnrollmentDto.TargetClass> targets = toClasses.stream()
@@ -331,9 +338,12 @@ public class OwnerEnrollmentService {
 
     public OwnerEnrollmentDto.PromotionResult apply(Long schoolId, OwnerEnrollmentDto.PromotionRequest request,
                                                     Long userId, boolean systemAdmin) {
-        requireSchool(schoolId, userId, systemAdmin);
+        requireClosureOwner(schoolId, userId, systemAdmin);
+        academicYearRepository.lockSchoolYears(schoolId);
         AcademicYear from = requireYear(request.fromYearId(), schoolId);
+        from.requireOpen();
         AcademicYear to = requireYear(request.toYearId(), schoolId);
+        to.requireOpen();
         requireDistinctYears(from, to);
 
         Map<Long, SchoolClass> toClasses = schoolClassRepository
@@ -344,6 +354,7 @@ public class OwnerEnrollmentService {
                 .filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE)
                 .forEach(e -> enrolled.merge(e.getSchoolClass().getId(), 1L, Long::sum));
         Map<Long, OwnerGradeService.AnnualResults> resultsByClass = new HashMap<>();
+        List<Level> levels = orderedLevels(schoolId);
 
         int applied = 0;
         List<OwnerEnrollmentDto.Skipped> skipped = new ArrayList<>();
@@ -372,6 +383,12 @@ public class OwnerEnrollmentService {
                 if (target == null) {
                     skipped.add(new OwnerEnrollmentDto.Skipped(e.getId(), name,
                             "Choisissez une classe de l'année " + to.getLabel()));
+                    continue;
+                }
+                Long expectedLevel = item.decision() == EnrollmentDecision.REPEATED ? e.getSchoolClass().getLevel().getId()
+                        : nextLevel(levels,e.getSchoolClass().getLevel()).map(Level::getId).orElse(null);
+                if (!Objects.equals(target.getLevel().getId(),expectedLevel)) {
+                    skipped.add(new OwnerEnrollmentDto.Skipped(e.getId(),name,"Le redoublement conserve le niveau ; le passage doit rejoindre le niveau suivant."));
                     continue;
                 }
                 boolean alreadyEnrolled = enrollmentRepository
@@ -416,10 +433,11 @@ public class OwnerEnrollmentService {
     public void undo(Long enrollmentId, Long userId, boolean systemAdmin) {
         StudentEnrollment e = enrollmentRepository.findById(enrollmentId)
                 .orElseThrow(() -> new IllegalArgumentException("Inscription introuvable : " + enrollmentId));
-        requireSchool(e.getSchoolClass().getSchool().getId(), userId, systemAdmin);
+        requireClosureOwner(e.getSchoolClass().getSchool().getId(), userId, systemAdmin);
         if (e.getStatus() != EnrollmentStatus.COMPLETED) {
             throw new IllegalArgumentException("Aucune décision à annuler pour cette inscription");
         }
+        e.getAcademicYear().requireOpen();
         LocalDate yearStart = e.getAcademicYear().getStartDate();
         List<StudentEnrollment> later = enrollmentRepository.findByStudentId(e.getStudent().getId()).stream()
                 .filter(x -> !x.getId().equals(e.getId()))
@@ -454,7 +472,7 @@ public class OwnerEnrollmentService {
                     long active = c.getOrDefault(EnrollmentStatus.ACTIVE, 0L);
                     boolean past = y.getEndDate().isBefore(LocalDate.now());
                     return new OwnerEnrollmentDto.YearInfo(y.getId(), y.getLabel(), y.getStartDate(), y.getEndDate(),
-                            Boolean.TRUE.equals(y.getIsCurrent()), classCounts.getOrDefault(y.getId(), 0L).intValue(),
+                            Boolean.TRUE.equals(y.getIsCurrent()), y.isClosed(), classCounts.getOrDefault(y.getId(), 0L).intValue(),
                             active, c.getOrDefault(EnrollmentStatus.COMPLETED, 0L), past ? active : 0L);
                 })
                 .toList();
@@ -548,6 +566,12 @@ public class OwnerEnrollmentService {
             throw new IllegalArgumentException("Cette année scolaire n'appartient pas à l'établissement");
         }
         return year;
+    }
+
+    private School requireClosureOwner(Long schoolId,Long userId,boolean systemAdmin) {
+        School school = requireSchool(schoolId,userId,systemAdmin);
+        if(!systemAdmin && (school.getOwner()==null || !school.getOwner().getId().equals(userId))) throw new AccessDeniedException("La clôture et les décisions de passage sont réservées au propriétaire.");
+        return school;
     }
 
     private School requireSchool(Long schoolId, Long userId, boolean systemAdmin) {

@@ -128,6 +128,7 @@ public class ParentAutoAccessService {
         if (schoolId == null || role == null) {
             return;
         }
+        org.afritechinnovations.security.RegistrationRoles.requireAllowed(role);
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) {
             return;
@@ -142,6 +143,9 @@ public class ParentAutoAccessService {
         schoolRepository.findById(schoolId)
                 .filter(s -> s.getStatus() == SchoolStatus.ACTIVE)
                 .ifPresent(school -> requestRepository.save(SchoolAccessRequest.builder()
-                        .user(user).school(school).requestedRole(role).build()));
+                        .user(user).school(school).requestedRole(role)
+                        .schoolIdentifier(schoolId.equals(user.getRequestedSchoolId()) && role == user.getRequestedRole() ? user.getSchoolIdentifier() : null)
+                        .childRegistrationNumbers(role == RoleName.PARENT && schoolId.equals(user.getRequestedSchoolId())
+                                ? new java.util.ArrayList<>(user.getChildRegistrationNumbers()) : new java.util.ArrayList<>()).build()));
     }
 }

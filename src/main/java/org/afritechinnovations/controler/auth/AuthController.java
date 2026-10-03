@@ -38,16 +38,24 @@ public class AuthController {
     private final CustomUserDetailsService userDetailsService;
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         try {
             var authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+                    new UsernamePasswordAuthenticationToken(request.getEmail().trim(), request.getPassword()));
 
             UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
+            UserPrincipal authenticatedPrincipal = principal;
             // Parent reconnu par son courriel : accès automatique aux établissements de ses enfants.
             parentAutoAccessService.grantFromChildren(principal.getId(), false);
             principal = (UserPrincipal) userDetailsService.loadUserByUsername(principal.getEmail());
-            String token = jwtService.generateToken(principal.getId(), principal.getEmail(), principal.getRoles());
+            // Une réinitialisation entre la vérification du mot de passe et l'émission du JWT
+            // ne doit pas permettre d'ouvrir une nouvelle session avec les anciens identifiants.
+            if (!principal.getId().equals(authenticatedPrincipal.getId())
+                    || principal.getSessionVersion() != authenticatedPrincipal.getSessionVersion()
+                    || !java.util.Objects.equals(principal.getPasswordHash(), authenticatedPrincipal.getPasswordHash())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            String token = jwtService.generateToken(principal.getId(), principal.getEmail(), principal.getRoles(), principal.getSessionVersion());
 
             return ResponseEntity.ok(LoginResponse.builder()
                     .token(token)
@@ -62,25 +70,9 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterUserRequest request) {
-        if (userService.requestActivationOfSchoolCreatedAccount(request)) {
-            // Compte créé par une école : rien n'est modifié tant que le lien reçu par courriel n'est pas ouvert.
-            return ResponseEntity.accepted().body(Map.of(
-                    "activationRequired", true,
-                    "message", "Un établissement a déjà enregistré cette adresse. Un lien d'activation vient d'être "
-                            + "envoyé à " + request.getEmail().trim().toLowerCase()
-                            + " : ouvrez-le pour choisir votre mot de passe et accéder à votre compte."));
-        }
-        userService.registerPending(request);
-        var authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
-        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        String token = jwtService.generateToken(principal.getId(), principal.getEmail(), principal.getRoles());
-        return ResponseEntity.status(HttpStatus.CREATED).body(LoginResponse.builder()
-                .token(token)
-                .userId(principal.getId())
-                .email(principal.getEmail())
-                .roles(principal.getRoles())
-                .build());
+        userService.receiveRegistration(request);
+        return ResponseEntity.accepted().body(Map.of("activationRequired", true,
+                "message", "Votre demande a été reçue. Si cette adresse permet une inscription ou une activation, consultez votre courriel pour les instructions. Pour un compte existant, utilisez la connexion ou Mot de passe oublié."));
     }
 
     @PostMapping("/verify-email")

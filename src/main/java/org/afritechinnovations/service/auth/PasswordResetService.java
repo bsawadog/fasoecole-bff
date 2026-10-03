@@ -34,6 +34,7 @@ public class PasswordResetService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final org.afritechinnovations.service.common.ParentAutoAccessService parentAutoAccessService;
+    private final org.afritechinnovations.security.AuthAttemptLimiter mailAttempts;
 
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
@@ -44,14 +45,16 @@ public class PasswordResetService {
     @Transactional
     public void requestReset(String email) {
         userRepository.findByEmailIgnoreCase(email.trim())
-                .filter(user -> Boolean.TRUE.equals(user.getActive()) && Boolean.TRUE.equals(user.getApproved()))
+                .filter(user -> Boolean.TRUE.equals(user.getActive()))
                 .ifPresent(this::createAndSendResetLink);
     }
 
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
+        if (rawToken == null || rawToken.isBlank()) throw new IllegalArgumentException("Lien de réinitialisation invalide ou expiré");
+        if (newPassword == null || newPassword.length() < 8 || newPassword.length() > 100) throw new IllegalArgumentException("Le mot de passe doit contenir de 8 à 100 caractères");
         String tokenHash = hash(rawToken);
-        PasswordResetToken resetToken = tokenRepository.findByTokenHash(tokenHash)
+        PasswordResetToken resetToken = tokenRepository.findByTokenHashForUpdate(tokenHash)
                 .orElseThrow(() -> new IllegalArgumentException("Lien de réinitialisation invalide ou expiré"));
 
         if (!resetToken.getExpiresAt().isAfter(LocalDateTime.now())) {
@@ -60,12 +63,16 @@ public class PasswordResetService {
         }
 
         User user = resetToken.getUser();
-        if (!Boolean.TRUE.equals(user.getActive()) || !Boolean.TRUE.equals(user.getApproved())) {
+        if (resetToken.getRecipientEmail() == null || !resetToken.getRecipientEmail().equalsIgnoreCase(user.getEmail())) {
+            throw new IllegalArgumentException("Lien de réinitialisation invalide ou expiré");
+        }
+        if (!Boolean.TRUE.equals(user.getActive())) {
             tokenRepository.delete(resetToken);
             throw new IllegalArgumentException("Lien de réinitialisation invalide ou expiré");
         }
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.revokeSessions();
         // Le lien a été reçu dans la boîte : l'adresse est prouvée.
         boolean newlyVerified = !Boolean.TRUE.equals(user.getEmailVerified()) || !Boolean.TRUE.equals(user.getPasswordSet());
         user.setPasswordSet(true);
@@ -77,25 +84,36 @@ public class PasswordResetService {
         }
     }
 
-    private void createAndSendResetLink(User user) {
+    @Transactional
+    public boolean sendManagedReset(User user) {
+        if (!Boolean.TRUE.equals(user.getActive())) throw new IllegalArgumentException("Compte inactif");
+        return createAndSendResetLink(user);
+    }
+
+    private boolean createAndSendResetLink(User user) {
+        if (!mailAttempts.allow("account-mail:" + user.getId(), 3)) return false;
         byte[] randomBytes = new byte[32];
         SECURE_RANDOM.nextBytes(randomBytes);
         String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
         String tokenHash = hash(rawToken);
 
         tokenRepository.deleteByUserId(user.getId());
+        tokenRepository.flush();
         tokenRepository.save(PasswordResetToken.builder()
                 .user(user)
                 .tokenHash(tokenHash)
+                .recipientEmail(user.getEmail())
                 .expiresAt(LocalDateTime.now().plusMinutes(tokenExpirationMinutes))
                 .build());
 
         String resetUrl = frontendBaseUrl.replaceAll("/+$", "") + "/login?token=" + rawToken;
         try {
             emailService.sendPasswordReset(user.getEmail(), resetUrl, tokenExpirationMinutes);
+            return true;
         } catch (MailException ex) {
             tokenRepository.deleteByUserId(user.getId());
             log.error("Password reset email delivery failed: {}: {}", ex.getClass().getSimpleName(), ex.getMessage());
+            return false;
         }
     }
 

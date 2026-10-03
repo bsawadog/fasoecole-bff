@@ -35,6 +35,7 @@ class ClassRosterTransferTest {
     @Mock ParentStudentRepository parentStudents;
     @Mock ClassSubjectTeacherRepository classTeachers;
     @Mock SchoolPermissions permissions;
+    @Mock org.afritechinnovations.service.auth.EmailVerificationService invitations;
     @InjectMocks ClassRosterService service;
 
     private final User owner = User.builder().id(10L).build();

@@ -25,6 +25,9 @@ public class JwtService {
     }
 
     public String generateToken(Long userId, String email, List<String> roles) {
+        return generateToken(userId, email, roles, 0);
+    }
+    public String generateToken(Long userId, String email, List<String> roles, long sessionVersion) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expirationMs);
 
@@ -32,6 +35,7 @@ public class JwtService {
                 .subject(email)
                 .claim("userId", userId)
                 .claim("roles", roles)
+                .claim("sessionVersion", sessionVersion)
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(key)
@@ -58,6 +62,16 @@ public class JwtService {
 
     private boolean isTokenExpired(String token) {
         return extractClaim(token, Claims::getExpiration).before(new Date());
+    }
+
+    public boolean isTokenValid(String token, UserPrincipal principal) {
+        Claims claims = extractAllClaims(token);
+        Number version = claims.get("sessionVersion", Number.class);
+        Number userId = claims.get("userId", Number.class);
+        return claims.getSubject().equals(principal.getEmail())
+                && userId != null && userId.longValue() == principal.getId()
+                && (version == null ? 0 : version.longValue()) == principal.getSessionVersion()
+                && claims.getExpiration().after(new Date());
     }
 
     private <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {

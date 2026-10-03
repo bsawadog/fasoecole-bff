@@ -24,8 +24,8 @@ public class CreateUserRequest {
     @Size(max = 150)
     private String email;
 
-    @NotBlank
-    @Size(min = 8, max = 100)
+    /** Compatibilité avec les anciens clients ; la création utilise désormais une invitation. */
+    @Size(max = 100)
     private String password;
 
     @Size(max = 30)

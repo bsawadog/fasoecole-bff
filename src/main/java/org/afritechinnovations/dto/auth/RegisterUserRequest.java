@@ -11,6 +11,12 @@ import org.afritechinnovations.model.common.RoleName;
 @Getter
 @Setter
 public class RegisterUserRequest {
+    @jakarta.validation.constraints.Size(max = 50)
+    private String schoolIdentifier;
+
+    @jakarta.validation.constraints.Size(max = 20)
+    private java.util.List<@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 50) String> childRegistrationNumbers;
+
     @NotBlank
     @Size(max = 100)
     private String firstName;

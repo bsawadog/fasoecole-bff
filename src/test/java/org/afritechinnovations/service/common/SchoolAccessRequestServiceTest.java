@@ -39,11 +39,14 @@ class SchoolAccessRequestServiceTest {
     @Mock org.afritechinnovations.repository.people.ParentRepository parents;
     @Mock org.afritechinnovations.repository.people.ParentStudentRepository parentStudents;
     @Mock org.afritechinnovations.service.people.TeacherProfileService teacherProfiles;
+    @Mock org.afritechinnovations.service.people.ClassRosterService classRoster;
+    @Mock ParentChildAdmissionService childAdmission;
+    @Mock SchoolIdentityAdmissionService identityAdmission;
     @InjectMocks SchoolAccessRequestService service;
 
     private final User owner = User.builder().id(10L).build();
     private final User teacher = User.builder().id(7L).firstName("Awa").lastName("Diallo")
-            .email("awa@ecole.bf").approved(true).active(true).build();
+            .email("awa@ecole.bf").approved(true).active(true).emailVerified(true).build();
     private final School home = School.builder().id(1L).name("École A").owner(owner).status(SchoolStatus.ACTIVE).build();
     private final School other = School.builder().id(2L).name("École B").owner(owner).status(SchoolStatus.ACTIVE).build();
     private final Role teacherRole = Role.builder().name("TEACHER").build();
@@ -52,6 +55,7 @@ class SchoolAccessRequestServiceTest {
         CreateSchoolAccessRequest request = new CreateSchoolAccessRequest();
         request.setSchoolId(schoolId);
         request.setRequestedRole(role);
+        request.setSchoolIdentifier(role == RoleName.STUDENT ? "001" : role == RoleName.TEACHER ? "EMP-01" : null);
         return request;
     }
 
@@ -70,6 +74,36 @@ class SchoolAccessRequestServiceTest {
     }
 
     @Test
+    void parentRequestsStoreMatriculesWithoutExposingDirectoryMatchesOrGrantingAccess() {
+        when(users.findById(7L)).thenReturn(Optional.of(teacher));
+        when(schoolUsers.findByUserId(7L)).thenReturn(List.of(SchoolUser.builder().user(teacher).school(home).role(Role.builder().name("PARENT").build()).build()));
+        var request = request(2L, RoleName.PARENT);
+        assertThrows(IllegalArgumentException.class, () -> service.create(7L, request));
+        request.setChildRegistrationNumbers(List.of(" 001 ", "002", "001"));
+        when(schools.findById(2L)).thenReturn(Optional.of(other));
+        when(requests.save(any())).thenAnswer(i -> i.getArgument(0));
+        var dto = service.create(7L, request);
+        assertEquals(List.of("001", "002"), dto.getChildRegistrationNumbers());
+        assertEquals(List.of(), dto.getChildReview());
+        assertEquals(SchoolAccessStatus.PENDING, dto.getStatus());
+        verifyNoInteractions(childAdmission);
+        verify(schoolUsers, never()).save(any());
+    }
+
+    @Test
+    void approvalLinksClaimedChildrenOnlyAfterSchoolOwnerValidationAndReviewIsPrivate() {
+        SchoolAccessRequest pending = SchoolAccessRequest.builder().id(3L).user(teacher).school(other)
+            .requestedRole(RoleName.PARENT).childRegistrationNumbers(new java.util.ArrayList<>(List.of("001"))).build();
+        when(requests.findById(3L)).thenReturn(Optional.of(pending));
+        assertThrows(AccessDeniedException.class, () -> service.approve(3L, 99L, false));
+        verifyNoInteractions(childAdmission);
+        when(roles.findByName("PARENT")).thenReturn(Optional.of(Role.builder().name("PARENT").build()));
+        when(requests.save(any())).thenAnswer(i -> i.getArgument(0));
+        assertEquals(SchoolAccessStatus.APPROVED, service.approve(3L, 10L, false).getStatus());
+        verify(childAdmission).attachApproved(teacher, 2L, List.of("001"));
+    }
+
+    @Test
     void rejectsSchoolAlreadyAccessibleWithSameRole() {
         when(users.findById(7L)).thenReturn(Optional.of(teacher));
         when(schoolUsers.findByUserId(7L)).thenReturn(List.of(
@@ -81,8 +115,21 @@ class SchoolAccessRequestServiceTest {
     }
 
     @Test
+    void onlyAuthorizedSchoolReviewResolvesUnapprovedChildNames() {
+        SchoolAccessRequest pending = SchoolAccessRequest.builder().id(3L).user(teacher).school(other)
+                .requestedRole(RoleName.PARENT).childRegistrationNumbers(new java.util.ArrayList<>(List.of("001"))).build();
+        when(requests.findByUserIdOrderByCreatedAtDesc(7L)).thenReturn(List.of(pending));
+        assertEquals(List.of(), service.findMine(7L).getFirst().getChildReview());
+        verifyNoInteractions(childAdmission);
+        when(schools.findByOwnerId(10L)).thenReturn(List.of(other));
+        when(requests.findByStatusInAndSchoolIdInOrderByCreatedAtAsc(any(), eq(List.of(2L)))).thenReturn(List.of(pending));
+        when(childAdmission.review(2L, List.of("001"))).thenReturn(List.of("001 — Sali Diallo"));
+        assertEquals(List.of("001 — Sali Diallo"), service.findPendingFor(10L, false).getFirst().getChildReview());
+    }
+
+    @Test
     void ownersCannotUseThisFlow() {
-        when(users.findById(10L)).thenReturn(Optional.of(User.builder().id(10L).approved(true).build()));
+        when(users.findById(10L)).thenReturn(Optional.of(User.builder().id(10L).approved(true).emailVerified(true).build()));
         when(schoolUsers.findByUserId(10L)).thenReturn(List.of(SchoolUser.builder()
                 .school(home).role(Role.builder().name("SCHOOL_ADMIN").build()).build()));
 
@@ -105,7 +152,7 @@ class SchoolAccessRequestServiceTest {
         verify(schoolUsers).save(link.capture());
         assertSame(other, link.getValue().getSchool());
         assertSame(teacherRole, link.getValue().getRole());
-        verify(teacherProfiles).ensureProfile(teacher, other);
+        verify(identityAdmission).attachApproved(teacher, other, RoleName.TEACHER, pending.getSchoolIdentifier());
         assertEquals(SchoolAccessStatus.APPROVED, result.getStatus());
     }
 
@@ -153,5 +200,31 @@ class SchoolAccessRequestServiceTest {
         assertThrows(AccessDeniedException.class, () -> service.revokeAutomatic(6L, 99L, false));
         assertEquals(SchoolAccessStatus.APPROVED, service.confirmAutomatic(6L, 10L, false).getStatus());
         assertThrows(IllegalArgumentException.class, () -> service.revokeAutomatic(8L, 10L, false));
+    }
+
+    @Test
+    void unverifiedUserCannotRequestOrReceiveAnotherSchoolAccess() {
+        teacher.setEmailVerified(false);
+        when(users.findById(7L)).thenReturn(Optional.of(teacher));
+        assertThrows(AccessDeniedException.class, () -> service.create(7L, request(2L, RoleName.TEACHER)));
+        SchoolAccessRequest pending = SchoolAccessRequest.builder().id(3L).user(teacher).school(other)
+                .requestedRole(RoleName.TEACHER).status(SchoolAccessStatus.PENDING).build();
+        when(requests.findById(3L)).thenReturn(Optional.of(pending));
+        assertThrows(IllegalArgumentException.class, () -> service.approve(3L, 10L, false));
+        verify(schoolUsers, never()).save(any());
+    }
+
+    @Test
+    void persistedPrivilegedRequestIsRejectedAndStudentApprovalProvisionsTheClass() {
+        SchoolAccessRequest pending = SchoolAccessRequest.builder().id(3L).user(teacher).school(other)
+                .requestedRole(RoleName.SUPER_ADMIN).status(SchoolAccessStatus.PENDING).build();
+        when(requests.findById(3L)).thenReturn(Optional.of(pending));
+        assertThrows(IllegalArgumentException.class, () -> service.approve(3L, 10L, false));
+        verify(schoolUsers, never()).save(any());
+        pending.setRequestedRole(RoleName.STUDENT);
+        when(roles.findByName("STUDENT")).thenReturn(Optional.of(Role.builder().name("STUDENT").build()));
+        when(requests.save(pending)).thenReturn(pending);
+        assertEquals(SchoolAccessStatus.APPROVED, service.approve(3L, 10L, false, 11L, "M1").getStatus());
+        verify(identityAdmission).attachApproved(teacher, other, RoleName.STUDENT, pending.getSchoolIdentifier());
     }
 }

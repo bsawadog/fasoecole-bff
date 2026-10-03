@@ -14,7 +14,9 @@ public record ClassRosterRowDto(
         LocalDate birthDate,
         String gender,
         List<ParentInfo> parents,
-        List<String> teacherNames
+        List<String> teacherNames,
+        Boolean emailVerified,
+        String invitationDeliveryStatus
 ) {
     public record ParentInfo(
             Long parentId,

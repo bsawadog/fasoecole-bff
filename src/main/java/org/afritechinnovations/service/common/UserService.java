@@ -32,8 +32,9 @@ public class UserService {
     private final RoleRepository roleRepository;
     private final SchoolUserRepository schoolUserRepository;
     private final org.afritechinnovations.service.auth.EmailVerificationService emailVerificationService;
-    private final org.afritechinnovations.service.people.TeacherProfileService teacherProfileService;
-    private final org.afritechinnovations.repository.people.ParentRepository parentRepository;
+    private final AccountOnboardingService onboardingService;
+    private final ParentChildAdmissionService parentChildAdmission;
+    private final SchoolIdentityAdmissionService identityAdmission;
 
     public List<UserDto> findActive() {
         return userRepository.findByActiveTrueAndApprovedTrueOrderByLastNameAsc()
@@ -55,18 +56,22 @@ public class UserService {
     }
 
     public UserDto create(CreateUserRequest request) {
-        if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
+        String email = request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + request.getEmail());
         }
         User user = User.builder()
-                .firstName(request.getFirstName())
-                .lastName(request.getLastName())
-                .email(request.getEmail())
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .firstName(request.getFirstName().trim())
+                .lastName(request.getLastName().trim())
+                .email(email)
+                .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                .passwordSet(false)
                 .phone(request.getPhone())
                 .active(true)
                 .build();
-        return toDto(userRepository.save(user));
+        user = userRepository.save(user);
+        emailVerificationService.sendInvitation(user);
+        return toDto(user);
     }
 
     /**
@@ -75,6 +80,9 @@ public class UserService {
      * @return vrai si le cas a été traité ainsi.
      */
     public boolean requestActivationOfSchoolCreatedAccount(RegisterUserRequest request) {
+        var identifier = SchoolIdentityAdmissionService.normalize(request.getRequestedRole(), request.getSchoolIdentifier());
+        org.afritechinnovations.security.RegistrationRoles.requireAllowed(request.getRequestedRole());
+        java.util.List<String> childNumbers = ParentChildAdmissionService.normalize(request.getChildRegistrationNumbers(), request.getRequestedRole() == RoleName.PARENT);
         String email = request.getEmail().trim().toLowerCase();
         User existing = userRepository.findByEmailIgnoreCase(email).orElse(null);
         if (existing == null || Boolean.TRUE.equals(existing.getPasswordSet()) || !Boolean.TRUE.equals(existing.getActive())) {
@@ -84,11 +92,14 @@ public class UserService {
                 .filter(school -> school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
                 .map(School::getId)
                 .orElse(null);
-        emailVerificationService.sendActivation(existing, schoolId, request.getRequestedRole());
+        if (schoolId == null) throw new IllegalArgumentException("Établissement sélectionné introuvable ou inactif");
+        emailVerificationService.sendActivation(existing, schoolId, request.getRequestedRole(), childNumbers, identifier);
         return true;
     }
 
     public UserDto registerPending(RegisterUserRequest request) {
+        var identifier = SchoolIdentityAdmissionService.normalize(request.getRequestedRole(), request.getSchoolIdentifier());
+        java.util.List<String> childNumbers = ParentChildAdmissionService.normalize(request.getChildRegistrationNumbers(), request.getRequestedRole() == RoleName.PARENT);
         String email = request.getEmail().trim().toLowerCase();
         if (request.getRequestedRole() != RoleName.TEACHER
                 && request.getRequestedRole() != RoleName.PARENT
@@ -111,7 +122,9 @@ public class UserService {
                 .phone(request.getPhone())
                 .active(true)
                 .approved(false)
+                .schoolIdentifier(identifier)
                 .requestedSchoolId(requestedSchool.getId())
+                .childRegistrationNumbers(request.getRequestedRole() == RoleName.PARENT ? new java.util.ArrayList<>(childNumbers) : new java.util.ArrayList<>())
                 .requestedRole(request.getRequestedRole())
                 .build();
         user = userRepository.save(user);
@@ -119,14 +132,36 @@ public class UserService {
         return toDto(user);
     }
 
+    /** Réponse publique identique : ne révèle ni l'existence ni l'état du compte. */
+    public void receiveRegistration(RegisterUserRequest request) {
+        var identifier = SchoolIdentityAdmissionService.normalize(request.getRequestedRole(), request.getSchoolIdentifier());
+        var childNumbers = ParentChildAdmissionService.normalize(request.getChildRegistrationNumbers(), request.getRequestedRole() == RoleName.PARENT);
+        org.afritechinnovations.security.RegistrationRoles.requireAllowed(request.getRequestedRole());
+        schoolRepository.findById(request.getSchoolId())
+                .filter(s -> s.getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE)
+                .orElseThrow(() -> new IllegalArgumentException("Établissement sélectionné introuvable ou inactif"));
+        User existing = userRepository.findByEmailIgnoreCase(request.getEmail().trim().toLowerCase()).orElse(null);
+        if (existing == null) registerPending(request);
+        else if (Boolean.TRUE.equals(existing.getActive())) {
+            if (!Boolean.TRUE.equals(existing.getPasswordSet())) emailVerificationService.sendActivation(existing, request.getSchoolId(), request.getRequestedRole(), childNumbers, identifier);
+            else if (!Boolean.TRUE.equals(existing.getEmailVerified())) emailVerificationService.sendVerification(existing);
+        }
+    }
+
     /** Renvoie le lien de confirmation de l'adresse du compte connecté. */
-    public void resendEmailVerification(Long userId) {
+    public boolean resendEmailVerification(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + userId));
         if (Boolean.TRUE.equals(user.getEmailVerified())) {
             throw new IllegalArgumentException("Votre adresse courriel est déjà vérifiée");
         }
-        emailVerificationService.sendVerification(user);
+        return emailVerificationService.sendInvitation(user);
+    }
+
+    public boolean resendInvitation(Long userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+        if (!Boolean.TRUE.equals(user.getActive())) throw new IllegalArgumentException("Compte inactif");
+        return emailVerificationService.sendInvitation(user);
     }
 
     public List<UserDto> findPendingApprovals(Long approverId, boolean systemAdmin) {
@@ -143,17 +178,34 @@ public class UserService {
         }
         return pendingUsers
                 .stream()
-                .map(this::toDto)
+                .map(user -> {
+                    UserDto dto = toDto(user);
+                    if (user.getRequestedRole() == RoleName.PARENT && user.getRequestedSchoolId() != null) {
+                        dto.setChildReview(parentChildAdmission.review(user.getRequestedSchoolId(), user.getChildRegistrationNumbers()));
+                    }
+                    if ((user.getRequestedRole() == RoleName.STUDENT || user.getRequestedRole() == RoleName.TEACHER) && user.getRequestedSchoolId() != null) {
+                        dto.setIdentifierReview(identityAdmission.review(user.getRequestedSchoolId(), user.getRequestedRole(), user.getSchoolIdentifier()));
+                    }
+                    return dto;
+                })
                 .toList();
     }
 
     public UserDto approvePendingUser(Long userId, Long schoolId, RoleName roleName,
                                      Long approverId, boolean systemAdmin) {
+        return approvePendingUser(userId, schoolId, roleName, approverId, systemAdmin, null, null);
+    }
+
+    public UserDto approvePendingUser(Long userId, Long schoolId, RoleName roleName,
+                                     Long approverId, boolean systemAdmin, Long classId, String registrationNumber) {
         if (roleName != RoleName.TEACHER && roleName != RoleName.PARENT && roleName != RoleName.STUDENT) {
             throw new IllegalArgumentException("Un propriétaire peut attribuer uniquement un rôle enseignant, parent ou étudiant");
         }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Demande d'inscription introuvable"));
+        if (!Boolean.TRUE.equals(user.getActive()) || !Boolean.TRUE.equals(user.getEmailVerified()) || !Boolean.TRUE.equals(user.getPasswordSet())) {
+            throw new IllegalArgumentException("Le titulaire doit confirmer son courriel et choisir son mot de passe avant l'approbation");
+        }
         if (Boolean.TRUE.equals(user.getApproved())) {
             throw new IllegalArgumentException("Cette demande a déjà été traitée");
         }
@@ -174,6 +226,18 @@ public class UserService {
             }
         }
 
+        if (roleName == RoleName.PARENT) {
+            if (!java.util.Objects.equals(schoolId, user.getRequestedSchoolId())) {
+                throw new IllegalArgumentException("Les matricules doivent être vérifiés dans l'établissement demandé");
+            }
+            parentChildAdmission.attachApproved(user, schoolId, user.getChildRegistrationNumbers());
+        }
+        if (roleName == RoleName.TEACHER || roleName == RoleName.STUDENT) {
+            if (roleName != user.getRequestedRole() || !java.util.Objects.equals(schoolId, user.getRequestedSchoolId())) {
+                throw new IllegalArgumentException("Le profil et l’établissement doivent correspondre à l’identifiant déclaré");
+            }
+            identityAdmission.attachApproved(user, school, roleName, user.getSchoolIdentifier());
+        }
         Role role = roleRepository.findByName(roleName.name())
                 .orElseThrow(() -> new IllegalStateException("Rôle non configuré: " + roleName));
         schoolUserRepository.save(SchoolUser.builder()
@@ -181,12 +245,6 @@ public class UserService {
                 .school(school)
                 .role(role)
                 .build());
-        if (roleName == RoleName.TEACHER) {
-            teacherProfileService.ensureProfile(user, school);
-        }
-        if (roleName == RoleName.PARENT && parentRepository.findByUserId(user.getId()).isEmpty()) {
-            parentRepository.save(org.afritechinnovations.model.people.Parent.builder().user(user).build());
-        }
         user.setApproved(true);
         user.setActive(true);
         return toDto(userRepository.save(user));
@@ -204,6 +262,16 @@ public class UserService {
     public UserDto updateProfile(Long id, UpdateProfileRequest request) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + id));
+        if (request.getChildRegistrationNumbers() != null) {
+            if (Boolean.TRUE.equals(user.getApproved()) || user.getRequestedRole() != RoleName.PARENT) {
+                throw new IllegalArgumentException("Les matricules ne peuvent être corrigés que sur une inscription parent en attente");
+            }
+            user.setChildRegistrationNumbers(new java.util.ArrayList<>(ParentChildAdmissionService.normalize(request.getChildRegistrationNumbers(), true)));
+        }
+        if (request.getSchoolIdentifier() != null) {
+            if (Boolean.TRUE.equals(user.getApproved())) throw new IllegalArgumentException("Le compte est déjà approuvé");
+            user.setSchoolIdentifier(SchoolIdentityAdmissionService.normalize(user.getRequestedRole(), request.getSchoolIdentifier()));
+        }
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
         user.setPhone(request.getPhone() == null || request.getPhone().isBlank()
@@ -212,6 +280,9 @@ public class UserService {
     }
 
     public void changePassword(Long id, String currentPassword, String newPassword) {
+        if (newPassword == null || newPassword.length() < 8 || newPassword.length() > 100) {
+            throw new IllegalArgumentException("Le mot de passe doit contenir de 8 à 100 caractères");
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + id));
         if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
@@ -221,6 +292,7 @@ public class UserService {
             throw new IllegalArgumentException("Le nouveau mot de passe doit être différent de l'actuel");
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.revokeSessions();
         userRepository.save(user);
     }
 
@@ -240,6 +312,8 @@ public class UserService {
                 ? null
                 : schoolRepository.findById(user.getRequestedSchoolId()).orElse(null);
         return UserDto.builder()
+                .childRegistrationNumbers(List.copyOf(user.getChildRegistrationNumbers()))
+                .schoolIdentifier(user.getSchoolIdentifier())
                 .id(user.getId())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
@@ -248,6 +322,9 @@ public class UserService {
                 .active(user.getActive())
                 .approved(user.getApproved())
                 .emailVerified(user.getEmailVerified())
+                .passwordSet(user.getPasswordSet())
+                .invitationDeliveryStatus(emailVerificationService.deliveryStatus(user.getId()))
+                .onboardingSteps(onboardingService.steps(user))
                 .requestedSchoolId(user.getRequestedSchoolId())
                 .requestedSchoolName(requestedSchool == null ? null : requestedSchool.getName())
                 .requestedSchoolType(requestedSchool == null ? null : requestedSchool.getType())

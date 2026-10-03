@@ -19,7 +19,7 @@ public final class OwnerEnrollmentDto {
     private OwnerEnrollmentDto() {
     }
 
-    public record YearInfo(Long id, String label, LocalDate startDate, LocalDate endDate, boolean current,
+    public record YearInfo(Long id, String label, LocalDate startDate, LocalDate endDate, boolean current, boolean closed,
                            int classCount, long activeStudents, long completedStudents, long pendingDecisions) {
     }
 
@@ -52,7 +52,7 @@ public final class OwnerEnrollmentDto {
     }
 
     public record ClassPlan(Long classId, String className, Long levelId, String levelName,
-                            boolean lastLevel, List<StudentPlan> students) {
+                            boolean lastLevel, Long nextLevelId, List<StudentPlan> students) {
     }
 
     public record PromotionPlan(Long fromYearId, String fromYearLabel, Long toYearId, String toYearLabel,

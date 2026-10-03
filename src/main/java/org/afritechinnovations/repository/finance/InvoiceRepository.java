@@ -13,6 +13,9 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
 
     List<Invoice> findByStudentId(Long studentId);
 
+    @Query(value="SELECT invoice_id FROM academic_year_receivables WHERE academic_year_id=:yearId",nativeQuery=true)
+    List<Long> carriedInvoiceIds(@Param("yearId") Long yearId);
+
     @Query("""
         SELECT i FROM Invoice i
         JOIN FETCH i.student s

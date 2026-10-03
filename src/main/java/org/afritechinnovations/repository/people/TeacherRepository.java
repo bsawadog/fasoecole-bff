@@ -12,6 +12,12 @@ import java.util.Optional;
 
 public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM Teacher t WHERE t.school.id = :schoolId AND t.employeeNumber = :number")
+    Optional<Teacher> findBySchoolIdAndEmployeeNumberForUpdate(@Param("schoolId") Long schoolId, @Param("number") String number);
+
+    Optional<Teacher> findBySchoolIdAndEmployeeNumber(Long schoolId, String employeeNumber);
+
     List<Teacher> findBySchoolId(Long schoolId);
 
     List<Teacher> findByUserId(Long userId);

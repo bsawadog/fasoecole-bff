@@ -21,7 +21,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -39,8 +38,6 @@ public class OwnerStaffService {
 
     public static final String STAFF_ROLE = "STAFF";
     private static final Logger log = LoggerFactory.getLogger(OwnerStaffService.class);
-    private static final String PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final SchoolRepository schoolRepository;
     private final SchoolStaffRepository staffRepository;
@@ -49,6 +46,8 @@ public class OwnerStaffService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
+    private final org.afritechinnovations.service.auth.PasswordResetService passwordResetService;
 
     @Value("${app.frontend.base-url:http://localhost:4200}")
     private String frontendBaseUrl;
@@ -103,13 +102,13 @@ public class OwnerStaffService {
                 throw new IllegalArgumentException("Cette personne fait déjà partie du personnel de l'établissement");
             }
         } else {
-            temporaryPassword = generatePassword();
             user = userRepository.save(User.builder()
                     .firstName(request.firstName().trim())
                     .lastName(request.lastName().trim())
                     .email(email)
                     .phone(blankToNull(request.phone()))
-                    .passwordHash(passwordEncoder.encode(temporaryPassword))
+                    .passwordHash(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                    .passwordSet(false)
                     .active(true)
                     .approved(true)
                     .build());
@@ -120,14 +119,13 @@ public class OwnerStaffService {
                 .school(school)
                 .user(user)
                 .jobTitle(request.jobTitle().trim())
-                .modules(EnumSet.copyOf(request.modules()))
+                .modules(request.modules().isEmpty() ? EnumSet.noneOf(StaffModule.class) : EnumSet.copyOf(request.modules()))
                 .createdBy(userRepository.getReferenceById(ownerId))
                 .build());
 
-        boolean emailSent = existingAccount
+        boolean emailSent = existingAccount && Boolean.TRUE.equals(user.getPasswordSet()) && Boolean.TRUE.equals(user.getEmailVerified())
                 ? sendQuietly(email, "Nouvel accès FasoÉcole – " + school.getName(), accessGrantedText(staff))
-                : sendQuietly(email, "Votre compte FasoÉcole – " + school.getName(),
-                        credentialsText(staff, temporaryPassword));
+                : invitations.sendInvitation(user);
         return new OwnerStaffDto.StaffCreated(toRow(staff), temporaryPassword, existingAccount, emailSent);
     }
 
@@ -161,12 +159,10 @@ public class OwnerStaffService {
             throw new IllegalArgumentException(
                     "Ce compte est aussi utilisé ailleurs sur la plateforme : la personne doit utiliser « Mot de passe oublié »");
         }
-        String temporaryPassword = generatePassword();
-        user.setPasswordHash(passwordEncoder.encode(temporaryPassword));
-        userRepository.save(user);
-        boolean emailSent = sendQuietly(user.getEmail(), "Nouveau mot de passe FasoÉcole",
-                credentialsText(staff, temporaryPassword));
-        return new OwnerStaffDto.PasswordReset(temporaryPassword, emailSent);
+        boolean emailSent;
+        if (!Boolean.TRUE.equals(user.getPasswordSet())) emailSent = invitations.sendInvitation(user);
+        else emailSent = passwordResetService.sendManagedReset(user);
+        return new OwnerStaffDto.PasswordReset(null, emailSent);
     }
 
     /** Retire l'accès : la fiche de délégation et le rôle STAFF de cet établissement sont supprimés. */
@@ -204,7 +200,7 @@ public class OwnerStaffService {
         User user = staff.getUser();
         return new OwnerStaffDto.StaffRow(staff.getId(), user.getId(), user.getFirstName(), user.getLastName(),
                 user.getEmail(), user.getPhone(), staff.getJobTitle(), sortedModules(staff.getModules()),
-                staff.isActive(), isManagedAccount(user), staff.getCreatedAt());
+                staff.isActive(), isManagedAccount(user), staff.getCreatedAt(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()));
     }
 
     private static List<String> sortedModules(Set<StaffModule> modules) {
@@ -237,23 +233,6 @@ public class OwnerStaffService {
         }
     }
 
-    private String credentialsText(SchoolStaff staff, String password) {
-        return """
-                Bonjour %s,
-
-                Un accès à l'espace de gestion de « %s » vous a été ouvert sur FasoÉcole (%s).
-
-                Adresse de connexion : %s
-                Identifiant : %s
-                Mot de passe provisoire : %s
-
-                Modules autorisés : %s
-
-                Pensez à changer ce mot de passe après votre première connexion (« Mot de passe oublié »).
-                """.formatted(staff.getUser().getFirstName(), staff.getSchool().getName(), staff.getJobTitle(),
-                loginUrl(), staff.getUser().getEmail(), password, moduleLabels(staff));
-    }
-
     private String accessGrantedText(SchoolStaff staff) {
         return """
                 Bonjour %s,
@@ -274,14 +253,6 @@ public class OwnerStaffService {
     private static String moduleLabels(SchoolStaff staff) {
         return String.join(", ", Arrays.stream(StaffModule.values())
                 .filter(staff.getModules()::contains).map(StaffModule::getLabel).toList());
-    }
-
-    private static String generatePassword() {
-        StringBuilder password = new StringBuilder(10);
-        for (int i = 0; i < 10; i++) {
-            password.append(PASSWORD_ALPHABET.charAt(RANDOM.nextInt(PASSWORD_ALPHABET.length())));
-        }
-        return password.toString();
     }
 
     private static String normalizeEmail(String email) {

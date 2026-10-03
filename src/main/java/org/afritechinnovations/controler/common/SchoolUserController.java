@@ -49,7 +49,7 @@ public class SchoolUserController {
             throw new IllegalArgumentException("Le rôle est obligatoire");
         }
         String role = roleService.findById(dto.getRoleId()).getName();
-        if (AccessGuard.SUPER_ADMIN.equals(role) && !guard.isSuperAdmin()) {
+        if ((AccessGuard.SUPER_ADMIN.equals(role) || "SCHOOL_ADMIN".equals(role)) && !guard.isSuperAdmin()) {
             throw new AccessDeniedException("Vous ne pouvez pas attribuer le rôle d'administrateur de la plateforme");
         }
         return schoolUserService.create(dto);

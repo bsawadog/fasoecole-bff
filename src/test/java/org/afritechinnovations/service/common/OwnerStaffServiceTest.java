@@ -49,6 +49,8 @@ class OwnerStaffServiceTest {
     @Mock UserRepository userRepository;
     @Mock PasswordEncoder passwordEncoder;
     @Mock EmailService emailService;
+    @Mock org.afritechinnovations.service.auth.EmailVerificationService invitations;
+    @Mock org.afritechinnovations.service.auth.PasswordResetService resets;
 
     @InjectMocks OwnerStaffService service;
 
@@ -79,15 +81,19 @@ class OwnerStaffServiceTest {
     }
 
     @Test
-    void createsAnAccountWithATemporaryPasswordAndTheStaffRole() {
+    void createsAnInvitedAccountWithTheStaffRoleAndNoDisclosedPassword() {
         when(userRepository.findByEmailIgnoreCase("awa@ecole.bf")).thenReturn(Optional.empty());
-        doThrow(new MailSendException("smtp")).when(emailService).sendText(anyString(), anyString(), anyString());
+        when(invitations.sendInvitation(any())).thenReturn(false);
 
         OwnerStaffDto.StaffCreated created = service.create(1L,
                 request(" Awa@Ecole.bf ", EnumSet.of(StaffModule.EXPENSES, StaffModule.FINANCE)), OWNER_ID, false);
 
-        assertNotNull(created.temporaryPassword());
-        assertEquals(10, created.temporaryPassword().length());
+        assertNull(created.temporaryPassword());
+        ArgumentCaptor<User> account = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(account.capture());
+        assertFalse(account.getValue().getPasswordSet());
+        assertFalse(account.getValue().getEmailVerified());
+        verify(invitations).sendInvitation(account.getValue());
         assertFalse(created.existingAccount());
         assertFalse(created.emailSent());
         assertEquals("awa@ecole.bf", created.staff().email());
@@ -154,5 +160,25 @@ class OwnerStaffServiceTest {
         assertEquals(StaffModule.values().length, access.get(0).modules().size());
         assertFalse(access.get(1).owner());
         assertEquals(List.of("DASHBOARD", "STUDENTS"), access.get(1).modules());
+    }
+
+    @Test
+    void managedStaffResetSendsALinkWithoutChangingThePasswordOrExposingCredentials() {
+        User account = User.builder().id(40L).email("awa@ecole.bf").passwordHash("chosen").emailVerified(true).build();
+        SchoolStaff staff = SchoolStaff.builder().id(7L).school(school).user(account).jobTitle("Comptable")
+                .modules(EnumSet.of(StaffModule.FINANCE)).build();
+        when(staffRepository.findById(7L)).thenReturn(Optional.of(staff));
+        when(schoolUserRepository.findByUserId(40L)).thenReturn(List.of(SchoolUser.builder()
+                .user(account).school(school).role(staffRole).build()));
+        when(resets.sendManagedReset(account)).thenReturn(true);
+        var result = service.resetPassword(7L, OWNER_ID, false);
+        assertTrue(result.emailSent()); assertNull(result.temporaryPassword());
+        assertEquals("chosen", account.getPasswordHash());
+        verify(resets).sendManagedReset(account); verify(userRepository, never()).save(any());
+        account.setPasswordSet(false);
+        when(invitations.sendInvitation(account)).thenReturn(true);
+        assertTrue(service.resetPassword(7L, OWNER_ID, false).emailSent());
+        verify(invitations).sendInvitation(account);
+        verify(resets, times(1)).sendManagedReset(account);
     }
 }

@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -72,6 +73,12 @@ class TeacherWorkServiceTest {
     SchoolPermissions permissions;
 
     @Mock TeacherProfileService teacherProfileService;
+    @Mock org.afritechinnovations.service.auth.EmailVerificationService invitations;
+    @Mock org.afritechinnovations.repository.common.UserRepository users;
+    @Mock org.afritechinnovations.repository.common.RoleRepository roles;
+    @Mock org.afritechinnovations.repository.common.SchoolUserRepository schoolUsers;
+    @Mock org.afritechinnovations.repository.academic.SubjectRepository subjects;
+    @Mock org.springframework.security.crypto.password.PasswordEncoder encoder;
     @InjectMocks TeacherWorkService service;
 
     private School school;
@@ -338,6 +345,30 @@ class TeacherWorkServiceTest {
         return request;
     }
 
+    @Test
+    void teacherCreationUsesInvitationAndNeverUsesAnAdministratorSuppliedPassword() {
+        var subject = org.afritechinnovations.model.academic.Subject.builder().id(8L).school(school).name("Mathématiques").build();
+        when(subjects.findById(8L)).thenReturn(Optional.of(subject));
+        when(roles.findByName("TEACHER")).thenReturn(Optional.of(org.afritechinnovations.model.common.Role.builder().name("TEACHER").build()));
+        when(encoder.encode(org.mockito.ArgumentMatchers.anyString())).thenReturn("random-hash");
+        when(users.save(any())).thenAnswer(i -> { User u = i.getArgument(0); u.setId(42L); return u; });
+        when(teacherRepository.save(any())).thenAnswer(i -> { Teacher t = i.getArgument(0); t.setId(9L); return t; });
+        when(invitations.deliveryStatus(42L)).thenReturn("FAILED");
+        var request = new org.afritechinnovations.dto.people.CreateClassTeacherRequest();
+        request.setFirstName(" Awa "); request.setLastName(" Diallo "); request.setEmail(" Awa@Test.bf ");
+        request.setPassword("AdminChosenPassword"); request.setSubjectId(8L);
+        var result = service.createClassTeacher(3L, request, OWNER_ID, false);
+        ArgumentCaptor<User> account = ArgumentCaptor.forClass(User.class);
+        verify(users).save(account.capture());
+        assertFalse(account.getValue().getPasswordSet()); assertFalse(account.getValue().getEmailVerified());
+        assertEquals("awa@test.bf", account.getValue().getEmail());
+        verify(encoder, never()).encode("AdminChosenPassword");
+        verify(invitations).sendInvitation(account.getValue());
+        verify(schoolUsers).save(argThat(link -> "TEACHER".equals(link.getRole().getName()) && link.getSchool() == school));
+        verify(classSubjectTeacherRepository).save(argThat(a -> a.getSchoolClass() == schoolClass && a.getSubject() == subject));
+        assertFalse(result.emailVerified()); assertEquals("FAILED", result.invitationDeliveryStatus());
+    }
+
     private static TeacherSessionRequest sessionRequest(LocalDate date, String status) {
         TeacherSessionRequest request = new TeacherSessionRequest();
         request.setSlotId(7L);
@@ -345,4 +376,25 @@ class TeacherWorkServiceTest {
         request.setStatus(status);
         return request;
     }
+
+    @Test void employeeNumberIsUniqueWithinSchoolAndPendingAccountCanReceiveItsDossier() {
+        var subject = org.afritechinnovations.model.academic.Subject.builder().id(8L).school(school).name("Mathématiques").build();
+        when(subjects.findById(8L)).thenReturn(Optional.of(subject));
+        var request = new org.afritechinnovations.dto.people.CreateClassTeacherRequest();
+        request.setFirstName("Awa"); request.setLastName("Diallo"); request.setEmail("awa@test.bf"); request.setSubjectId(8L); request.setEmployeeNumber(" EMP-001 ");
+        when(teacherRepository.findBySchoolIdAndEmployeeNumber(1L, "EMP-001")).thenReturn(Optional.of(teacher));
+        assertThrows(IllegalArgumentException.class, () -> service.createClassTeacher(3L, request, OWNER_ID, false));
+        verify(users, never()).save(any());
+        when(teacherRepository.findBySchoolIdAndEmployeeNumber(1L, "EMP-001")).thenReturn(Optional.empty());
+        User pending = User.builder().id(42L).email("awa@test.bf").firstName("Awa").lastName("Diallo")
+                .requestedSchoolId(1L).requestedRole(org.afritechinnovations.model.common.RoleName.TEACHER).approved(false).passwordHash("chosen").emailVerified(true).build();
+        when(users.findByEmailIgnoreCase("awa@test.bf")).thenReturn(Optional.of(pending));
+        when(users.existsByEmailIgnoreCase("awa@test.bf")).thenReturn(true);
+        when(roles.findByName("TEACHER")).thenReturn(Optional.of(org.afritechinnovations.model.common.Role.builder().name("TEACHER").build()));
+        when(teacherRepository.save(any())).thenAnswer(i -> { Teacher t = i.getArgument(0); t.setId(9L); return t; });
+        assertEquals("EMP-001", service.createClassTeacher(3L, request, OWNER_ID, false).employeeNumber());
+        assertFalse(pending.getApproved()); assertEquals("chosen", pending.getPasswordHash());
+        verify(users, never()).save(any()); verifyNoInteractions(encoder);
+    }
+
 }

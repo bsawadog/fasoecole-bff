@@ -89,6 +89,7 @@ public class ClassRosterService {
     private final FeeTypeRepository feeTypeRepository;
     private final AcademicYearRepository academicYearRepository;
     private final AbsenceReportRepository absenceReportRepository;
+    private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
 
     public List<ClassRosterRowDto> getRoster(Long classId, Long ownerId, boolean systemAdmin) {
         requireOwnedClass(classId, ownerId, systemAdmin);
@@ -118,12 +119,16 @@ public class ClassRosterService {
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
         String studentEmail = request.getEmail().trim().toLowerCase();
-        if (!studentEmail.equalsIgnoreCase(String.valueOf(user.getEmail()))) {
+        boolean emailChanged = !studentEmail.equalsIgnoreCase(String.valueOf(user.getEmail()));
+        if (emailChanged) {
             user.setEmailVerified(false);
+            user.revokeSessions();
         }
         user.setEmail(studentEmail);
         user.setPhone(request.getPhone());
         userRepository.save(user);
+
+        if (emailChanged) invitations.sendInvitation(user);
 
         student.setRegistrationNumber(request.getRegistrationNumber().trim());
         student.setBirthDate(request.getBirthDate());
@@ -182,12 +187,16 @@ public class ClassRosterService {
         }
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
-        if (!java.util.Objects.equals(parentEmail, user.getEmail() == null ? null : user.getEmail().toLowerCase())) {
+        boolean emailChanged = !java.util.Objects.equals(parentEmail, user.getEmail() == null ? null : user.getEmail().toLowerCase());
+        if (emailChanged) {
             user.setEmailVerified(false);
+            user.revokeSessions();
         }
         user.setEmail(parentEmail);
         user.setPhone(request.getPhone());
         userRepository.save(user);
+
+        if (emailChanged && parentEmail != null) invitations.sendInvitation(user);
 
         return toRow(studentInClass, teacherNamesForClass(classId));
     }
@@ -272,6 +281,44 @@ public class ClassRosterService {
     public ClassRosterRowDto createStudent(Long classId, CreateRosterStudentRequest request,
                                             Long ownerId, boolean systemAdmin) {
         return enrollNewStudent(requireOwnedClass(classId, ownerId, systemAdmin), request);
+    }
+
+    /** Inscrit le compte public existant, sans créer un second compte ni modifier son mot de passe. */
+    public void attachApprovedStudent(User user, org.afritechinnovations.model.common.School school,
+                                      Long classId, String requestedNumber) {
+        if (classId == null) throw new IllegalArgumentException("Choisissez une classe pour inscrire cet élève");
+        SchoolClass schoolClass = schoolClassRepository.findById(classId)
+                .orElseThrow(() -> new IllegalArgumentException("Classe introuvable"));
+        if (!school.getId().equals(schoolClass.getSchool().getId())) {
+            throw new IllegalArgumentException("La classe doit appartenir à l'établissement sélectionné");
+        }
+        if (schoolClass.getAcademicYear() == null || !school.getId().equals(schoolClass.getAcademicYear().getSchool().getId())) {
+            throw new IllegalArgumentException("L'année scolaire de cette classe est invalide");
+        }
+        Student student = studentRepository.findAllByUserId(user.getId()).stream()
+                .filter(s -> school.getId().equals(s.getSchool().getId())).findFirst().orElse(null);
+        if (student != null) {
+            var current = studentEnrollmentRepository.findByStudentIdAndAcademicYearId(student.getId(), schoolClass.getAcademicYear().getId())
+                    .stream().filter(e -> e.getStatus() == EnrollmentStatus.ACTIVE).findFirst();
+            if (current.isPresent()) {
+                if (classId.equals(current.get().getSchoolClass().getId())) return;
+                throw new IllegalArgumentException("Cet élève est déjà inscrit dans une autre classe : utilisez le transfert");
+            }
+        }
+        if (schoolClass.getCapacity() != null && studentEnrollmentRepository
+                .findBySchoolClassIdAndStatus(classId, EnrollmentStatus.ACTIVE).size() >= schoolClass.getCapacity()) {
+            throw new IllegalArgumentException("Cette classe est complète");
+        }
+        if (student == null) {
+            String number = requestedNumber == null || requestedNumber.isBlank()
+                    ? nextRegistrationNumber(schoolClass) : requestedNumber.trim();
+            if (studentRepository.findBySchoolIdAndRegistrationNumber(school.getId(), number).isPresent()) {
+                throw new IllegalArgumentException("Ce matricule est déjà utilisé dans cet établissement");
+            }
+            student = studentRepository.save(Student.builder().user(user).school(school).registrationNumber(number).build());
+        }
+        studentEnrollmentRepository.save(StudentEnrollment.builder().student(student).schoolClass(schoolClass)
+                .academicYear(schoolClass.getAcademicYear()).status(EnrollmentStatus.ACTIVE).enrollmentDate(LocalDate.now()).build());
     }
 
     /** Crée le compte, la fiche élève et l'inscription ACTIVE dans la classe (droits vérifiés par l'appelant). */
@@ -364,9 +411,19 @@ public class ClassRosterService {
     }
 
     private Student createEnrolledStudent(SchoolClass schoolClass, CreateRosterStudentRequest request) {
+        if (schoolClass.getCapacity() != null && studentEnrollmentRepository
+                .findBySchoolClassIdAndStatus(schoolClass.getId(), EnrollmentStatus.ACTIVE).size() >= schoolClass.getCapacity()) {
+            throw new IllegalArgumentException("Cette classe est complète");
+        }
         String email = request.getEmail().trim().toLowerCase();
-        if (userRepository.existsByEmailIgnoreCase(email)) {
+        User pending = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if ((pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
+                || !Boolean.TRUE.equals(pending.getActive()) || pending.getRequestedRole() != org.afritechinnovations.model.common.RoleName.STUDENT
+                || !schoolClass.getSchool().getId().equals(pending.getRequestedSchoolId()))) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
+        }
+        if (pending != null && studentRepository.findAllByUserId(pending.getId()).stream().anyMatch(t -> t.getSchool().getId().equals(schoolClass.getSchool().getId()))) {
+            throw new IllegalArgumentException("Ce compte possède déjà un dossier élève dans cet établissement");
         }
         String registrationNumber = request.getRegistrationNumber() == null ? "" : request.getRegistrationNumber().trim();
         if (registrationNumber.isEmpty()) {
@@ -376,11 +433,12 @@ public class ClassRosterService {
             throw new IllegalArgumentException("Ce matricule est déjà utilisé dans cet établissement");
         }
 
-        User user = User.builder()
+        User user = pending != null ? pending : User.builder()
                 .firstName(request.getFirstName().trim())
                 .lastName(request.getLastName().trim())
                 .email(email)
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
+                .passwordSet(false)
                 .phone(request.getPhone())
                 .active(true)
                 .approved(true)
@@ -411,6 +469,8 @@ public class ClassRosterService {
                 .status(EnrollmentStatus.ACTIVE)
                 .enrollmentDate(LocalDate.now())
                 .build());
+
+        invitations.sendInvitation(user);
 
         return student;
     }
@@ -483,6 +543,7 @@ public class ClassRosterService {
             Parent parent = parentRepository.findByUserId(parentUser.getId())
                     .orElseGet(() -> parentRepository.save(Parent.builder().user(parentUser).build()));
             linkGuardian(student, parent, guardian.relationship(), parentRole, linked);
+            if (email != null && !Boolean.TRUE.equals(parentUser.getEmailVerified())) invitations.sendInvitation(parentUser);
         }
     }
 
@@ -516,7 +577,7 @@ public class ClassRosterService {
         User user = student.getUser();
 
         StudentEnrollment activeEnrollment = studentEnrollmentRepository.findByStudentId(studentId).stream()
-                .filter(enrollment -> enrollment.getStatus() == EnrollmentStatus.ACTIVE)
+                .filter(enrollment -> (enrollment.getStatus() == EnrollmentStatus.ACTIVE || enrollment.getStatus() == EnrollmentStatus.COMPLETED) && org.afritechinnovations.service.academic.SelectedAcademicYear.matches(enrollment.getAcademicYear()))
                 .findFirst()
                 .orElse(null);
         String className = activeEnrollment != null ? activeEnrollment.getSchoolClass().getName() : null;
@@ -539,7 +600,8 @@ public class ClassRosterService {
                 })
                 .toList();
 
-        List<Grade> grades = gradeRepository.findByStudentIdOrderByGradeDateAsc(studentId);
+        List<Grade> grades = gradeRepository.findByStudentIdOrderByGradeDateAsc(studentId).stream()
+                .filter(g -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(g.getClassSubjectTeacher().getSchoolClass().getAcademicYear())).toList();
         List<StudentDetailDto.GradeInfo> gradeInfos = grades.stream()
                 .map(grade -> {
                     ClassSubjectTeacher cst = grade.getClassSubjectTeacher();
@@ -565,7 +627,8 @@ public class ClassRosterService {
                 .average();
         Double overallAverage = averageOpt.isPresent() ? averageOpt.getAsDouble() : null;
 
-        List<Attendance> attendances = attendanceRepository.findByStudentIdOrderByAttendanceDateDesc(studentId);
+        List<Attendance> attendances = attendanceRepository.findByStudentIdOrderByAttendanceDateDesc(studentId).stream()
+                .filter(a -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(a.getSchoolClass().getAcademicYear())).toList();
         long present = attendances.stream().filter(a -> a.getStatus() == org.afritechinnovations.model.academic.AttendanceStatus.PRESENT).count();
         long late = attendances.stream().filter(a -> a.getStatus() == org.afritechinnovations.model.academic.AttendanceStatus.LATE).count();
         // Une absence est "justifiée" si son statut est EXCUSED ou si un motif de justification a été renseigné.
@@ -835,6 +898,7 @@ public class ClassRosterService {
 
     private List<StudentDetailDto.InvoiceInfo> buildInvoiceInfos(Long studentId) {
         return invoiceRepository.findByStudentId(studentId).stream()
+                .filter(i -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(i.getAcademicYear()))
                 .map(invoice -> toInvoiceInfo(invoice, paymentRepository.findByInvoiceId(invoice.getId())))
                 .sorted(Comparator.comparing(StudentDetailDto.InvoiceInfo::dueDate, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -923,7 +987,9 @@ public class ClassRosterService {
                 student.getBirthDate(),
                 student.getGender(),
                 parents,
-                teacherNames
+                teacherNames,
+                user.getEmailVerified(),
+                invitations.deliveryStatus(user.getId())
         );
     }
 }

@@ -14,6 +14,16 @@ import java.time.LocalDateTime;
 @Builder
 public class SchoolAccessRequest {
 
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "school_access_requested_children", joinColumns = @JoinColumn(name = "request_id"))
+    @OrderColumn(name = "child_index")
+    @Column(name = "registration_number", nullable = false, length = 50)
+    private java.util.List<String> childRegistrationNumbers = new java.util.ArrayList<>();
+
+    @Column(name = "school_identifier", length = 50)
+    private String schoolIdentifier;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

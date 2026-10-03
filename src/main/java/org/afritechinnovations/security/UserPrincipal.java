@@ -17,6 +17,9 @@ public class UserPrincipal implements UserDetails {
     private final String passwordHash;
     private final boolean active;
     private final boolean approved;
+    private final boolean emailVerified;
+    private final boolean passwordSet;
+    private final long sessionVersion;
     private final List<String> roles;
 
     public UserPrincipal(User user, List<String> roles) {
@@ -25,6 +28,9 @@ public class UserPrincipal implements UserDetails {
         this.passwordHash = user.getPasswordHash();
         this.active = Boolean.TRUE.equals(user.getActive());
         this.approved = Boolean.TRUE.equals(user.getApproved());
+        this.emailVerified = Boolean.TRUE.equals(user.getEmailVerified());
+        this.passwordSet = Boolean.TRUE.equals(user.getPasswordSet());
+        this.sessionVersion = user.getSessionVersion();
         this.roles = roles;
     }
 

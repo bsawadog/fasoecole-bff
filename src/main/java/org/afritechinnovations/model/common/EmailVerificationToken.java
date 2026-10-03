@@ -16,6 +16,16 @@ public class EmailVerificationToken {
 
     public enum Purpose { VERIFY, ACTIVATE }
 
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "verification_requested_children", joinColumns = @JoinColumn(name = "token_id"))
+    @OrderColumn(name = "child_index")
+    @Column(name = "registration_number", nullable = false, length = 50)
+    private java.util.List<String> childRegistrationNumbers = new java.util.ArrayList<>();
+
+    @Column(name = "school_identifier", length = 50)
+    private String schoolIdentifier;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -30,6 +40,12 @@ public class EmailVerificationToken {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Purpose purpose;
+
+    @Column(name = "recipient_email", length = 150)
+    private String recipientEmail;
+    @Builder.Default
+    @Column(name = "delivery_status", nullable = false, length = 20)
+    private String deliveryStatus = "PENDING";
 
     /** Établissement choisi lors de la tentative d'inscription (prise en main d'un compte existant). */
     @Column(name = "requested_school_id")

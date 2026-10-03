@@ -16,4 +16,5 @@ public class AcademicYearDto {
     private LocalDate startDate;
     private LocalDate endDate;
     private Boolean isCurrent;
+    private boolean closed;
 }

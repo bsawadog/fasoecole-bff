@@ -215,7 +215,8 @@ public class OwnerExpenseService {
         List<AcademicYear> years = academicYearRepository.findBySchoolId(schoolId).stream()
                 .sorted(Comparator.comparing(AcademicYear::getStartDate).reversed())
                 .toList();
-        AcademicYear year = selectYear(years, academicYearId);
+        Long selected = org.afritechinnovations.service.academic.SelectedAcademicYear.id(schoolId);
+        AcademicYear year = selectYear(years, selected != null ? selected : academicYearId);
         LocalDate today = LocalDate.now(clock);
         LocalDate from = year != null ? year.getStartDate() : today.withDayOfYear(1);
         LocalDate to = year != null ? year.getEndDate() : today.withDayOfYear(today.lengthOfYear());

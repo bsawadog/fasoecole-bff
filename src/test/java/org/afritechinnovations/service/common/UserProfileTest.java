@@ -28,6 +28,8 @@ class UserProfileTest {
     @Mock SchoolRepository schools;
     @Mock RoleRepository roles;
     @Mock SchoolUserRepository schoolUsers;
+    @Mock org.afritechinnovations.service.auth.EmailVerificationService emailVerificationService;
+    @Mock AccountOnboardingService onboardingService;
     @InjectMocks UserService service;
 
     @Test

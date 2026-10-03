@@ -14,6 +14,16 @@ import java.time.LocalDateTime;
 @Builder
 public class User {
 
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(name = "user_requested_children", joinColumns = @JoinColumn(name = "user_id"))
+    @OrderColumn(name = "child_index")
+    @Column(name = "registration_number", nullable = false, length = 50)
+    private java.util.List<String> childRegistrationNumbers = new java.util.ArrayList<>();
+
+    @Column(name = "school_identifier", length = 50)
+    private String schoolIdentifier;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -50,6 +60,15 @@ public class User {
     @Builder.Default
     @Column(name = "email_verified", nullable = false)
     private Boolean emailVerified = false;
+
+    @Builder.Default
+    @Column(name = "session_version", nullable = false)
+    private long sessionVersion = 0;
+    public void revokeSessions() { sessionVersion++; }
+
+    @Version
+    @Column(name = "row_version", nullable = false)
+    private Long rowVersion;
 
     @Column(name = "requested_school_id")
     private Long requestedSchoolId;

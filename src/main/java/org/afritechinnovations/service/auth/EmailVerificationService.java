@@ -44,6 +44,7 @@ public class EmailVerificationService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final ParentAutoAccessService parentAutoAccessService;
+    private final org.afritechinnovations.security.AuthAttemptLimiter mailAttempts;
 
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
@@ -53,12 +54,13 @@ public class EmailVerificationService {
 
     /** Envoie (ou renvoie) le lien de confirmation d'adresse. Sans effet si l'adresse est déjà vérifiée. */
     @Transactional
-    public void sendVerification(User user) {
-        if (user.getEmail() == null || Boolean.TRUE.equals(user.getEmailVerified())) {
-            return;
+    public boolean sendVerification(User user) {
+        if (!Boolean.TRUE.equals(user.getActive()) || user.getEmail() == null || user.getEmail().isBlank() || Boolean.TRUE.equals(user.getEmailVerified())) {
+            return false;
         }
+        if (!mailAttempts.allow("account-mail:" + user.getId(), 3)) return false;
         String token = store(user, EmailVerificationToken.Purpose.VERIFY, null, null);
-        deliver(user, "Confirmez votre adresse FasoÉcole", """
+        return deliver(user, "Confirmez votre adresse FasoÉcole", """
                 Bonjour %s,
 
                 Pour confirmer votre adresse courriel et sécuriser votre compte FasoÉcole, ouvrez ce lien
@@ -67,24 +69,49 @@ public class EmailVerificationService {
                 %s
 
                 Si vous n'êtes pas à l'origine de cette inscription, ignorez cet e-mail.
-                """, link("verify", token));
+                """, link("verify", token), token);
     }
 
     /** Lien d'activation d'un compte créé par une école ; le compte n'est pas modifié avant le clic. */
     @Transactional
-    public void sendActivation(User user, Long requestedSchoolId, RoleName requestedRole) {
-        String token = store(user, EmailVerificationToken.Purpose.ACTIVATE, requestedSchoolId, requestedRole);
-        deliver(user, "Activez votre compte FasoÉcole", """
+    public boolean sendActivation(User user, Long requestedSchoolId, RoleName requestedRole) {
+        return sendActivation(user, requestedSchoolId, requestedRole, java.util.List.of());
+    }
+
+    @Transactional
+    public boolean sendActivation(User user, Long requestedSchoolId, RoleName requestedRole, java.util.List<String> childNumbers) {
+        return sendActivation(user, requestedSchoolId, requestedRole, childNumbers, null);
+    }
+
+    @Transactional
+    public boolean sendActivation(User user, Long requestedSchoolId, RoleName requestedRole, java.util.List<String> childNumbers, String schoolIdentifier) {
+        var normalized = org.afritechinnovations.service.common.ParentChildAdmissionService.normalize(childNumbers, false);
+        if (requestedRole != null) org.afritechinnovations.security.RegistrationRoles.requireAllowed(requestedRole);
+        if (Boolean.TRUE.equals(user.getPasswordSet())) throw new IllegalArgumentException("Ce compte possède déjà un mot de passe");
+        if (!Boolean.TRUE.equals(user.getActive()) || user.getEmail() == null || user.getEmail().isBlank()) return false;
+        if (!mailAttempts.allow("account-mail:" + user.getId(), 3)) return false;
+        String token = store(user, EmailVerificationToken.Purpose.ACTIVATE, requestedSchoolId, requestedRole, requestedRole == RoleName.PARENT ? normalized : java.util.List.of(), schoolIdentifier);
+        return deliver(user, "Activez votre compte FasoÉcole", """
                 Bonjour %s,
 
-                Un établissement a enregistré votre adresse comme parent ou tuteur d'un élève.
+                Un établissement vous a invité à rejoindre FasoÉcole.
                 Pour activer votre compte FasoÉcole et choisir votre mot de passe, ouvrez ce lien
                 (valide pendant %d heures) :
 
                 %s
 
                 Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail : votre compte reste inchangé.
-                """, link("activate", token));
+                """, link("activate", token), token);
+    }
+
+    @Transactional
+    public boolean sendInvitation(User user) {
+        if (!Boolean.TRUE.equals(user.getActive())) return false;
+        if (Boolean.TRUE.equals(user.getPasswordSet())) return sendVerification(user);
+        EmailVerificationToken previous = tokenRepository.findByUserId(user.getId()).orElse(null);
+        return previous != null && previous.getPurpose() == EmailVerificationToken.Purpose.ACTIVATE
+                ? sendActivation(user, previous.getRequestedSchoolId(), previous.getRequestedRole(), java.util.List.copyOf(previous.getChildRegistrationNumbers()), previous.getSchoolIdentifier())
+                : sendActivation(user, null, null);
     }
 
     /**
@@ -93,27 +120,36 @@ public class EmailVerificationService {
      */
     @Transactional
     public void confirm(String rawToken, String newPassword) {
-        EmailVerificationToken token = tokenRepository.findByTokenHash(hash(rawToken))
+        if (rawToken == null || rawToken.isBlank()) throw new IllegalArgumentException("Lien de vérification invalide ou expiré");
+        EmailVerificationToken token = tokenRepository.findByTokenHashForUpdate(hash(rawToken))
                 .orElseThrow(() -> new IllegalArgumentException("Lien de vérification invalide ou expiré"));
         if (!token.getExpiresAt().isAfter(LocalDateTime.now())) {
             tokenRepository.delete(token);
             throw new IllegalArgumentException("Lien de vérification invalide ou expiré");
         }
         User user = token.getUser();
+        if (token.getRequestedRole() != null) org.afritechinnovations.security.RegistrationRoles.requireAllowed(token.getRequestedRole());
+        if (token.getRecipientEmail() == null || !token.getRecipientEmail().equalsIgnoreCase(user.getEmail())) {
+            throw new IllegalArgumentException("Lien de vérification invalide ou expiré");
+        }
         if (!Boolean.TRUE.equals(user.getActive())) {
             tokenRepository.delete(token);
             throw new IllegalArgumentException("Lien de vérification invalide ou expiré");
         }
         boolean activation = token.getPurpose() == EmailVerificationToken.Purpose.ACTIVATE;
         if (activation) {
+            if (Boolean.TRUE.equals(user.getPasswordSet())) throw new IllegalArgumentException("Lien d'activation déjà utilisé");
             if (newPassword == null || newPassword.length() < 8 || newPassword.length() > 100) {
                 throw new IllegalArgumentException("Choisissez un mot de passe de 8 caractères minimum");
             }
             user.setPasswordHash(passwordEncoder.encode(newPassword));
             user.setPasswordSet(true);
+            user.revokeSessions();
             if (token.getRequestedSchoolId() != null && token.getRequestedRole() != null) {
                 user.setRequestedSchoolId(token.getRequestedSchoolId());
                 user.setRequestedRole(token.getRequestedRole());
+                user.setSchoolIdentifier(token.getSchoolIdentifier());
+                user.setChildRegistrationNumbers(new java.util.ArrayList<>(token.getChildRegistrationNumbers()));
             }
         }
         user.setEmailVerified(true);
@@ -126,14 +162,26 @@ public class EmailVerificationService {
     }
 
     private String store(User user, EmailVerificationToken.Purpose purpose, Long schoolId, RoleName role) {
+        return store(user, purpose, schoolId, role, java.util.List.of());
+    }
+
+    private String store(User user, EmailVerificationToken.Purpose purpose, Long schoolId, RoleName role, java.util.List<String> childNumbers) {
+        return store(user, purpose, schoolId, role, childNumbers, null);
+    }
+
+    private String store(User user, EmailVerificationToken.Purpose purpose, Long schoolId, RoleName role, java.util.List<String> childNumbers, String schoolIdentifier) {
         byte[] randomBytes = new byte[32];
         SECURE_RANDOM.nextBytes(randomBytes);
         String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
         tokenRepository.deleteByUserId(user.getId());
+        tokenRepository.flush();
         tokenRepository.save(EmailVerificationToken.builder()
                 .user(user)
                 .tokenHash(hash(rawToken))
                 .purpose(purpose)
+                .recipientEmail(user.getEmail())
+                .childRegistrationNumbers(new java.util.ArrayList<>(childNumbers))
+                .schoolIdentifier(schoolIdentifier)
                 .requestedSchoolId(schoolId)
                 .requestedRole(role)
                 .expiresAt(LocalDateTime.now().plusHours(expirationHours))
@@ -141,15 +189,27 @@ public class EmailVerificationService {
         return rawToken;
     }
 
+    @Transactional(readOnly = true)
+    public String deliveryStatus(Long userId) {
+        return tokenRepository.findByUserId(userId).map(EmailVerificationToken::getDeliveryStatus).orElse(null);
+    }
+
     private String link(String param, String token) {
         return frontendBaseUrl.replaceAll("/+$", "") + "/login?" + param + "=" + token;
     }
 
-    private void deliver(User user, String subject, String template, String url) {
+    private boolean deliver(User user, String subject, String template, String url, String rawToken) {
+        EmailVerificationToken token = tokenRepository.findByTokenHash(hash(rawToken)).orElseThrow();
         try {
             emailService.sendText(user.getEmail(), subject, template.formatted(user.getFirstName(), expirationHours, url));
+            token.setDeliveryStatus("SENT");
+            tokenRepository.save(token);
+            return true;
         } catch (MailException ex) {
+            token.setDeliveryStatus("FAILED");
+            tokenRepository.save(token);
             log.error("Email verification delivery failed; SMTP configuration should be checked");
+            return false;
         }
     }
 

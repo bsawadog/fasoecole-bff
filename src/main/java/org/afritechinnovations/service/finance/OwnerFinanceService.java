@@ -220,6 +220,7 @@ public class OwnerFinanceService {
         Map<Long, BigDecimal> paidByInvoice = paidByInvoice(schoolId);
         String status = filter == null || filter.isBlank() ? "ALL" : filter.toUpperCase(Locale.ROOT);
         return invoiceRepository.findAllWithDetailsBySchoolId(schoolId).stream()
+                .filter(i -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(i.getAcademicYear()))
                 .map(invoice -> {
                     BigDecimal paid = paidByInvoice.getOrDefault(invoice.getId(), BigDecimal.ZERO);
                     refreshStatus(invoice, paid);
@@ -242,6 +243,7 @@ public class OwnerFinanceService {
         List<Payment> payments = paymentRepository.findAllWithDetailsBySchoolId(schoolId);
         Map<Long, BigDecimal> paidByInvoice = groupPaid(payments);
         return payments.stream()
+                .filter(p -> org.afritechinnovations.service.academic.SelectedAcademicYear.dateMatches(p.getInvoice().getStudent().getSchool().getId(),p.getPaymentDate()))
                 .filter(p -> from == null || !p.getPaymentDate().isBefore(from))
                 .filter(p -> to == null || !p.getPaymentDate().isAfter(to))
                 .map(p -> toPaymentRow(p, labels, paidByInvoice))
@@ -270,6 +272,7 @@ public class OwnerFinanceService {
         List<Payment> payments = paymentRepository.findAllWithDetailsBySchoolId(schoolId);
         Map<Long, BigDecimal> paidByInvoice = groupPaid(payments);
         List<OwnerFinanceDto.InvoiceRow> rows = invoiceRepository.findAllWithDetailsBySchoolId(schoolId).stream()
+                .filter(i -> org.afritechinnovations.service.academic.SelectedAcademicYear.matches(i.getAcademicYear()))
                 .map(invoice -> {
                     BigDecimal paid = paidByInvoice.getOrDefault(invoice.getId(), BigDecimal.ZERO);
                     refreshStatus(invoice, paid);
@@ -286,6 +289,7 @@ public class OwnerFinanceService {
                 .map(OwnerFinanceDto.InvoiceRow::balance).reduce(BigDecimal.ZERO, BigDecimal::add);
         LocalDate monthStart = today().withDayOfMonth(1);
         BigDecimal thisMonth = payments.stream()
+                .filter(p -> org.afritechinnovations.service.academic.SelectedAcademicYear.dateMatches(p.getInvoice().getStudent().getSchool().getId(),p.getPaymentDate()))
                 .filter(p -> !p.getPaymentDate().isBefore(monthStart) && !p.getPaymentDate().isAfter(today()))
                 .map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         double rate = expected.signum() == 0 ? 0
@@ -319,7 +323,7 @@ public class OwnerFinanceService {
                 .sorted(Comparator.comparing(OwnerFinanceDto.FeeBreakdown::feeTypeName))
                 .toList();
 
-        List<OwnerFinanceDto.PaymentRow> recent = payments.stream().limit(8)
+        List<OwnerFinanceDto.PaymentRow> recent = payments.stream().filter(p -> org.afritechinnovations.service.academic.SelectedAcademicYear.dateMatches(p.getInvoice().getStudent().getSchool().getId(),p.getPaymentDate())).limit(8)
                 .map(p -> toPaymentRow(p, labels, paidByInvoice)).toList();
 
         return new OwnerFinanceDto.Overview(school.getName(), expected, discounts, collected, remaining, overdue,
@@ -450,7 +454,10 @@ public class OwnerFinanceService {
     /** Classe actuelle de chaque élève : l'inscription active la plus récente. */
     private Map<Long, ClassLabel> classLabels(Long schoolId) {
         Map<Long, StudentEnrollment> latest = new HashMap<>();
-        for (StudentEnrollment enrollment : studentEnrollmentRepository.findActiveBySchoolId(schoolId)) {
+        Long selectedYear = org.afritechinnovations.service.academic.SelectedAcademicYear.id(schoolId);
+        List<StudentEnrollment> entries = selectedYear == null ? studentEnrollmentRepository.findActiveBySchoolId(schoolId) : studentEnrollmentRepository.findByYearWithStudent(selectedYear);
+        for (StudentEnrollment enrollment : entries) {
+            if (!org.afritechinnovations.service.academic.SelectedAcademicYear.matches(enrollment.getAcademicYear())) continue;
             latest.merge(enrollment.getStudent().getId(), enrollment, (a, b) ->
                     b.getEnrollmentDate().isAfter(a.getEnrollmentDate()) ? b : a);
         }

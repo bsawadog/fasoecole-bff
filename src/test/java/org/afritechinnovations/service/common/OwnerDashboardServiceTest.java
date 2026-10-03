@@ -60,7 +60,7 @@ class OwnerDashboardServiceTest {
         lenient().when(jdbcTemplate.queryForObject(anyString(), eq(BigDecimal.class), eq(5L)))
                 .thenAnswer(invocation -> {
                     String sql = invocation.getArgument(0);
-                    if (sql.contains("SUM(i.amount_due)")) return new BigDecimal("80.00");
+                    if (sql.contains("SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0),0))")) return new BigDecimal("80.00");
                     if (sql.contains("SUM(p.amount)")) return new BigDecimal("20.00");
                     if (sql.contains("GREATEST(i.amount_due")) return new BigDecimal("60.00");
                     return BigDecimal.ZERO;
@@ -74,11 +74,11 @@ class OwnerDashboardServiceTest {
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbcTemplate, atLeastOnce()).queryForObject(sql.capture(), eq(BigDecimal.class), eq(5L));
         assertTrue(sql.getAllValues().stream().anyMatch(query ->
-                query.contains("SUM(i.amount_due)") && query.contains("i.status <> 'CANCELLED'")));
+                query.contains("SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0),0))") && query.contains("i.status <> 'CANCELLED'")));
         assertTrue(sql.getAllValues().stream().anyMatch(query ->
                 query.contains("SUM(p.amount)") && !query.contains("i.status <> 'CANCELLED'")));
         assertTrue(sql.getAllValues().stream().anyMatch(query ->
-                query.contains("GREATEST(i.amount_due") && query.contains("i.status IN ('PENDING', 'OVERDUE')")));
+                query.contains("COALESCE(paid.amount, 0)") && query.contains("i.status <> 'CANCELLED'")));
     }
 
     @Test

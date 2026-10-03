@@ -48,6 +48,14 @@ public class TeacherWorkController {
         return teacherWorkService.listSchoolTeachers(schoolId, principal.getId(), isSuperAdmin(principal));
     }
 
+    @PostMapping("/schools/{schoolId}/teachers")
+    @ResponseStatus(HttpStatus.CREATED)
+    public TeacherWorkDto.TeacherInfo createSchoolTeacher(@PathVariable Long schoolId,
+            @Valid @RequestBody org.afritechinnovations.dto.people.CreateTeacherRequest request, Authentication authentication) {
+        UserPrincipal p = requireOwner(authentication);
+        return teacherWorkService.createSchoolTeacher(schoolId,request,p.getId(),isSuperAdmin(p));
+    }
+
     @GetMapping("/classes/{classId}/candidates")
     public List<TeacherWorkDto.TeacherInfo> listClassCandidates(@PathVariable Long classId, Authentication authentication) {
         UserPrincipal principal = requireOwner(authentication);

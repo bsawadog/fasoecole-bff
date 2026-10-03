@@ -93,7 +93,7 @@ public class OwnerGradeService {
     @Transactional(readOnly = true)
     public List<OwnerGradeDto.PeriodInfo> listPeriods(Long schoolId, Long ownerId, boolean systemAdmin) {
         requireOwnedSchool(schoolId, ownerId, systemAdmin);
-        return gradePeriodRepository.findBySchoolIdOrdered(schoolId).stream().map(this::toPeriodInfo).toList();
+        return gradePeriodRepository.findBySchoolIdOrdered(schoolId).stream().filter(p -> SelectedAcademicYear.matches(p.getAcademicYear())).map(this::toPeriodInfo).toList();
     }
 
     public OwnerGradeDto.PeriodInfo createPeriod(Long schoolId, OwnerGradeDto.PeriodRequest request,
@@ -522,9 +522,9 @@ public class OwnerGradeService {
      */
     @Transactional(readOnly = true)
     public Optional<GradePeriod> referencePeriod(Long schoolId, LocalDate today) {
-        List<GradePeriod> periods = gradePeriodRepository.findBySchoolIdOrdered(schoolId);
+        List<GradePeriod> periods = gradePeriodRepository.findBySchoolIdOrdered(schoolId).stream().filter(p -> SelectedAcademicYear.matches(p.getAcademicYear())).toList();
         Long currentYear = academicYearRepository.findBySchoolIdAndIsCurrentTrue(schoolId)
-                .map(AcademicYear::getId).orElse(null);
+                .map(y -> SelectedAcademicYear.id(schoolId) == null ? y.getId() : SelectedAcademicYear.id(schoolId)).orElse(SelectedAcademicYear.id(schoolId));
         List<GradePeriod> ofYear = periods.stream()
                 .filter(p -> p.getAcademicYear().getId().equals(currentYear)).toList();
         return ofYear.stream()
@@ -550,6 +550,7 @@ public class OwnerGradeService {
             return Optional.of(summary);
         }
         List<GradePeriod> started = gradePeriodRepository.findBySchoolIdOrdered(schoolId).stream()
+                .filter(p -> p.getAcademicYear().getId().equals(reference.get().getAcademicYear().getId()))
                 .filter(p -> !p.getId().equals(reference.get().getId()) && !p.getStartDate().isAfter(today))
                 .sorted(Comparator.comparing(GradePeriod::getStartDate).reversed())
                 .toList();
