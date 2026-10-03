@@ -9,6 +9,7 @@ import org.afritechinnovations.dto.people.NewStudentEnrollmentRequest;
 import org.afritechinnovations.dto.people.OwnerEnrollmentDto;
 import org.afritechinnovations.dto.people.StudentDetailDto;
 import org.afritechinnovations.dto.people.UpdateParentProfileRequest;
+import org.afritechinnovations.dto.people.CreateRosterParentRequest;
 import org.afritechinnovations.dto.people.UpdateStudentProfileRequest;
 import org.afritechinnovations.dto.people.UpsertAttendanceRequest;
 import org.afritechinnovations.model.academic.AcademicYear;
@@ -129,6 +130,26 @@ public class ClassRosterService {
         student.setGender(request.getGender());
         studentRepository.save(student);
 
+        return toRow(student, teacherNamesForClass(classId));
+    }
+
+    public ClassRosterRowDto addParent(Long classId, Long studentId, CreateRosterParentRequest request,
+                                       Long ownerId, boolean systemAdmin) {
+        SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Élève introuvable: " + studentId));
+        boolean inClass = studentEnrollmentRepository.findByStudentId(studentId).stream()
+                .anyMatch(enrollment -> enrollment.getSchoolClass().getId().equals(classId)
+                        && (enrollment.getStatus() == EnrollmentStatus.ACTIVE
+                        || enrollment.getStatus() == EnrollmentStatus.COMPLETED));
+        if (!inClass || !student.getSchool().getId().equals(schoolClass.getSchool().getId())) {
+            throw new AccessDeniedException("Cet élève n'appartient pas à cette classe");
+        }
+        if (!parentStudentRepository.findByStudentIdWithParentUser(studentId).isEmpty()) {
+            throw new IllegalArgumentException("Un parent est déjà associé à cet élève. Actualisez la liste.");
+        }
+        attachGuardians(student, List.of(new OwnerEnrollmentDto.Guardian(null, request.getFirstName(),
+                request.getLastName(), request.getEmail(), request.getPhone(), request.getRelationship())));
         return toRow(student, teacherNamesForClass(classId));
     }
 
@@ -614,13 +635,12 @@ public class ClassRosterService {
                     .map(r -> AbsenceReportJustification.of(r.getReason()))
                     .orElse(justification);
         }
-        Attendance attendance = Attendance.builder()
-                .student(student)
-                .schoolClass(activeEnrollment.getSchoolClass())
-                .attendanceDate(request.getAttendanceDate())
-                .status(request.getStatus())
-                .justification(justification)
-                .build();
+        Attendance attendance = attendanceRepository.findByStudentIdAndSchoolClassIdAndAttendanceDate(
+                studentId,activeEnrollment.getSchoolClass().getId(),request.getAttendanceDate())
+                .orElseGet(() -> Attendance.builder().student(student).schoolClass(activeEnrollment.getSchoolClass())
+                        .attendanceDate(request.getAttendanceDate()).build());
+        attendance.setStatus(request.getStatus());
+        attendance.setJustification(justification);
         attendance = attendanceRepository.save(attendance);
         return toAttendanceInfo(attendance);
     }

@@ -6,6 +6,13 @@ import org.afritechinnovations.dto.communication.FamilyContactDto;
 import org.afritechinnovations.security.AccessGuard;
 import org.afritechinnovations.service.communication.ConversationMessagingService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.CacheControl;
+import org.springframework.web.multipart.MultipartFile;
+import java.nio.charset.StandardCharsets;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -31,7 +38,7 @@ public class ConversationMessagingController {
     @GetMapping("/unread-count")
     public long unreadCount() { return service.unreadCount(guard.currentUserId()); }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public FamilyContactDto.ConversationThread start(@Valid @RequestBody FamilyContactDto.NewConversationRequest request) {
         return service.start(guard.currentUserId(), request);
@@ -42,9 +49,34 @@ public class ConversationMessagingController {
         return service.read(guard.currentUserId(), conversationId);
     }
 
-    @PostMapping("/{conversationId}/messages")
+    @PostMapping(value = "/{conversationId}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
     public FamilyContactDto.ConversationThread reply(@PathVariable Long conversationId,
                                                       @Valid @RequestBody FamilyContactDto.ReplyRequest request) {
         return service.reply(guard.currentUserId(), conversationId, request);
+    }
+
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public FamilyContactDto.ConversationThread startWithFiles(
+            @Valid @RequestPart("request") FamilyContactDto.NewConversationRequest request,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return service.startWithAttachments(guard.currentUserId(), request, files);
+    }
+
+    @PostMapping(value = "/{conversationId}/messages", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public FamilyContactDto.ConversationThread replyWithFiles(@PathVariable Long conversationId,
+            @Valid @RequestPart("request") FamilyContactDto.ReplyRequest request,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return service.replyWithAttachments(guard.currentUserId(), conversationId, request, files);
+    }
+
+    @GetMapping("/attachments/{attachmentId}")
+    public ResponseEntity<byte[]> download(@PathVariable Long attachmentId) {
+        var file = service.download(guard.currentUserId(), attachmentId);
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .cacheControl(CacheControl.noStore()).header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(file.filename(), StandardCharsets.UTF_8).build().toString())
+                .body(file.data());
     }
 }

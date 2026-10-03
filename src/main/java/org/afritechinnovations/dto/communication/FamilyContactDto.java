@@ -61,19 +61,34 @@ public final class FamilyContactDto {
             @Size(max = 4000, message = "Le message ne doit pas dépasser 4000 caractères") String content) {
     }
 
-    public record Recipient(Long userId, String fullName, String role) { }
+    public record Recipient(Long userId, String fullName, String role, String email) {
+        public Recipient(Long userId, String fullName, String role) { this(userId, fullName, role, null); }
+    }
 
     public record ConversationRecipientsRequest(@NotNull Long schoolId, Long studentId) { }
 
     public record ConversationSummary(Long id, Long schoolId, String schoolName, Long parentUserId, String parentName,
                                       String parentPhone, String parentEmail, Long studentId, String studentName,
                                       String subject, LocalDateTime createdAt, LocalDateTime lastMessageAt,
-                                      boolean unread, List<String> recipientNames) {
+                                      boolean unread, List<String> recipientNames, int recipientCount) {
+        public ConversationSummary(Long id, Long schoolId, String schoolName, Long parentUserId, String parentName,
+                                   String parentPhone, String parentEmail, Long studentId, String studentName,
+                                   String subject, LocalDateTime createdAt, LocalDateTime lastMessageAt,
+                                   boolean unread, List<String> recipientNames) {
+            this(id, schoolId, schoolName, parentUserId, parentName, parentPhone, parentEmail, studentId, studentName,
+                    subject, createdAt, lastMessageAt, unread, recipientNames, recipientNames == null ? 0 : recipientNames.size());
+        }
     }
 
     public record ConversationMessage(Long id, boolean fromSchool, Long senderId, boolean mine, String senderName,
-                                      String content, LocalDateTime sentAt, List<String> readBy) {
+                                      String content, LocalDateTime sentAt, List<String> readBy, List<Attachment> attachments) {
+        public ConversationMessage(Long id, boolean fromSchool, Long senderId, boolean mine, String senderName,
+                                   String content, LocalDateTime sentAt, List<String> readBy) {
+            this(id, fromSchool, senderId, mine, senderName, content, sentAt, readBy, List.of());
+        }
     }
+
+    public record Attachment(Long id, String filename, long sizeBytes) { }
 
     public record ConversationThread(ConversationSummary conversation, List<ConversationMessage> messages) {
     }

@@ -5,6 +5,8 @@ import lombok.*;
 import org.afritechinnovations.model.common.User;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "school_conversation_messages")
@@ -14,6 +16,10 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class SchoolConversationMessage {
+    @OneToMany(mappedBy = "message")
+    @OrderBy("id ASC")
+    @Builder.Default
+    private List<ConversationAttachment> attachments = new ArrayList<>();
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

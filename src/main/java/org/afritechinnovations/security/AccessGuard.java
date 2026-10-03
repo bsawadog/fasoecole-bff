@@ -94,15 +94,25 @@ public class AccessGuard {
     /** Propriétaire, SUPER_ADMIN ou membre actif du personnel ayant reçu l'un des modules indiqués. */
     public School requireSchoolModule(Long schoolId, StaffModule... modules) {
         School school = findSchool(schoolId);
+        if (allowsSchoolModule(school, modules)) return school;
+        throw new AccessDeniedException("Vous n'avez pas accès à ce module pour cet établissement");
+    }
+
+    /** Vérification sans exception pour les branches qui dépendent des droits d'accès. */
+    public boolean allowsSchoolModule(Long schoolId, StaffModule... modules) {
+        return allowsSchoolModule(findSchool(schoolId), modules);
+    }
+
+    private boolean allowsSchoolModule(School school, StaffModule... modules) {
         if (isSuperAdmin() || isOwner(school)) {
-            return school;
+            return true;
         }
         for (StaffModule module : modules) {
             if (permissions.staffAllows(school.getId(), currentUserId(), module)) {
-                return school;
+                return true;
             }
         }
-        throw new AccessDeniedException("Vous n'avez pas accès à ce module pour cet établissement");
+        return false;
     }
 
     public boolean ownsSchool(Long schoolId) {

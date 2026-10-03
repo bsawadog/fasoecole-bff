@@ -66,6 +66,31 @@ public class TeacherSpaceService {
     private final AttendanceRepository attendanceRepository;
     private final UserRepository userRepository;
 
+    @Transactional(readOnly = true)
+    public List<org.afritechinnovations.dto.self.TeacherAttendanceDto.Item> attendance(Long userId, Long classId, LocalDate date) {
+        requireTaughtClass(userId, classId);
+        Map<Long, Attendance> recorded = attendanceRepository.findByClassBetween(classId,date,date).stream()
+                .collect(Collectors.toMap(a -> a.getStudent().getId(), a -> a, (a,b) -> b));
+        return roster(classId).stream().map(enrollment -> {
+            var student = enrollment.getStudent(); var row = recorded.get(student.getId());
+            return new org.afritechinnovations.dto.self.TeacherAttendanceDto.Item(student.getId(), fullName(student.getUser()),
+                    student.getRegistrationNumber(), row == null ? null : row.getStatus(), row == null ? null : row.getJustification());
+        }).toList();
+    }
+
+    public void saveAttendance(Long userId, Long classId, Long studentId, org.afritechinnovations.dto.self.TeacherAttendanceDto.Request request) {
+        SchoolClass schoolClass = requireTaughtClass(userId, classId);
+        if (request.date().isBefore(schoolClass.getAcademicYear().getStartDate()) || request.date().isAfter(schoolClass.getAcademicYear().getEndDate()))
+            throw new IllegalArgumentException("La date doit appartenir à l'année scolaire de la classe");
+        var enrollment = roster(classId).stream().filter(e -> e.getStudent().getId().equals(studentId)).findFirst()
+                .orElseThrow(() -> new AccessDeniedException("Cet élève n'est pas inscrit dans votre classe"));
+        Attendance attendance = attendanceRepository.findByStudentIdAndSchoolClassIdAndAttendanceDate(studentId,classId,request.date())
+                .orElseGet(() -> Attendance.builder().student(enrollment.getStudent()).schoolClass(schoolClass).attendanceDate(request.date()).build());
+        attendance.setStatus(request.status());
+        attendance.setJustification(request.justification() == null || request.justification().isBlank() ? null : request.justification().trim());
+        attendanceRepository.save(attendance);
+    }
+
     // ------------------------------------------------------------------ classes et élèves
 
     @Transactional(readOnly = true)
@@ -119,7 +144,7 @@ public class TeacherSpaceService {
 
     public FamilyContactDto.AbsenceReportItem recordFamilyReport(Long userId, Long classId, Long reportId) {
         SchoolClass schoolClass = requireTaughtClass(userId, classId);
-        AbsenceReport report = absenceReportRepository.findById(reportId)
+        AbsenceReport report = absenceReportRepository.findByIdForUpdate(reportId)
                 .orElseThrow(() -> new IllegalArgumentException("Signalement introuvable : " + reportId));
         boolean enrolled = roster(classId).stream()
                 .anyMatch(enrollment -> enrollment.getStudent().getId().equals(report.getStudent().getId()));
@@ -252,7 +277,7 @@ public class TeacherSpaceService {
         return activeAssignments(userId).stream().map(ClassSubjectTeacher::getId).collect(Collectors.toSet());
     }
 
-    private SchoolClass requireTaughtClass(Long userId, Long classId) {
+    public SchoolClass requireTaughtClass(Long userId, Long classId) {
         boolean teaches = teacherRepository.findByUserId(userId).stream()
                 .anyMatch(t -> classSubjectTeacherRepository.existsBySchoolClassIdAndTeacherIdAndActiveTrue(classId,
                         t.getId()));

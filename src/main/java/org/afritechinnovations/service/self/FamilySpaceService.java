@@ -129,7 +129,10 @@ public class FamilySpaceService {
     /** Enfant dont l'utilisateur est le parent / tuteur (un élève ne peut pas agir pour lui-même ici). */
     public Student requireGuardedChild(Long userId, Long studentId) {
         Accessible a = requireAccess(userId, studentId);
-        if (a.relationship() == null) {
+        boolean linkedParent = parentRepository.findByUserId(userId)
+                .map(parent -> parentStudentRepository.findByParentId(parent.getId()).stream()
+                        .anyMatch(link -> link.getStudent().getId().equals(studentId))).orElse(false);
+        if (!linkedParent) {
             throw new AccessDeniedException("Seul un parent ou tuteur peut effectuer cette action");
         }
         return a.student();

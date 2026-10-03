@@ -10,6 +10,10 @@ import java.util.List;
 
 public interface AbsenceReportRepository extends JpaRepository<AbsenceReport, Long> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM AbsenceReport r WHERE r.id = :id")
+    java.util.Optional<AbsenceReport> findByIdForUpdate(@Param("id") Long id);
+
     @Query("""
         SELECT r FROM AbsenceReport r
         LEFT JOIN FETCH r.reportedBy

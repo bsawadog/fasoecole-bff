@@ -34,8 +34,21 @@ public record OwnerDashboardDto(
         int rankedStudents,
         long unreadMessages,
         List<RecentPayment> recentPayments,
-        List<RecentNotification> recentNotifications
+        List<RecentNotification> recentNotifications,
+        List<HandledAttendanceReport> handledAttendanceReports,
+        long pendingAttendanceReportsCount,
+        List<PendingAttendanceReport> pendingAttendanceReports
 ) {
+    public record PendingAttendanceReport(
+            Long id, String studentName, String attendanceType,
+            LocalDate startDate, LocalDate endDate, LocalDateTime createdAt
+    ) {}
+
+    public record HandledAttendanceReport(
+            Long id, String studentName, String attendanceType,
+            LocalDate startDate, LocalDate endDate, LocalDateTime handledAt
+    ) {}
+
     public record RecentPayment(
             Long id,
             String studentName,

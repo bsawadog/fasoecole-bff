@@ -3,6 +3,7 @@ package org.afritechinnovations.controler.people;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.ClassRosterRowDto;
+import org.afritechinnovations.dto.people.CreateRosterParentRequest;
 import org.afritechinnovations.dto.people.CreateRosterStudentRequest;
 import org.afritechinnovations.dto.people.TransferStudentRequest;
 import org.afritechinnovations.dto.people.UpdateParentProfileRequest;
@@ -56,6 +57,16 @@ public class ClassRosterController {
                                            Authentication authentication) {
         UserPrincipal principal = requireOwner(authentication);
         return classRosterService.updateParentProfile(classId, parentId, request, principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
+    @PostMapping("/students/{studentId}/parents")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ClassRosterRowDto addParent(@PathVariable Long classId, @PathVariable Long studentId,
+                                       @Valid @RequestBody CreateRosterParentRequest request,
+                                       Authentication authentication) {
+        UserPrincipal principal = requireOwner(authentication);
+        return classRosterService.addParent(classId, studentId, request, principal.getId(),
                 principal.getRoles().contains("SUPER_ADMIN"));
     }
 

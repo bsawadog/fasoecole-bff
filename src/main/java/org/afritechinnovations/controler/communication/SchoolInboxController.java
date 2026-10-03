@@ -38,6 +38,11 @@ public class SchoolInboxController {
         return service.reject(reportId, decision);
     }
 
+    @PostMapping("/absence-reports/{reportId}/record")
+    public FamilyContactDto.AbsenceReportItem record(@PathVariable Long reportId) {
+        return service.record(reportId);
+    }
+
     @GetMapping("/schools/{schoolId}/conversations")
     public List<FamilyContactDto.ConversationSummary> conversations(@PathVariable Long schoolId) {
         return service.conversations(schoolId);

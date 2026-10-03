@@ -34,6 +34,6 @@ public class Attendance {
     @Column(nullable = false, length = 20)
     private AttendanceStatus status;
 
-    @Column(length = 255)
+    @Column(length = 500)
     private String justification;
 }

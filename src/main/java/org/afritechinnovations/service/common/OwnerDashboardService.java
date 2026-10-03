@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import java.math.BigDecimal;
 import java.sql.Date;
@@ -21,7 +22,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class OwnerDashboardService {
 
     private final JdbcTemplate jdbcTemplate;
@@ -64,10 +65,12 @@ public class OwnerDashboardService {
                 count("""
                         SELECT COUNT(*)
                         FROM invoices i JOIN students s ON s.id = i.student_id
-                        WHERE s.school_id = ? AND i.status IN ('PENDING', 'OVERDUE')
+                        WHERE s.school_id = ? AND i.status <> 'CANCELLED'
+                          AND i.amount_due - COALESCE(i.discount_amount,0) >
+                              COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id=i.id),0)
                         """, schoolId),
                 decimal("""
-                        SELECT COALESCE(SUM(GREATEST(i.amount_due - COALESCE(paid.amount, 0), 0)), 0)
+                        SELECT COALESCE(SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0) - COALESCE(paid.amount, 0), 0)), 0)
                         FROM invoices i
                         JOIN students s ON s.id = i.student_id
                         LEFT JOIN (
@@ -75,7 +78,7 @@ public class OwnerDashboardService {
                             FROM payments
                             GROUP BY invoice_id
                         ) paid ON paid.invoice_id = i.id
-                        WHERE s.school_id = ? AND i.status IN ('PENDING', 'OVERDUE')
+                        WHERE s.school_id = ? AND i.status <> 'CANCELLED'
                         """, schoolId),
                 decimal("""
                         SELECT COALESCE(SUM(p.amount), 0)
@@ -85,7 +88,7 @@ public class OwnerDashboardService {
                         WHERE s.school_id = ?
                         """, schoolId),
                 decimal("""
-                        SELECT COALESCE(SUM(i.amount_due), 0)
+                        SELECT COALESCE(SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0),0)), 0)
                         FROM invoices i
                         JOIN students s ON s.id = i.student_id
                         WHERE s.school_id = ? AND i.status <> 'CANCELLED'
@@ -112,8 +115,51 @@ public class OwnerDashboardService {
                           AND (p.last_read_at IS NULL OR m.sent_at > p.last_read_at)
                         """, schoolId),
                 recentPayments(schoolId),
-                recentNotifications(ownerId)
+                recentNotifications(ownerId),
+                handledAttendanceReports(schoolId, today),
+                count("""
+                        SELECT COUNT(*) FROM absence_reports
+                        WHERE school_id = ? AND status = 'PENDING'
+                          AND start_date <= ? AND end_date >= ?
+                        """, schoolId, Date.valueOf(today), Date.valueOf(today)),
+                pendingAttendanceReports(schoolId, today)
         );
+    }
+
+    private List<OwnerDashboardDto.HandledAttendanceReport> handledAttendanceReports(Long schoolId, LocalDate date) {
+        return jdbcTemplate.query("""
+                SELECT r.id, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                       r.attendance_type, r.start_date, r.end_date, r.handled_at
+                FROM absence_reports r
+                JOIN students s ON s.id = r.student_id
+                JOIN users u ON u.id = s.user_id
+                WHERE r.school_id = ? AND r.status = 'ACKNOWLEDGED'
+                  AND r.start_date <= ? AND r.end_date >= ?
+                ORDER BY r.handled_at DESC NULLS LAST, r.id DESC
+                LIMIT 10
+                """, (result, rowNumber) -> new OwnerDashboardDto.HandledAttendanceReport(
+                result.getLong("id"), result.getString("student_name"), result.getString("attendance_type"),
+                result.getDate("start_date").toLocalDate(), result.getDate("end_date").toLocalDate(),
+                result.getObject("handled_at", LocalDateTime.class)
+        ), schoolId, Date.valueOf(date), Date.valueOf(date));
+    }
+
+    private List<OwnerDashboardDto.PendingAttendanceReport> pendingAttendanceReports(Long schoolId, LocalDate date) {
+        return jdbcTemplate.query("""
+                SELECT r.id, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                       r.attendance_type, r.start_date, r.end_date, r.created_at
+                FROM absence_reports r
+                JOIN students s ON s.id = r.student_id
+                JOIN users u ON u.id = s.user_id
+                WHERE r.school_id = ? AND r.status = 'PENDING'
+                  AND r.start_date <= ? AND r.end_date >= ?
+                ORDER BY r.created_at DESC, r.id DESC
+                LIMIT 10
+                """, (result, rowNumber) -> new OwnerDashboardDto.PendingAttendanceReport(
+                result.getLong("id"), result.getString("student_name"), result.getString("attendance_type"),
+                result.getDate("start_date").toLocalDate(), result.getDate("end_date").toLocalDate(),
+                result.getObject("created_at", LocalDateTime.class)
+        ), schoolId, Date.valueOf(date), Date.valueOf(date));
     }
 
     private long count(String sql, Object... arguments) {
@@ -124,8 +170,8 @@ public class OwnerDashboardService {
     private long attendanceCount(Long schoolId, LocalDate date, String status) {
         String sql = """
                 SELECT COUNT(*)
-                FROM attendances a JOIN students s ON s.id = a.student_id
-                WHERE s.school_id = ? AND a.attendance_date = ?
+                FROM attendances a JOIN classes c ON c.id = a.class_id
+                WHERE c.school_id = ? AND a.attendance_date = ?
                 """ + (status == null ? "" : " AND a.status = ?");
         return status == null
                 ? count(sql, schoolId, Date.valueOf(date))

@@ -55,7 +55,10 @@ public final class FamilyContactMapper {
                 parent == null ? null : parent.getId(), name(parent), parent == null ? null : parent.getPhone(),
                 parent == null ? null : parent.getEmail(),
                 student == null ? null : student.getId(), name(student), c.getSubject(), c.getCreatedAt(),
-                c.getLastMessageAt(), unread, recipients);
+                c.getLastMessageAt(), unread, recipients, (int) c.getParticipants().stream()
+                        .filter(p -> forSchool ? p.getUser() != null
+                                : p.getSchool() != null || (p.getUser() != null && (parent == null || !p.getUser().getId().equals(parent.getId()))))
+                        .count());
     }
 
     static FamilyContactDto.ConversationSummary summaryForUser(SchoolConversation c, Long userId) {
@@ -67,7 +70,9 @@ public final class FamilyContactMapper {
         return new FamilyContactDto.ConversationSummary(summary.id(), summary.schoolId(), summary.schoolName(),
                 summary.parentUserId(), summary.parentName(), summary.parentPhone(), summary.parentEmail(),
                 summary.studentId(), summary.studentName(), summary.subject(), summary.createdAt(),
-                summary.lastMessageAt(), unread, summary.recipientNames());
+                summary.lastMessageAt(), unread, summary.recipientNames(), (int) c.getParticipants().stream()
+                        .filter(p -> p.getSchool() != null || (p.getUser() != null && !p.getUser().getId().equals(userId)))
+                        .count());
     }
 
     static FamilyContactDto.ConversationThread thread(SchoolConversation c, List<SchoolConversationMessage> messages,
@@ -77,7 +82,7 @@ public final class FamilyContactMapper {
                         m.getSender() == null ? null : m.getSender().getId(), forSchool ? m.isFromSchool() : !m.isFromSchool(),
                         m.isFromSchool() ? (name(m.getSender()) == null ? "L'établissement"
                                 : name(m.getSender()) + " (établissement)") : name(m.getSender()),
-                        m.getContent(), m.getSentAt(), readers(c, m)))
+                        m.getContent(), m.getSentAt(), readers(c, m), attachments(m)))
                 .toList());
     }
 
@@ -88,8 +93,13 @@ public final class FamilyContactMapper {
                 new FamilyContactDto.ConversationMessage(m.getId(), m.isFromSchool(),
                         m.getSender() == null ? null : m.getSender().getId(), m.getSender() != null && m.getSender().getId().equals(userId),
                         name(m.getSender()),
-                        m.getContent(), m.getSentAt(), readers(c, m))).toList();
+                        m.getContent(), m.getSentAt(), readers(c, m), attachments(m))).toList();
         return new FamilyContactDto.ConversationThread(summary, mapped);
+    }
+
+    private static List<FamilyContactDto.Attachment> attachments(SchoolConversationMessage message) {
+        return message.getAttachments().stream()
+                .map(a -> new FamilyContactDto.Attachment(a.getId(), a.getFilename(), a.getSizeBytes())).toList();
     }
 
     private static List<String> readers(SchoolConversation c, SchoolConversationMessage message) {

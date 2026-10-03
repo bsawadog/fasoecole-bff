@@ -71,6 +71,19 @@ public class TeacherSpaceController {
         return service.schedule(guard.currentUserId());
     }
 
+    @GetMapping("/classes/{classId}/attendance")
+    public List<org.afritechinnovations.dto.self.TeacherAttendanceDto.Item> attendance(@PathVariable Long classId,
+            @RequestParam @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate date) {
+        return service.attendance(guard.currentUserId(),classId,date);
+    }
+
+    @PutMapping("/classes/{classId}/students/{studentId}/attendance")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void saveAttendance(@PathVariable Long classId,@PathVariable Long studentId,
+            @Valid @RequestBody org.afritechinnovations.dto.self.TeacherAttendanceDto.Request request) {
+        service.saveAttendance(guard.currentUserId(),classId,studentId,request);
+    }
+
     @GetMapping("/classes/{classId}/periods")
     public List<OwnerGradeDto.PeriodInfo> periods(@PathVariable Long classId) {
         return service.periods(guard.currentUserId(), classId);

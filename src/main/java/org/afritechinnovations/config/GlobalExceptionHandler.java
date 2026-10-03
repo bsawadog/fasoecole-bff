@@ -88,6 +88,16 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Une erreur interne est survenue");
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleUploadTooLarge(Exception ex) {
+        return buildResponse(HttpStatus.PAYLOAD_TOO_LARGE, "Maximum 10 Mo par pièce jointe et 3 fichiers par message");
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ResponseEntity<Map<String, Object>> handleMultipart(Exception ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Le fichier n'a pas pu être reçu. Vérifiez sa taille et réessayez.");
+    }
+
     private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", Instant.now().toString());

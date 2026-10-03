@@ -8,6 +8,10 @@ import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.communication.ConversationParticipant;
 import org.afritechinnovations.model.communication.SchoolConversation;
 import org.afritechinnovations.model.communication.SchoolConversationMessage;
+import org.afritechinnovations.model.communication.ConversationAttachment;
+import org.afritechinnovations.model.communication.ConversationAttachmentContent;
+import org.afritechinnovations.repository.communication.ConversationAttachmentRepository;
+import org.afritechinnovations.repository.communication.ConversationAttachmentContentRepository;
 import org.afritechinnovations.model.people.Parent;
 import org.afritechinnovations.model.people.Student;
 import org.afritechinnovations.model.people.Teacher;
@@ -27,6 +31,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.IOException;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -47,6 +53,8 @@ public class ConversationMessagingService {
     private final ClassSubjectTeacherRepository classTeacherRepository;
     private final StudentEnrollmentRepository enrollmentRepository;
     private final StudentRepository studentRepository;
+    private final ConversationAttachmentRepository attachmentRepository;
+    private final ConversationAttachmentContentRepository attachmentContentRepository;
 
     @Transactional(readOnly = true)
     public List<FamilyContactDto.ConversationSummary> conversations(Long userId) {
@@ -70,7 +78,7 @@ public class ConversationMessagingService {
         LinkedHashMap<Long, FamilyContactDto.Recipient> recipients = new LinkedHashMap<>();
         boolean parentActor = parentRepository.findByUserId(userId).isPresent();
         boolean teacherActor = !teacherRepository.findByUserId(userId).isEmpty();
-        boolean schoolActor = !parentActor && !teacherActor;
+        boolean schoolActor = isSchoolAccount(userId, schoolId);
         if (parentActor || schoolActor) {
             for (Teacher teacher : teacherRepository.findBySchoolId(schoolId)) {
                 if (studentId == null || teachesStudent(teacher, studentId)) {
@@ -88,10 +96,20 @@ public class ConversationMessagingService {
             }
         }
         recipients.remove(userId);
+        if (schoolActor) {
+            studentRepository.findBySchoolId(schoolId).stream()
+                    .filter(student -> studentId == null || student.getId().equals(studentId))
+                    .forEach(student -> addRecipient(recipients, student.getUser(), "ELEVE"));
+            recipients.remove(userId);
+        }
         return List.copyOf(recipients.values());
     }
 
     public FamilyContactDto.ConversationThread start(Long userId, FamilyContactDto.NewConversationRequest request) {
+        return start(userId, request, List.of());
+    }
+
+    private FamilyContactDto.ConversationThread start(Long userId, FamilyContactDto.NewConversationRequest request, List<Upload> uploads) {
         School school = school(request.schoolId());
         requireSchoolAccess(userId, request.schoolId(), request.studentId());
         List<Long> recipientIds = request.recipientUserIds() == null ? List.of() : request.recipientUserIds().stream()
@@ -99,7 +117,8 @@ public class ConversationMessagingService {
         if (!request.recipientSchool() && recipientIds.isEmpty()) {
             throw new IllegalArgumentException("Sélectionnez au moins un destinataire");
         }
-        for (Long recipientId : recipientIds) validateRecipient(recipientId, request.schoolId(), request.studentId());
+        boolean schoolActor = isSchoolAccount(userId, request.schoolId());
+        for (Long recipientId : recipientIds) validateRecipient(recipientId, request.schoolId(), request.studentId(), schoolActor);
         Student student = null;
         if (request.studentId() != null) {
             student = studentRepository.findById(request.studentId()).orElse(null);
@@ -119,19 +138,20 @@ public class ConversationMessagingService {
                 .school(school).parentUser(parentRecipient).student(student).subject(request.subject().trim())
                 .createdAt(now).lastMessageAt(now).unreadBySchool(!schoolSender).unreadByParent(schoolSender).build());
         if (schoolSender) {
-            participantRepository.save(ConversationParticipant.builder().conversation(conversation).school(school).lastReadAt(now).build());
+            addParticipant(conversation, ConversationParticipant.builder().conversation(conversation).school(school).lastReadAt(now).build());
         } else {
-            participantRepository.save(ConversationParticipant.builder().conversation(conversation).user(sender).lastReadAt(now).build());
+            addParticipant(conversation, ConversationParticipant.builder().conversation(conversation).user(sender).lastReadAt(now).build());
         }
         if (request.recipientSchool() && !schoolSender) {
-            participantRepository.save(ConversationParticipant.builder().conversation(conversation).school(school).build());
+            addParticipant(conversation, ConversationParticipant.builder().conversation(conversation).school(school).build());
         }
         for (Long recipientId : recipientIds) {
-            participantRepository.save(ConversationParticipant.builder().conversation(conversation)
+            addParticipant(conversation, ConversationParticipant.builder().conversation(conversation)
                     .user(userRepository.getReferenceById(recipientId)).build());
         }
-        messageRepository.save(SchoolConversationMessage.builder().conversation(conversation).sender(sender)
+        SchoolConversationMessage message = messageRepository.save(SchoolConversationMessage.builder().conversation(conversation).sender(sender)
                 .fromSchool(schoolSender).content(request.content().trim()).sentAt(now).build());
+        if (!uploads.isEmpty()) attach(message.getId(), uploads);
         return thread(conversation, userId);
     }
 
@@ -145,13 +165,18 @@ public class ConversationMessagingService {
     }
 
     public FamilyContactDto.ConversationThread reply(Long userId, Long conversationId, FamilyContactDto.ReplyRequest request) {
+        return reply(userId, conversationId, request, List.of());
+    }
+
+    private FamilyContactDto.ConversationThread reply(Long userId, Long conversationId, FamilyContactDto.ReplyRequest request, List<Upload> uploads) {
         SchoolConversation conversation = requireConversation(conversationId);
         ConversationParticipant sender = participantFor(userId, conversation);
         User user = userRepository.getReferenceById(userId);
         boolean fromSchool = sender.getSchool() != null;
         LocalDateTime now = LocalDateTime.now();
-        messageRepository.save(SchoolConversationMessage.builder().conversation(conversation).sender(user)
+        SchoolConversationMessage message = messageRepository.save(SchoolConversationMessage.builder().conversation(conversation).sender(user)
                 .fromSchool(fromSchool).content(request.content().trim()).sentAt(now).build());
+        if (!uploads.isEmpty()) attach(message.getId(), uploads);
         conversation.setLastMessageAt(now);
         sender.setLastReadAt(now);
         conversation.setUnreadBySchool(!fromSchool);
@@ -179,10 +204,7 @@ public class ConversationMessagingService {
     private ConversationParticipant participantFor(Long userId, SchoolConversation conversation) {
         return participantRepository.findByConversationIdAndUserId(conversation.getId(), userId)
                 .or(() -> participantRepository.findByConversationIdAndSchoolId(conversation.getId(), conversation.getSchool().getId())
-                        .filter(p -> {
-                            try { guard.requireSchoolModule(conversation.getSchool().getId(), StaffModule.STUDENTS); return true; }
-                            catch (AccessDeniedException denied) { return false; }
-                        }))
+                        .filter(p -> guard.allowsSchoolModule(conversation.getSchool().getId(), StaffModule.STUDENTS)))
                 .orElseThrow(() -> new AccessDeniedException("Cette conversation ne vous concerne pas"));
     }
 
@@ -195,13 +217,17 @@ public class ConversationMessagingService {
         guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
     }
 
-    private void validateRecipient(Long userId, Long schoolId, Long studentId) {
+    private void validateRecipient(Long userId, Long schoolId, Long studentId, boolean schoolActor) {
         boolean teacher = teacherRepository.findByUserId(userId).stream().anyMatch(t -> t.getSchool().getId().equals(schoolId)
                 && (studentId == null || teachesStudent(t, studentId)));
         boolean parent = parentRepository.findByUserId(userId).map(p -> parentStudentRepository.findByParentId(p.getId()).stream()
                 .anyMatch(ps -> ps.getStudent().getSchool().getId().equals(schoolId)
                         && (studentId == null || ps.getStudent().getId().equals(studentId)))).orElse(false);
-        if (!teacher && !parent) throw new AccessDeniedException("Un destinataire n'est pas rattaché à cet établissement");
+        boolean student = schoolActor && studentRepository.findAllByUserId(userId).stream()
+                .anyMatch(s -> s.getSchool().getId().equals(schoolId) && (studentId == null || s.getId().equals(studentId)));
+        boolean knownParent = schoolActor && studentId == null && parentRepository.findByUserId(userId)
+                .map(p -> parentRepository.isKnownInSchools(p.getId(), List.of(schoolId))).orElse(false);
+        if (!teacher && !parent && !student && !knownParent) throw new AccessDeniedException("Un destinataire n'est pas rattaché à cet établissement");
     }
 
     private boolean teachesStudent(Teacher teacher, Long studentId) {
@@ -214,12 +240,71 @@ public class ConversationMessagingService {
     private boolean isParent(User user) { return parentRepository.findByUserId(user.getId()).isPresent(); }
     private boolean isTeacher(User user) { return !teacherRepository.findByUserId(user.getId()).isEmpty(); }
     private boolean isSchoolAccount(Long userId, Long schoolId) {
-        return !isParent(userRepository.getReferenceById(userId))
-                && teacherRepository.findByUserId(userId).stream().noneMatch(t -> t.getSchool().getId().equals(schoolId));
+        return Objects.equals(userId, guard.currentUserId())
+                && guard.allowsSchoolModule(schoolId, StaffModule.STUDENTS);
     }
     private School school(Long id) { return schoolRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Établissement introuvable")); }
     private void addRecipient(Map<Long, FamilyContactDto.Recipient> map, User user, String role) {
-        if (user != null) map.putIfAbsent(user.getId(), new FamilyContactDto.Recipient(user.getId(),
-                (user.getFirstName() + " " + user.getLastName()).trim(), role));
+        if (user != null && Boolean.TRUE.equals(user.getActive()) && Boolean.TRUE.equals(user.getApproved())) map.putIfAbsent(user.getId(), new FamilyContactDto.Recipient(user.getId(),
+                (user.getFirstName() + " " + user.getLastName()).trim(), role, user.getEmail()));
+    }
+
+    private void addParticipant(SchoolConversation conversation, ConversationParticipant participant) {
+        conversation.getParticipants().add(participantRepository.save(participant));
+    }
+
+    public FamilyContactDto.ConversationThread startWithAttachments(Long userId,
+            FamilyContactDto.NewConversationRequest request, List<MultipartFile> files) {
+        return start(userId, request, prepareUploads(files));
+    }
+
+    public FamilyContactDto.ConversationThread replyWithAttachments(Long userId, Long conversationId,
+            FamilyContactDto.ReplyRequest request, List<MultipartFile> files) {
+        return reply(userId, conversationId, request, prepareUploads(files));
+    }
+
+    private record Upload(String filename, byte[] data) { }
+    public record Download(String filename, byte[] data) { }
+
+    private List<Upload> prepareUploads(List<MultipartFile> files) {
+        if (files == null) return List.of();
+        if (files.size() > 3) throw new IllegalArgumentException("Maximum 3 pièces jointes par message");
+        Set<String> allowed = Set.of("pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "txt", "csv", "jpg", "jpeg", "png");
+        List<Upload> uploads = new ArrayList<>();
+        for (MultipartFile file : files) {
+            if (file.isEmpty() || file.getSize() > 10 * 1024 * 1024) {
+                throw new IllegalArgumentException("Chaque pièce jointe doit contenir entre 1 octet et 10 Mo");
+            }
+            String name = Optional.ofNullable(file.getOriginalFilename()).orElse("").replace('\\', '/');
+            name = name.substring(name.lastIndexOf('/') + 1).replaceAll("[\\p{Cntrl}]", "").trim();
+            int dot = name.lastIndexOf('.');
+            if (name.length() > 200 || dot < 1 || !allowed.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT))) {
+                throw new IllegalArgumentException("Format de pièce jointe non pris en charge ou nom trop long");
+            }
+            try { uploads.add(new Upload(name, file.getBytes())); }
+            catch (IOException failure) { throw new IllegalArgumentException("Impossible de lire la pièce jointe", failure); }
+        }
+        return uploads;
+    }
+
+    private void attach(Long messageId, List<Upload> uploads) {
+        if (uploads.isEmpty()) return;
+        SchoolConversationMessage message = messageRepository.findById(messageId).orElseThrow();
+        for (Upload upload : uploads) {
+            ConversationAttachment attachment = attachmentRepository.save(ConversationAttachment.builder()
+                    .message(message).filename(upload.filename()).sizeBytes(upload.data().length).build());
+            attachmentContentRepository.save(ConversationAttachmentContent.builder()
+                    .id(attachment.getId()).data(upload.data()).build());
+            message.getAttachments().add(attachment);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public Download download(Long userId, Long attachmentId) {
+        ConversationAttachment attachment = attachmentRepository.findById(attachmentId)
+                .orElseThrow(() -> new IllegalArgumentException("Pièce jointe introuvable"));
+        participantFor(userId, attachment.getMessage().getConversation());
+        return new Download(attachment.getFilename(), attachmentContentRepository.findById(attachmentId)
+                .orElseThrow(() -> new IllegalArgumentException("Pièce jointe introuvable")).getData());
     }
 }

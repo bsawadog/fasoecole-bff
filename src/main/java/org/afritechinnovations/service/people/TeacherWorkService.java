@@ -147,7 +147,24 @@ public class TeacherWorkService {
     /** Tous les enseignants de l'établissement de la classe : un enseignant déjà affecté peut y enseigner une autre matière. */
     public List<TeacherWorkDto.TeacherInfo> listClassCandidates(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
-        return schoolTeachers(schoolClass.getSchool().getId());
+        Map<Long, TeacherWorkDto.TeacherInfo> candidates = new LinkedHashMap<>();
+        addSchoolCandidates(candidates, schoolClass.getSchool().getId());
+        for (School school : schoolRepository.findAll()) {
+            if (school.getId().equals(schoolClass.getSchool().getId())) continue;
+            if (!systemAdmin && !school.getOwner().getId().equals(ownerId)
+                    && !permissions.staffAllows(school.getId(), ownerId, StaffModule.TEACHERS)) continue;
+            addSchoolCandidates(candidates, school.getId());
+        }
+        return List.copyOf(candidates.values());
+    }
+
+    private void addSchoolCandidates(Map<Long, TeacherWorkDto.TeacherInfo> candidates, Long schoolId) {
+        teacherProfileService.ensureSchoolProfiles(schoolId);
+        Map<Long, Long> classCounts = activeClassCounts(schoolId);
+        for (Teacher teacher : teacherRepository.findBySchoolId(schoolId)) {
+            candidates.putIfAbsent(teacher.getUser().getId(), toTeacherInfo(teacher, subjectsOf(teacher.getId()),
+                    null, classCounts.getOrDefault(teacher.getId(), 0L)));
+        }
     }
 
     public List<TeacherWorkDto.TeacherInfo> listSchoolTeachers(Long schoolId, Long ownerId, boolean systemAdmin) {
@@ -285,7 +302,28 @@ public class TeacherWorkService {
         Teacher teacher = teacherRepository.findById(request.getTeacherId())
                 .orElseThrow(() -> new IllegalArgumentException("Enseignant introuvable : " + request.getTeacherId()));
         if (!teacher.getSchool().getId().equals(schoolClass.getSchool().getId())) {
-            throw new IllegalArgumentException("Cet enseignant n'appartient pas à l'établissement de la classe");
+            School sourceSchool = teacher.getSchool();
+            if (!systemAdmin && !sourceSchool.getOwner().getId().equals(ownerId)
+                    && !permissions.staffAllows(sourceSchool.getId(), ownerId, StaffModule.TEACHERS)) {
+                throw new AccessDeniedException("Cet enseignant n'appartient pas à un établissement accessible");
+            }
+            User existingUser = teacher.getUser();
+            String specialty = teacher.getSpecialty();
+            LocalDate hireDate = teacher.getHireDate();
+            teacher = teacherRepository.findByUserId(existingUser.getId()).stream()
+                    .filter(profile -> profile.getSchool().getId().equals(schoolClass.getSchool().getId()))
+                    .findFirst().orElseGet(() -> teacherRepository.save(Teacher.builder()
+                            .user(existingUser).school(schoolClass.getSchool())
+                            .specialty(specialty).hireDate(hireDate).build()));
+            boolean member = schoolUserRepository.findByUserId(existingUser.getId()).stream()
+                    .anyMatch(link -> link.getSchool().getId().equals(schoolClass.getSchool().getId())
+                            && "TEACHER".equals(link.getRole().getName()));
+            if (!member) {
+                Role teacherRole = roleRepository.findByName("TEACHER")
+                        .orElseThrow(() -> new IllegalStateException("Rôle non configuré : TEACHER"));
+                schoolUserRepository.save(SchoolUser.builder().user(existingUser)
+                        .school(schoolClass.getSchool()).role(teacherRole).build());
+            }
         }
         Optional<ClassSubjectTeacher> existing = classSubjectTeacherRepository
                 .findBySchoolClassIdAndSubjectIdAndTeacherId(classId, subject.getId(), teacher.getId());

@@ -77,6 +77,16 @@ public class SchoolService {
         return toDto(schoolRepository.save(school));
     }
 
+    public SchoolDto finalizeCreation(Long id) {
+        School school = schoolRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("École introuvable: " + id));
+        if (school.getStatus() != SchoolStatus.DRAFT && school.getStatus() != SchoolStatus.ACTIVE) {
+            throw new IllegalArgumentException("Seul un établissement en cours de création peut être finalisé");
+        }
+        school.setStatus(SchoolStatus.ACTIVE);
+        return toDto(schoolRepository.save(school));
+    }
+
     public void delete(Long id) {
         schoolRepository.deleteById(id);
     }

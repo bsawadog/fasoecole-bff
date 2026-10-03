@@ -70,9 +70,15 @@ public class SchoolController {
                 throw new AccessDeniedException("Seul un propriétaire peut créer un établissement");
             }
             dto.setOwnerId(guard.currentUserId());
-            dto.setStatus(SchoolStatus.ACTIVE);
+            dto.setStatus(dto.getStatus() == SchoolStatus.DRAFT ? SchoolStatus.DRAFT : SchoolStatus.ACTIVE);
         }
         return schoolService.create(dto);
+    }
+
+    @PostMapping("/{id}/finalize")
+    public SchoolDto finalizeCreation(@PathVariable Long id) {
+        guard.requireOwnedSchool(id);
+        return schoolService.finalizeCreation(id);
     }
 
     @PutMapping("/{id}")

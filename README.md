@@ -183,9 +183,112 @@ Le compte propriétaire local est `admin@fasoecole.com` avec le mot de passe `pa
 
 La situation financière affiche le total attendu (somme des frais non annulés), l'encaissé (tous les paiements réellement enregistrés) et le reste à recouvrer (solde des frais ouverts). Dans la fiche élève, un frais annulé reste visible avec un solde à payer nul ; ses éventuels paiements déjà encaissés restent comptabilisés dans l'encaissé et l'historique. Dans ce cas, l'encaissé et le reste à recouvrer ne totalisent pas forcément le montant attendu : l'annulation ne rembourse pas les paiements antérieurs.
 
-Les annonces et événements n'ont pas encore de modèle métier dans la base actuelle. Le tableau de bord ne les présente donc pas comme s'ils existaient ; ils pourront être ajoutés avec les modules calendrier et communication.
+Les annonces destinées aux parents se publient dans **Portail parents**. Le tableau de bord général ne les affiche pas encore ; les événements peuvent être annoncés dans ce portail, sans calendrier d'événements distinct.
+
+## Messagerie et pièces jointes
+
+Dans **Messages**, le propriétaire choisit les destinataires de l'établissement : enseignants,
+élèves, parents, ou une combinaison des trois. La sélection peut être individuelle ou par groupe.
+Tous les participants d'une conversation de groupe voient ses destinataires et ses messages.
+Les élèves disposent aussi d'une boîte de réception et peuvent répondre.
+
+Les nouveaux messages et les réponses acceptent jusqu'à **3 pièces jointes de 10 Mo chacune** :
+PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, ODT/ODS/ODP, TXT, CSV, JPG/JPEG et PNG.
+Un message peut contenir uniquement des pièces jointes. Le téléchargement nécessite une session
+authentifiée et l'accès à la conversation ; les fichiers n'ont pas d'URL publique.
+
+Les fichiers sont conservés dans PostgreSQL. La migration **V26** sépare les métadonnées du
+contenu binaire pour charger les fils de discussion sans charger tous les documents.
+Les API JSON existantes restent disponibles ; l'envoi avec fichiers utilise `multipart/form-data`
+avec une partie `request` en JSON et des parties `files`.
 
 ## Migrations de base de données
+
+### Modules de l'espace parent (V27)
+
+Le menu parent comporte désormais **Notes et bulletins**, **Présences et retards**, **Frais et paiements**,
+**Emploi du temps**, **Devoirs et évaluations**, **Annonces**, **Documents** et **Rendez-vous**.
+Chaque écran propose un sélecteur parmi les enfants accessibles au parent. Les dossiers existants restent disponibles.
+Les bulletins publiés et les reçus de paiements enregistrés peuvent être imprimés ou enregistrés en PDF avec le navigateur.
+Le module de paiements consulte les encaissements enregistrés ; il n'effectue pas de paiement en ligne.
+
+Dans l'espace propriétaire, **Portail parents** permet de publier une annonce, un devoir avec date de remise,
+ou des documents. Une publication peut viser tout l'établissement, une classe ou un enfant de la classe.
+Pour un certificat ou un autre document personnel, sélectionner l'enfant concerné afin de limiter l'accès à ses parents.
+Les fichiers acceptés sont les mêmes que dans la messagerie : 3 pièces jointes de 10 Mo maximum.
+Les téléchargements nécessitent l'authentification et un accès parent actif à l'enfant ; les fichiers restent dans PostgreSQL.
+Un document individuel reste rattaché à l'enfant s'il change de classe dans le même établissement.
+
+Les parents proposent une date et un interlocuteur (administration ou enseignant de l'enfant).
+L'établissement coordonne la rencontre et confirme ou refuse la demande avec une réponse visible au parent.
+Le parent peut annuler une demande en attente ou confirmée. Le bouton **Actualiser** recharge les réponses.
+Ce flux ne synchronise pas de calendrier externe et ne réserve pas automatiquement un créneau enseignant.
+
+La migration **V27** crée les publications, leurs fichiers et les demandes de rendez-vous.
+Redémarrer le backend pour que Flyway applique cette migration avant d'utiliser les nouveaux modules.
+Les API se trouvent sous `/api/me/parent-portal/students/{studentId}` et `/api/owner/parent-portal/schools/{schoolId}`.
+Les actions de l'établissement requièrent le module `STUDENTS` ; les consultations parent vérifient le rattachement réel
+et l'accès actif à l'établissement, y compris si le champ descriptif « lien avec l'enfant » est vide.
+
+### Synchronisation et calcul des présences
+
+L'accueil propriétaire/administration, la fiche élève, les présences et signalements enseignant,
+les dossiers enfants et le portail parent utilisent une connexion HTTP authentifiée partagée par établissement.
+La migration **V30** maintient une révision en base pour les présences, signalements, élèves, classes,
+enseignants, rattachements, factures, paiements, publications et rendez-vous. Une modification annulée
+par la transaction ne déclenche pas d'actualisation. Le backend consulte ces révisions chaque seconde ;
+les écrans concernés rechargent leurs données après validation. Un rechargement de secours intervient
+toutes les 30 secondes et une reconnexion est tentée après 5 secondes en cas d'erreur.
+Il s'agit d'une actualisation automatique avec un léger délai, dépendant du réseau et du temps des requêtes.
+
+**Présences du jour** compte les saisies de la date courante du serveur, rattachées à la classe
+de l'établissement sélectionné. Le total est la somme des statuts PRESENT, ABSENT, LATE et EXCUSED.
+Une saisie manquante n'est jamais une absence. Les chiffres du tableau de bord sont lus dans une même
+transaction à isolation REPEATABLE_READ pour éviter des totaux contradictoires pendant une modification.
+La date dépend du fuseau horaire du serveur ; configurer celui-ci selon la date métier attendue.
+
+La migration **V29** empêche plusieurs saisies pour le même élève, la même classe et la même date.
+Lors de sa première application, les anciennes lignes en double sont copiées dans
+`attendance_duplicate_archive` puis consolidées en conservant la ligne avec l'identifiant le plus élevé.
+Cette règle ne garantit pas que cette ligne contient la dernière correction humaine ; les archives
+permettent de contrôler les cas historiques. Les créations répétées deviennent des mises à jour ;
+une collision concurrente reste protégée par la contrainte d'unicité de la base.
+
+Les vues ont des périodes et définitions distinctes : le tableau de bord montre la journée ; le résumé
+parent porte sur l'année scolaire de l'inscription retenue et regroupe ABSENT et EXCUSED dans les absences ;
+la fiche élève récapitule son historique. Un signalement parent en attente n'est pas une présence enregistrée.
+Les effectifs du tableau de bord comptent les dossiers/classes de l'établissement, toutes années confondues.
+
+Les montants attendus et restants du tableau de bord déduisent les remises et excluent les factures annulées.
+Le reste est plafonné à zéro par facture. Le nombre de factures à payer dépend de leur solde réel.
+Les encaissements représentent les paiements enregistrés, y compris ceux d'une facture annulée ensuite.
+La messagerie, les notes et l'emploi du temps ne disposent pas de notifications dédiées dans ce mécanisme.
+
+Redémarrer le backend pour appliquer V29/V30, puis recharger le frontend. Une compilation seule ne vérifie
+ni l'exécution des migrations ni les valeurs de la base réelle.
+
+### Exécution des migrations
+
+### Modules de l'espace enseignant
+
+Le menu enseignant comporte **Mes classes**, **Notes**, **Mon emploi du temps**, **Présences et retards**,
+**Signalements des parents**, **Devoirs**, **Documents de classe**, **Annonces de classe** et **Rendez-vous parents**.
+Les actions par classe nécessitent une affectation active de l'enseignant connecté ; un identifiant de classe modifié
+dans la requête ne donne pas accès aux classes d'un autre enseignant.
+
+Les présences se saisissent par élève et par date passée ou courante, dans l'année scolaire de la classe.
+Une ligne sans statut reste « Non renseigné » jusqu'à son enregistrement.
+Dans **Signalements des parents**, sélectionner la date puis **Enregistrer retard** ou **Enregistrer absence**
+pour inscrire la présence et passer le signalement à « Prise en compte ».
+
+Les devoirs, documents et annonces se publient pour les parents de la classe sélectionnée, avec les mêmes pièces
+jointes que le portail parent. L'enseignant ne peut retirer que ses propres publications.
+Les demandes de rendez-vous visibles sont celles qui lui sont adressées pour les enfants de ses classes.
+Il peut confirmer ou refuser une demande ; le parent et l'établissement voient la même réponse.
+
+Ces modules utilisent la migration V27 pour les publications et rendez-vous. La migration **V28** porte les motifs
+de présence à 500 caractères, comme les signalements parent, afin d'éviter un échec lors de leur prise en compte.
+Redémarrer le backend après la mise à jour pour appliquer les migrations.
 
 Les scripts Flyway se trouvent dans `src/main/resources/db/migration` et sont exécutés automatiquement au démarrage de l'application.
 

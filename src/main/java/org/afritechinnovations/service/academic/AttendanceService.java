@@ -41,13 +41,16 @@ public class AttendanceService {
     }
 
     public AttendanceDto create(AttendanceDto dto) {
-        Attendance attendance = Attendance.builder()
+        Attendance attendance = attendanceRepository.findByStudentIdAndSchoolClassIdAndAttendanceDate(
+                dto.getStudentId(),dto.getClassId(),dto.getAttendanceDate()).orElseGet(() -> Attendance.builder()
                 .student(Student.builder().id(dto.getStudentId()).build())
                 .schoolClass(SchoolClass.builder().id(dto.getClassId()).build())
                 .attendanceDate(dto.getAttendanceDate())
                 .status(dto.getStatus())
                 .justification(dto.getJustification())
-                .build();
+                .build());
+        attendance.setStatus(dto.getStatus());
+        attendance.setJustification(dto.getJustification());
         return toDto(attendanceRepository.save(attendance));
     }
 

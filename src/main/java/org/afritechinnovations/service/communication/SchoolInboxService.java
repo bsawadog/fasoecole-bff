@@ -8,11 +8,14 @@ import org.afritechinnovations.model.common.StaffModule;
 import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.communication.AbsenceReport;
 import org.afritechinnovations.model.communication.AbsenceReportStatus;
+import org.afritechinnovations.model.communication.FamilyAttendanceType;
+import org.afritechinnovations.model.people.EnrollmentStatus;
 import org.afritechinnovations.model.communication.SchoolConversation;
 import org.afritechinnovations.model.communication.SchoolConversationMessage;
 import org.afritechinnovations.model.communication.ConversationParticipant;
 import org.afritechinnovations.repository.academic.AttendanceRepository;
 import org.afritechinnovations.repository.common.UserRepository;
+import org.afritechinnovations.repository.people.StudentEnrollmentRepository;
 import org.afritechinnovations.repository.communication.AbsenceReportRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationMessageRepository;
 import org.afritechinnovations.repository.communication.SchoolConversationRepository;
@@ -22,6 +25,7 @@ import org.afritechinnovations.service.self.TeacherSpaceService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -42,6 +46,7 @@ public class SchoolInboxService {
     private final ConversationParticipantRepository participantRepository;
     private final UserRepository userRepository;
     private final TeacherSpaceService teacherSpace;
+    private final StudentEnrollmentRepository enrollmentRepository;
 
     @Transactional(readOnly = true)
     public FamilyContactDto.InboxSummary summary(Long schoolId) {
@@ -82,6 +87,36 @@ public class SchoolInboxService {
             }
         }
         return FamilyContactMapper.report(report, justified);
+    }
+
+    public FamilyContactDto.AbsenceReportItem record(Long reportId) {
+        AbsenceReport report = requirePending(reportId);
+        if (!report.getStartDate().equals(report.getEndDate())) {
+            throw new IllegalArgumentException("Ce signalement concerne plusieurs jours ; saisissez les présences depuis la fiche de l'élève");
+        }
+        var date = report.getStartDate();
+        if (date.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("Une présence ne peut pas être enregistrée pour une date future");
+        }
+        var enrollments = enrollmentRepository.findByStudentId(report.getStudent().getId()).stream()
+                .filter(enrollment -> enrollment.getStatus() == EnrollmentStatus.ACTIVE)
+                .filter(enrollment -> enrollment.getSchoolClass().getSchool().getId().equals(report.getSchool().getId()))
+                .filter(enrollment -> !date.isBefore(enrollment.getSchoolClass().getAcademicYear().getStartDate())
+                        && !date.isAfter(enrollment.getSchoolClass().getAcademicYear().getEndDate()))
+                .toList();
+        if (enrollments.size() != 1) {
+            throw new IllegalArgumentException("Impossible d'identifier une classe active unique pour cet élève à cette date ; consultez sa fiche");
+        }
+        var schoolClass = enrollments.getFirst().getSchoolClass();
+        Attendance attendance = attendanceRepository.findByStudentIdAndSchoolClassIdAndAttendanceDate(
+                report.getStudent().getId(), schoolClass.getId(), date).orElseGet(() -> Attendance.builder()
+                .student(report.getStudent()).schoolClass(schoolClass).attendanceDate(date).build());
+        attendance.setStatus(report.getAttendanceType() == FamilyAttendanceType.LATE
+                ? AttendanceStatus.LATE : AttendanceStatus.ABSENT);
+        attendance.setJustification(report.getReason());
+        attendanceRepository.save(attendance);
+        decide(report, AbsenceReportStatus.ACKNOWLEDGED, "Enregistré par l'administration.");
+        return FamilyContactMapper.report(report, 1);
     }
 
     public FamilyContactDto.AbsenceReportItem reject(Long reportId, FamilyContactDto.AbsenceDecision decision) {
@@ -184,7 +219,7 @@ public class SchoolInboxService {
     // ------------------------------------------------------------------ utilitaires
 
     private AbsenceReport requirePending(Long reportId) {
-        AbsenceReport report = reportRepository.findById(reportId)
+        AbsenceReport report = reportRepository.findByIdForUpdate(reportId)
                 .orElseThrow(() -> new IllegalArgumentException("Signalement introuvable : " + reportId));
         guard.requireSchoolModule(report.getSchool().getId(), StaffModule.STUDENTS);
         if (report.getStatus() != AbsenceReportStatus.PENDING) {
