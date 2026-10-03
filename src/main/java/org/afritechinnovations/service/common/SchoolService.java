@@ -56,7 +56,7 @@ public class SchoolService {
                 .phone(dto.getPhone())
                 .email(dto.getEmail())
                 .owner(User.builder().id(dto.getOwnerId()).build())
-                .status(dto.getStatus() != null ? dto.getStatus() : SchoolStatus.ACTIVE)
+                .status(guard.isSuperAdmin() ? (dto.getStatus() != null ? dto.getStatus() : SchoolStatus.DRAFT) : SchoolStatus.DRAFT)
                 .build();
         return toDto(schoolRepository.save(school));
     }
@@ -78,6 +78,10 @@ public class SchoolService {
         School school = schoolRepository.lockById(id)
                 .orElseThrow(() -> new IllegalArgumentException("École introuvable: " + id));
         if (school.getStatus() == status) return toDto(school);
+        if(status == SchoolStatus.ACTIVE && school.getStatus() == SchoolStatus.DRAFT)
+            throw new IllegalArgumentException("Le propriétaire doit soumettre la création avant son activation");
+        if(status == SchoolStatus.DRAFT || status == SchoolStatus.PENDING_APPROVAL)
+            throw new IllegalArgumentException("Utilisez l’assistant de création pour préparer et soumettre l’établissement");
         jdbc.update("INSERT INTO school_status_events(school_id,actor_id,previous_status,new_status) VALUES(?,?,?,?)",
                 id, guard.currentUserId(), school.getStatus().name(), status.name());
         school.setStatus(status);
@@ -87,13 +91,19 @@ public class SchoolService {
     }
 
     public SchoolDto finalizeCreation(Long id) {
-        School school = schoolRepository.findById(id)
+        guard.requireOwnedSchool(id);
+        School school = schoolRepository.lockById(id)
                 .orElseThrow(() -> new IllegalArgumentException("École introuvable: " + id));
+        if(school.getStatus() == SchoolStatus.PENDING_APPROVAL || school.getStatus() == SchoolStatus.ACTIVE) return toDto(school);
         if (school.getStatus() != SchoolStatus.DRAFT && school.getStatus() != SchoolStatus.ACTIVE) {
             throw new IllegalArgumentException("Seul un établissement en cours de création peut être finalisé");
         }
-        school.setStatus(SchoolStatus.ACTIVE);
-        if (school.getActivatedAt() == null) school.setActivatedAt(java.time.LocalDateTime.now());
+        if(Boolean.FALSE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM academic_years WHERE school_id=?) AND EXISTS(SELECT 1 FROM classes WHERE school_id=?)",Boolean.class,id,id)))
+            throw new IllegalArgumentException("Ajoutez au moins une année scolaire et une classe avant de soumettre l’établissement");
+        jdbc.update("INSERT INTO school_status_events(school_id,actor_id,previous_status,new_status) VALUES(?,?,?,?)",
+                id,guard.currentUserId(),SchoolStatus.DRAFT.name(),SchoolStatus.PENDING_APPROVAL.name());
+        school.setStatus(SchoolStatus.PENDING_APPROVAL);
+        school.setSubmittedAt(java.time.LocalDateTime.now());
         return toDto(schoolRepository.save(school));
     }
 
@@ -111,6 +121,7 @@ public class SchoolService {
                 .email(school.getEmail())
                 .ownerId(school.getOwner().getId())
                 .status(school.getStatus())
+                .submittedAt(school.getSubmittedAt())
                 .build();
     }
 }

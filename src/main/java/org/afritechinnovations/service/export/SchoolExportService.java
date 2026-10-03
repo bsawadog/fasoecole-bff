@@ -122,7 +122,7 @@ public class SchoolExportService {
         excel.row("Données disponibles","Seules les données encore conservées dans la base peuvent être récupérées. L’export n’est pas un outil de restauration de compte ou de réimport automatique.");
         excel.sheet("Légende des codes","Code","Signification");
         String[][] codes={
-            {"ACTIVE","Actif"},{"SUSPENDED","Désactivé"},{"ARCHIVED","Archivé"},{"DRAFT","En création"},
+            {"ACTIVE","Actif"},{"SUSPENDED","Désactivé"},{"ARCHIVED","Archivé"},{"DRAFT","En création"},{"PENDING_APPROVAL","En attente de validation"},
             {"COMPLETED","Inscription clôturée"},{"TRANSFERRED","Transféré"},{"GRADUATED","Diplômé / cycle terminé"},{"DROPPED","Inscription abandonnée"},
             {"PROMOTED","Passage"},{"REPEATED","Redoublement"},{"LEFT","Départ"},{"PRESENT","Présent"},{"ABSENT","Absent"},{"LATE","Retard"},{"EXCUSED","Absence justifiée"},
             {"PENDING","En attente"},{"ACKNOWLEDGED","Signalement enregistré"},{"REJECTED","Rejeté"},{"ACCEPTED","Accepté"},{"APPROVED","Approuvé"},

@@ -70,7 +70,7 @@ public class SchoolController {
                 throw new AccessDeniedException("Seul un propriétaire peut créer un établissement");
             }
             dto.setOwnerId(guard.currentUserId());
-            dto.setStatus(dto.getStatus() == SchoolStatus.DRAFT ? SchoolStatus.DRAFT : SchoolStatus.ACTIVE);
+            dto.setStatus(SchoolStatus.DRAFT);
         }
         return schoolService.create(dto);
     }

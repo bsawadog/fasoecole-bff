@@ -21,7 +21,7 @@ public class SchoolPermissions {
             return false;
         }
         return staffRepository.findBySchoolIdAndUserId(schoolId, userId)
-                .map(staff -> staff.allows(module))
+                .map(staff -> staff.getSchool().getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE && staff.allows(module))
                 .orElse(false);
     }
 
@@ -31,7 +31,7 @@ public class SchoolPermissions {
             return false;
         }
         return staffRepository.findBySchoolIdAndUserId(schoolId, userId)
-                .map(SchoolStaff::isActive)
+                .map(staff -> staff.getSchool().getStatus() == org.afritechinnovations.model.common.SchoolStatus.ACTIVE && staff.isActive())
                 .orElse(false);
     }
 }

@@ -14,6 +14,11 @@ import java.time.LocalDateTime;
 @Builder
 public class User {
 
+    /** Allows preparing only schools actually owned by this user; never grants platform administration. */
+    @Builder.Default
+    @Column(name = "owner_account", nullable = false)
+    private boolean ownerAccount = false;
+
     @Builder.Default
     @ElementCollection
     @CollectionTable(name = "user_platform_roles", joinColumns = @JoinColumn(name = "user_id"))

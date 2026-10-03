@@ -66,14 +66,14 @@ public class OwnerStaffService {
         List<String> allModules = Arrays.stream(StaffModule.values()).map(Enum::name).toList();
         (systemAdmin ? schoolRepository.findAll() : schoolRepository.findByOwnerId(userId)).forEach(school -> access.put(school.getId(),
                 new OwnerStaffDto.SchoolAccess(school.getId(), school.getName(), typeOf(school), true,
-                        "Propriétaire", allModules)));
+                        "Propriétaire", allModules, school.getStatus().name(), school.getSubmittedAt())));
         for (SchoolStaff staff : staffRepository.findByUserWithSchool(userId)) {
             School school = staff.getSchool();
-            if (!staff.isActive() || staff.getModules().isEmpty() || access.containsKey(school.getId())) {
+            if (school.getStatus() != org.afritechinnovations.model.common.SchoolStatus.ACTIVE || !staff.isActive() || staff.getModules().isEmpty() || access.containsKey(school.getId())) {
                 continue;
             }
             access.put(school.getId(), new OwnerStaffDto.SchoolAccess(school.getId(), school.getName(),
-                    typeOf(school), false, staff.getJobTitle(), sortedModules(staff.getModules())));
+                    typeOf(school), false, staff.getJobTitle(), sortedModules(staff.getModules()), school.getStatus().name(), school.getSubmittedAt()));
         }
         return List.copyOf(access.values());
     }

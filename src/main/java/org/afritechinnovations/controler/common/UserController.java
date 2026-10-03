@@ -64,6 +64,11 @@ public class UserController {
         return userService.findActive();
     }
 
+    @PostMapping("/me/owner-account")
+    public UserDto becomeOwner() {
+        return userService.enableOwnerAccount(guard.currentUserId());
+    }
+
     @PostMapping("/{id}/invitation")
     public java.util.Map<String, Boolean> resendInvitation(@PathVariable Long id, Authentication authentication) {
         UserPrincipal approver = requireApprover(authentication);

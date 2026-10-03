@@ -43,6 +43,9 @@ public final class OwnerStaffDto {
 
     /** Établissement accessible à l'utilisateur courant dans l'espace propriétaire. */
     public record SchoolAccess(Long schoolId, String schoolName, String schoolType, boolean owner,
-                               String jobTitle, List<String> modules) {
+                               String jobTitle, List<String> modules, String status, LocalDateTime submittedAt) {
+        public SchoolAccess(Long schoolId, String schoolName, String schoolType, boolean owner, String jobTitle, List<String> modules) {
+            this(schoolId, schoolName, schoolType, owner, jobTitle, modules, "ACTIVE", null);
+        }
     }
 }

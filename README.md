@@ -433,3 +433,13 @@ Le propriétaire dispose du module **Exporter mes données** (/proprietaire/expo
 API : GET /api/owner/export/schools, GET /api/owner/export/schools/{schoolId}/excel et GET /api/owner/export/schools/{schoolId}/archive. Les deux téléchargements vérifient le propriétaire réel de l'école (ou SUPER_ADMIN). L'export est une copie de consultation, sans import automatique ni récupération des données déjà supprimées.
 
 Le format du classeur suit [SpreadsheetML / Open XML](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/structure-of-a-spreadsheetml-document) ; la génération utilise les API Java standard ZIP/XML sans dépendance Excel supplémentaire.
+
+## Inscription d’un propriétaire depuis l’accueil
+
+Le bouton **Ajouter mon établissement** ouvre `/ajouter-etablissement`. Le propriétaire confirme son courriel avant de préparer une école. Un compte existant peut être réutilisé sans modifier ses dossiers.
+
+L’assistant crée un **DRAFT**, puis soumet l’établissement en **PENDING_APPROVAL** après configuration d’au moins une année scolaire et une classe. Seul le SUPER_ADMIN peut ensuite valider et activer l’établissement depuis son tableau des écoles. Les inscriptions publiques restent réservées aux écoles **ACTIVE**. Les collaborateurs n’accèdent pas aux écoles en préparation ou en attente.
+
+La migration Flyway **V37** ajoute le compte propriétaire, la date de soumission et la synchronisation du statut. Elle s’applique au redémarrage du backend. Les migrations déjà appliquées restent inchangées.
+
+API : `POST /api/auth/register-owner` (public), `POST /api/users/me/owner-account` (compte confirmé), finalisation via l’API existante des écoles.

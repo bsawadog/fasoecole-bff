@@ -75,6 +75,13 @@ public class AuthController {
                 "message", "Votre demande a été reçue. Si cette adresse permet une inscription ou une activation, consultez votre courriel pour les instructions. Pour un compte existant, utilisez la connexion ou Mot de passe oublié."));
     }
 
+    @PostMapping("/register-owner")
+    public ResponseEntity<?> registerOwner(@Valid @RequestBody org.afritechinnovations.dto.auth.RegisterOwnerRequest request) {
+        userService.receiveOwnerRegistration(request);
+        return ResponseEntity.accepted().body(Map.of("activationRequired",true,"message",
+                "Votre demande a été reçue. Pour une nouvelle inscription, consultez votre courriel afin de confirmer votre compte propriétaire. Si vous possédez déjà un compte, connectez-vous pour ajouter votre établissement."));
+    }
+
     @PostMapping("/verify-email")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {

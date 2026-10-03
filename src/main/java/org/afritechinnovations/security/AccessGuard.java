@@ -262,6 +262,9 @@ public class AccessGuard {
                 || school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.ARCHIVED)) {
             throw new AccessDeniedException("Cet établissement est désactivé. Contactez l’administrateur de la plateforme.");
         }
+        if(!isSuperAdmin() && !isOwner(school) && (school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.DRAFT
+                || school.getStatus() == org.afritechinnovations.model.common.SchoolStatus.PENDING_APPROVAL))
+            throw new AccessDeniedException("Cet établissement n’est pas encore activé");
         return school;
     }
 

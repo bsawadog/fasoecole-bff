@@ -33,7 +33,8 @@ public class UserPrincipal implements UserDetails {
         this.passwordSet = Boolean.TRUE.equals(user.getPasswordSet());
         this.mustChangePassword = user.isMustChangePassword();
         this.sessionVersion = user.getSessionVersion();
-        this.roles = java.util.stream.Stream.concat(roles.stream(), user.getPlatformRoles().stream()).distinct().toList();
+        this.roles = java.util.stream.Stream.concat(java.util.stream.Stream.concat(roles.stream(), user.getPlatformRoles().stream()),
+                user.isOwnerAccount() ? java.util.stream.Stream.of("SCHOOL_ADMIN") : java.util.stream.Stream.empty()).distinct().toList();
     }
 
     @Override

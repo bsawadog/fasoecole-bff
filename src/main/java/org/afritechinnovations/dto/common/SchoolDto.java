@@ -29,4 +29,5 @@ public class SchoolDto {
     private String email;
     private Long ownerId;
     private SchoolStatus status;
+    private java.time.LocalDateTime submittedAt;
 }

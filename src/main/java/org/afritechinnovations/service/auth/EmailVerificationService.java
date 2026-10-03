@@ -69,7 +69,7 @@ public class EmailVerificationService {
                 %s
 
                 Si vous n'êtes pas à l'origine de cette inscription, ignorez cet e-mail.
-                """, link("verify", token), token);
+                """, link("verify", token)+(user.isOwnerAccount()?"&next=school-setup":""), token);
     }
 
     /** Lien d'activation d'un compte créé par une école ; le compte n'est pas modifié avant le clic. */

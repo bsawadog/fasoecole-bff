@@ -17,7 +17,7 @@ final class SchoolExportCatalog {
             SELECT s.id "ID établissement",s.name "Nom",s.type "Type",s.status "Statut",s.address "Adresse",
             s.phone "Téléphone",s.email "Courriel",u.first_name "Prénom propriétaire",u.last_name "Nom propriétaire",
             u.email "Courriel propriétaire",u.phone "Téléphone propriétaire",s.created_at "Création",
-            s.activated_at "Dernière activation",s.deactivated_at "Dernière désactivation"
+            s.activated_at "Dernière activation",s.deactivated_at "Dernière désactivation",s.submitted_at "Soumis pour validation"
             FROM schools s JOIN users u ON u.id=s.owner_id WHERE s.id=?
             """),
         new DataSheet("Années scolaires","""

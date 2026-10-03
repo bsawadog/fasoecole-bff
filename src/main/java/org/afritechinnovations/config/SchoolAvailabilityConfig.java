@@ -51,6 +51,8 @@ public class SchoolAvailabilityConfig implements WebMvcConfigurer {
                 Long id=number(value);
                 Boolean suspended=jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM schools WHERE id=? AND status IN ('SUSPENDED','ARCHIVED'))",Boolean.class,id);
                 if(Boolean.TRUE.equals(suspended)) throw new AccessDeniedException("Cet établissement est désactivé. Contactez l’administrateur de la plateforme.");
+                Boolean preparing=jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM schools WHERE id=? AND status IN ('DRAFT','PENDING_APPROVAL') AND owner_id<>?)",Boolean.class,id,guard.currentUserId());
+                if(Boolean.TRUE.equals(preparing)) throw new AccessDeniedException("Cet établissement n’est pas encore activé");
             }
             private Long number(Object value) {
                 try { return Long.valueOf(value.toString()); }

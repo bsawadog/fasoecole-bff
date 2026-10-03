@@ -52,6 +52,9 @@ public class School {
     @Column(name = "deactivated_at")
     private LocalDateTime deactivatedAt;
 
+    @Column(name = "submitted_at")
+    private LocalDateTime submittedAt;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

@@ -29,6 +29,7 @@ public class UserDto {
     private Boolean emailVerified;
     private Boolean passwordSet;
     private boolean mustChangePassword;
+    private boolean ownerAccount;
     private String invitationDeliveryStatus;
     private List<String> onboardingSteps;
     private Long requestedSchoolId;

@@ -36,6 +36,32 @@ public class UserService {
     private final ParentChildAdmissionService parentChildAdmission;
     private final SchoolIdentityAdmissionService identityAdmission;
 
+    /** Public owner onboarding never changes an existing account or grants access to another school. */
+    public void receiveOwnerRegistration(org.afritechinnovations.dto.auth.RegisterOwnerRequest request) {
+        String email=request.email().trim().toLowerCase(java.util.Locale.ROOT);
+        User existing=userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if(existing!=null) {
+            if(Boolean.TRUE.equals(existing.getActive())) emailVerificationService.sendInvitation(existing);
+            return;
+        }
+        User user=User.builder().firstName(request.firstName().trim()).lastName(request.lastName().trim())
+                .email(email).phone(request.phone()==null?null:request.phone().trim())
+                .passwordHash(passwordEncoder.encode(request.password())).passwordSet(true).active(true)
+                .approved(true).emailVerified(false).ownerAccount(true).build();
+        userRepository.save(user);
+        emailVerificationService.sendVerification(user);
+    }
+
+    /** A verified, authenticated existing user may start their own school without changing existing memberships. */
+    public UserDto enableOwnerAccount(Long userId) {
+        User user=userRepository.findById(userId).orElseThrow(()->new IllegalArgumentException("Compte introuvable"));
+        if(!Boolean.TRUE.equals(user.getActive()) || !Boolean.TRUE.equals(user.getApproved())
+                || !Boolean.TRUE.equals(user.getEmailVerified()) || !Boolean.TRUE.equals(user.getPasswordSet()) || user.isMustChangePassword())
+            throw new AccessDeniedException("Votre compte doit être actif, confirmé et approuvé avant de préparer un établissement");
+        user.setOwnerAccount(true);
+        return toDto(userRepository.save(user));
+    }
+
     public List<UserDto> findActive() {
         return userRepository.findByActiveTrueAndApprovedTrueOrderByLastNameAsc()
                 .stream()
@@ -325,13 +351,15 @@ public class UserService {
                 .emailVerified(user.getEmailVerified())
                 .passwordSet(user.getPasswordSet())
                 .mustChangePassword(user.isMustChangePassword())
+                .ownerAccount(user.isOwnerAccount())
                 .invitationDeliveryStatus(emailVerificationService.deliveryStatus(user.getId()))
                 .onboardingSteps(onboardingService.steps(user))
                 .requestedSchoolId(user.getRequestedSchoolId())
                 .requestedSchoolName(requestedSchool == null ? null : requestedSchool.getName())
                 .requestedSchoolType(requestedSchool == null ? null : requestedSchool.getType())
                 .requestedRole(user.getRequestedRole())
-                .roles(java.util.stream.Stream.concat(user.getPlatformRoles().stream(), schoolUserRepository.findByUserId(user.getId()).stream()
+                .roles(java.util.stream.Stream.concat(java.util.stream.Stream.concat(user.getPlatformRoles().stream(),
+                        user.isOwnerAccount() ? java.util.stream.Stream.of("SCHOOL_ADMIN") : java.util.stream.Stream.empty()), schoolUserRepository.findByUserId(user.getId()).stream()
                         .map(SchoolUser::getRole)
                         .map(Role::getName))
                         .distinct()
