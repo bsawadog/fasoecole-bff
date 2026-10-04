@@ -145,15 +145,18 @@ public class TeacherWorkService {
                 .toList();
     }
 
-    /** Tous les enseignants de l'établissement de la classe : un enseignant déjà affecté peut y enseigner une autre matière. */
+    /** Candidates stay within the target school's owner, including for platform administrators. */
     public List<TeacherWorkDto.TeacherInfo> listClassCandidates(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         Map<Long, TeacherWorkDto.TeacherInfo> candidates = new LinkedHashMap<>();
         addSchoolCandidates(candidates, schoolClass.getSchool().getId());
-        for (School school : schoolRepository.findAll()) {
+        School targetSchool = schoolClass.getSchool();
+        Long targetOwnerId = targetSchool.getOwner().getId();
+        // Delegated staff see their current school, not the owner's other schools.
+        if (!systemAdmin && !targetOwnerId.equals(ownerId)) return List.copyOf(candidates.values());
+        for (School school : schoolRepository.findByOwnerId(targetOwnerId)) {
             if (school.getId().equals(schoolClass.getSchool().getId())) continue;
-            if (!systemAdmin && !school.getOwner().getId().equals(ownerId)
-                    && !permissions.staffAllows(school.getId(), ownerId, StaffModule.TEACHERS)) continue;
+            if (school.getOwner() == null || !targetOwnerId.equals(school.getOwner().getId())) continue;
             addSchoolCandidates(candidates, school.getId());
         }
         return List.copyOf(candidates.values());
@@ -332,9 +335,10 @@ public class TeacherWorkService {
                 .orElseThrow(() -> new IllegalArgumentException("Enseignant introuvable : " + request.getTeacherId()));
         if (!teacher.getSchool().getId().equals(schoolClass.getSchool().getId())) {
             School sourceSchool = teacher.getSchool();
-            if (!systemAdmin && !sourceSchool.getOwner().getId().equals(ownerId)
-                    && !permissions.staffAllows(sourceSchool.getId(), ownerId, StaffModule.TEACHERS)) {
-                throw new AccessDeniedException("Cet enseignant n'appartient pas à un établissement accessible");
+            Long targetOwnerId = schoolClass.getSchool().getOwner().getId();
+            if (sourceSchool.getOwner() == null || !targetOwnerId.equals(sourceSchool.getOwner().getId())
+                    || (!systemAdmin && !targetOwnerId.equals(ownerId))) {
+                throw new AccessDeniedException("Vous ne pouvez affecter que les enseignants des établissements de ce propriétaire");
             }
             User existingUser = teacher.getUser();
             String specialty = teacher.getSpecialty();

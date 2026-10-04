@@ -63,10 +63,33 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataConflict(DataIntegrityViolationException ex) {
         Throwable cause = ex.getMostSpecificCause();
+        String constraint = null;
+        for (Throwable nested = ex; nested != null; nested = nested.getCause()) {
+            if (nested instanceof org.hibernate.exception.ConstraintViolationException violation) {
+                constraint = violation.getConstraintName();
+                break;
+            }
+        }
+        // Log identifiers only: SQL error details can contain private field values.
+        log.warn("Database integrity conflict: SQLState={}, constraint={}",
+                cause instanceof java.sql.SQLException sql ? sql.getSQLState() : null, constraint);
+        if ("schools_pkey".equals(constraint)) {
+            return buildResponse(HttpStatus.CONFLICT,
+                    "L’identifiant de cet établissement est déjà utilisé. Contactez l’administrateur pour vérifier la numérotation.");
+        }
+        if ("schools_owner_id_fkey".equals(constraint)) {
+            return buildResponse(HttpStatus.CONFLICT, "Le compte propriétaire est introuvable. Reconnectez-vous puis réessayez.");
+        }
+        if ("schools_type_check".equals(constraint) || "schools_status_check".equals(constraint)) {
+            return buildResponse(HttpStatus.CONFLICT, "Le type ou le statut de l’établissement est incompatible avec la configuration de la base.");
+        }
         if (cause.getMessage() != null && cause.getMessage().contains("année scolaire est clôturée")) {
             return buildResponse(HttpStatus.CONFLICT, "Cette année scolaire est clôturée et consultable uniquement.");
         }
-        return buildResponse(HttpStatus.CONFLICT, "Un compte ou une demande existe déjà avec ces informations");
+        if ("users_email_key".equals(constraint) || "uk_school_access_requests_pending".equals(constraint)) {
+            return buildResponse(HttpStatus.CONFLICT, "Un compte ou une demande existe déjà avec ces informations");
+        }
+        return buildResponse(HttpStatus.CONFLICT, "Ces informations entrent en conflit avec un enregistrement existant ou une règle de la base. Vérifiez les valeurs saisies.");
     }
 
     @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)

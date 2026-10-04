@@ -91,6 +91,11 @@ public class AccessGuard {
         return school;
     }
 
+    /** Additional lifecycle check used only by operational school modules. */
+    public void requireApprovedSchool(Long schoolId) {
+        SchoolApprovalPolicy.requireApproved(findSchool(schoolId), isSuperAdmin());
+    }
+
     /** Propriétaire, SUPER_ADMIN ou membre actif du personnel ayant reçu l'un des modules indiqués. */
     public School requireSchoolModule(Long schoolId, StaffModule... modules) {
         School school = findSchool(schoolId);

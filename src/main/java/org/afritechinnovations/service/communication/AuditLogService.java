@@ -2,7 +2,6 @@ package org.afritechinnovations.service.communication;
 
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.communication.AuditLogDto;
-import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.communication.AuditLog;
 import org.afritechinnovations.repository.communication.AuditLogRepository;
 import org.springframework.stereotype.Service;
@@ -16,6 +15,7 @@ import java.util.List;
 public class AuditLogService {
 
     private final AuditLogRepository auditLogRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
 
     public List<AuditLogDto> findByUser(Long userId) {
         return auditLogRepository.findByUserIdOrderByCreatedAtDesc(userId)
@@ -33,7 +33,7 @@ public class AuditLogService {
 
     public AuditLogDto create(AuditLogDto dto) {
         AuditLog auditLog = AuditLog.builder()
-                .user(dto.getUserId() != null ? User.builder().id(dto.getUserId()).build() : null)
+                .user(dto.getUserId() != null ? userRepository.getReferenceById(dto.getUserId()) : null)
                 .action(dto.getAction())
                 .entity(dto.getEntity())
                 .entityId(dto.getEntityId())

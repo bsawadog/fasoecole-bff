@@ -5,7 +5,6 @@ import org.afritechinnovations.dto.academic.DocumentDto;
 import org.afritechinnovations.model.academic.Document;
 import org.afritechinnovations.model.academic.SchoolClass;
 import org.afritechinnovations.model.common.School;
-import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.repository.academic.DocumentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +17,7 @@ import java.util.List;
 public class DocumentService {
 
     private final DocumentRepository documentRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
 
     public List<DocumentDto> findByClass(Long classId) {
         return documentRepository.findBySchoolClassIdOrderByCreatedAtDesc(classId)
@@ -43,7 +43,7 @@ public class DocumentService {
         Document document = Document.builder()
                 .school(School.builder().id(dto.getSchoolId()).build())
                 .schoolClass(dto.getClassId() != null ? SchoolClass.builder().id(dto.getClassId()).build() : null)
-                .uploadedBy(User.builder().id(dto.getUploadedBy()).build())
+                .uploadedBy(userRepository.getReferenceById(dto.getUploadedBy()))
                 .title(dto.getTitle())
                 .fileUrl(dto.getFileUrl())
                 .type(dto.getType())

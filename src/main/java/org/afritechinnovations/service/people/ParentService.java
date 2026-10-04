@@ -2,7 +2,6 @@ package org.afritechinnovations.service.people;
 
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.ParentDto;
-import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.people.Parent;
 import org.afritechinnovations.repository.people.ParentRepository;
 import org.springframework.stereotype.Service;
@@ -14,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ParentService {
 
     private final ParentRepository parentRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
 
     public ParentDto findById(Long id) {
         Parent parent = parentRepository.findById(id)
@@ -29,7 +29,7 @@ public class ParentService {
 
     public ParentDto create(ParentDto dto) {
         Parent parent = Parent.builder()
-                .user(User.builder().id(dto.getUserId()).build())
+                .user(userRepository.getReferenceById(dto.getUserId()))
                 .build();
         return toDto(parentRepository.save(parent));
     }

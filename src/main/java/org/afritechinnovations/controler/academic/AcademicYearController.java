@@ -24,7 +24,7 @@ public class AcademicYearController {
         return schools.findAll().stream().filter(s -> {
             try { guard.requireSchoolMember(s.getId()); return true; }
             catch (org.springframework.security.access.AccessDeniedException e) { return false; }
-        }).map(s -> java.util.Map.<String,Object>of("id",s.getId(),"name",s.getName())).toList();
+        }).map(s -> java.util.Map.<String,Object>of("id",s.getId(),"name",s.getName(),"status",s.getStatus().name())).toList();
     }
 
     @GetMapping

@@ -18,6 +18,7 @@ import java.util.List;
 public class SchoolService {
 
     private final SchoolRepository schoolRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final org.afritechinnovations.security.AccessGuard guard;
 
@@ -49,13 +50,20 @@ public class SchoolService {
     }
 
     public SchoolDto create(SchoolDto dto) {
+        // A versioned existing User must be loaded, not rebuilt with only its ID.
+        // Otherwise Hibernate sees a generated ID with a null rowVersion as an invalid detached entity.
+        User owner = userRepository.findById(dto.getOwnerId())
+                .orElseThrow(() -> new IllegalArgumentException("Compte propriétaire introuvable"));
         School school = School.builder()
                 .name(dto.getName())
                 .type(dto.getType())
                 .address(dto.getAddress())
                 .phone(dto.getPhone())
                 .email(dto.getEmail())
-                .owner(User.builder().id(dto.getOwnerId()).build())
+                .expectedStudentCount(dto.getExpectedStudentCount())
+                .expectedClassCount(dto.getExpectedClassCount())
+                .expectedTeacherCount(dto.getExpectedTeacherCount())
+                .owner(owner)
                 .status(guard.isSuperAdmin() ? (dto.getStatus() != null ? dto.getStatus() : SchoolStatus.DRAFT) : SchoolStatus.DRAFT)
                 .build();
         return toDto(schoolRepository.save(school));
@@ -69,6 +77,9 @@ public class SchoolService {
         school.setAddress(dto.getAddress());
         school.setPhone(dto.getPhone());
         school.setEmail(dto.getEmail());
+        if (dto.getExpectedStudentCount() != null) school.setExpectedStudentCount(dto.getExpectedStudentCount());
+        if (dto.getExpectedClassCount() != null) school.setExpectedClassCount(dto.getExpectedClassCount());
+        if (dto.getExpectedTeacherCount() != null) school.setExpectedTeacherCount(dto.getExpectedTeacherCount());
         return toDto(schoolRepository.save(school));
     }
 
@@ -98,13 +109,28 @@ public class SchoolService {
         if (school.getStatus() != SchoolStatus.DRAFT && school.getStatus() != SchoolStatus.ACTIVE) {
             throw new IllegalArgumentException("Seul un établissement en cours de création peut être finalisé");
         }
-        if(Boolean.FALSE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM academic_years WHERE school_id=?) AND EXISTS(SELECT 1 FROM classes WHERE school_id=?)",Boolean.class,id,id)))
-            throw new IllegalArgumentException("Ajoutez au moins une année scolaire et une classe avant de soumettre l’établissement");
+        validateRequest(school);
         jdbc.update("INSERT INTO school_status_events(school_id,actor_id,previous_status,new_status) VALUES(?,?,?,?)",
                 id,guard.currentUserId(),SchoolStatus.DRAFT.name(),SchoolStatus.PENDING_APPROVAL.name());
         school.setStatus(SchoolStatus.PENDING_APPROVAL);
         school.setSubmittedAt(java.time.LocalDateTime.now());
         return toDto(schoolRepository.save(school));
+    }
+
+    /** The short request is created and submitted in one transaction. */
+    public SchoolDto createRequest(SchoolDto dto) {
+        dto.setStatus(SchoolStatus.DRAFT);
+        SchoolDto draft = create(dto);
+        return finalizeCreation(draft.getId());
+    }
+
+    private void validateRequest(School school) {
+        if (school.getAddress() == null || school.getAddress().isBlank())
+            throw new IllegalArgumentException("L’adresse de l’établissement est obligatoire");
+        if (school.getExpectedStudentCount() == null || school.getExpectedStudentCount() < 0
+                || school.getExpectedClassCount() == null || school.getExpectedClassCount() < 1
+                || school.getExpectedTeacherCount() == null || school.getExpectedTeacherCount() < 0)
+            throw new IllegalArgumentException("Renseignez les effectifs prévus et au moins une classe");
     }
 
     public void delete(Long id) {
@@ -122,6 +148,9 @@ public class SchoolService {
                 .ownerId(school.getOwner().getId())
                 .status(school.getStatus())
                 .submittedAt(school.getSubmittedAt())
+                .expectedStudentCount(school.getExpectedStudentCount())
+                .expectedClassCount(school.getExpectedClassCount())
+                .expectedTeacherCount(school.getExpectedTeacherCount())
                 .build();
     }
 }

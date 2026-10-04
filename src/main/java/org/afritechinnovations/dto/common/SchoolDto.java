@@ -30,4 +30,11 @@ public class SchoolDto {
     private Long ownerId;
     private SchoolStatus status;
     private java.time.LocalDateTime submittedAt;
+
+    @jakarta.validation.constraints.Min(0)
+    private Integer expectedStudentCount;
+    @jakarta.validation.constraints.Min(1)
+    private Integer expectedClassCount;
+    @jakarta.validation.constraints.Min(0)
+    private Integer expectedTeacherCount;
 }

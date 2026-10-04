@@ -14,6 +14,11 @@ spring:
   flyway:
     locations: classpath:db/migration,classpath:db/local
 
+app:
+  mail:
+    # Local test accounts can use fictitious addresses; all mail goes to this inbox.
+    local-recipient: ${MAIL_TEST_RECIPIENT:boubacar.sawadogo02@gmail.com}
+
 jwt:
   # Secret de développement uniquement - ne jamais utiliser en dev/prod
   secret: "ZmFzb2Vjb2xlLWxvY2FsLXNlY3JldC1rZXktZm9yLWRldi1vbmx5LTI1NmJpdHM="

@@ -3,7 +3,6 @@ package org.afritechinnovations.service.people;
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.people.TeacherDto;
 import org.afritechinnovations.model.common.School;
-import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.people.Teacher;
 import org.afritechinnovations.repository.people.TeacherRepository;
 import org.springframework.stereotype.Service;
@@ -17,6 +16,7 @@ import java.util.List;
 public class TeacherService {
 
     private final TeacherRepository teacherRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
 
     public List<TeacherDto> findBySchool(Long schoolId) {
         return teacherRepository.findBySchoolId(schoolId)
@@ -33,7 +33,7 @@ public class TeacherService {
 
     public TeacherDto create(TeacherDto dto) {
         Teacher teacher = Teacher.builder()
-                .user(User.builder().id(dto.getUserId()).build())
+                .user(userRepository.getReferenceById(dto.getUserId()))
                 .school(School.builder().id(dto.getSchoolId()).build())
                 .specialty(dto.getSpecialty())
                 .hireDate(dto.getHireDate())

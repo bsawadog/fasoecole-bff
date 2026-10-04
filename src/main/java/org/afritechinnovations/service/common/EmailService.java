@@ -17,13 +17,20 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
     private final String from;
+    private final String localRecipient;
 
     public EmailService(JavaMailSender mailSender, @Value("${app.mail.from}") String from,
-                        @Value("${MAIL_FROM:}") String mailFrom, Environment environment) {
+                        @Value("${MAIL_FROM:}") String mailFrom,
+                        @Value("${app.mail.local-recipient:}") String localRecipient, Environment environment) {
         this.mailSender = mailSender;
         this.from = from;
+        // A mixed local/other environment must retain the real recipients.
+        boolean localOnly = environment.acceptsProfiles(Profiles.of("local"))
+                && java.util.Arrays.stream(environment.getActiveProfiles()).allMatch("local"::equals);
+        this.localRecipient = localOnly ? localRecipient.trim() : "";
         if (environment.acceptsProfiles(Profiles.of("local"))) {
             log.info("Local MAIL_FROM='{}'; resolved app.mail.from='{}'", display(mailFrom), display(from));
+            log.info("Local mail recipient override='{}'", display(this.localRecipient));
         }
     }
 
@@ -37,10 +44,16 @@ public class EmailService {
         }
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(from);
-        message.setTo(recipient);
+        message.setTo(resolveRecipient(recipient));
         message.setSubject(subject);
         message.setText(body);
         mailSender.send(message);
+    }
+
+    private String resolveRecipient(String recipient) {
+        if (localRecipient.isBlank()) return recipient;
+        log.info("Local email redirected: original recipient='{}', test recipient='{}'", recipient, localRecipient);
+        return localRecipient;
     }
 
     public void sendPasswordReset(String recipient, String resetUrl, long expirationMinutes) {
@@ -50,7 +63,7 @@ public class EmailService {
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(from);
-        message.setTo(recipient);
+        message.setTo(resolveRecipient(recipient));
         message.setSubject("Réinitialisation de votre mot de passe FasoÉcole");
         message.setText("""
                 Bonjour,

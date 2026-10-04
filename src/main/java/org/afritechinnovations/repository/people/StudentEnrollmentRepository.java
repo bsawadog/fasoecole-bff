@@ -30,6 +30,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH se.student s
         JOIN FETCH s.user u
         WHERE se.schoolClass.id = :classId
+          AND s.school.id = se.schoolClass.school.id
         """)
     List<StudentEnrollment> findAllWithStudentByClassId(@Param("classId") Long classId);
 
@@ -40,6 +41,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH se.schoolClass c
         JOIN FETCH se.student s
         WHERE c.school.id = :schoolId AND se.status = org.afritechinnovations.model.people.EnrollmentStatus.ACTIVE
+          AND s.school.id = c.school.id
         """)
     List<StudentEnrollment> findActiveBySchoolId(@Param("schoolId") Long schoolId);
 
@@ -50,6 +52,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH se.student s
         JOIN FETCH s.user u
         WHERE se.schoolClass.id = :classId AND se.status = :status
+          AND s.school.id = se.schoolClass.school.id
         ORDER BY u.lastName
         """)
     List<StudentEnrollment> findActiveStudentsWithUserByClassId(
@@ -61,6 +64,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH se.student s
         JOIN FETCH s.user u
         WHERE se.schoolClass.id = :classId AND se.status IN :statuses
+          AND s.school.id = se.schoolClass.school.id
         ORDER BY u.lastName
         """)
     List<StudentEnrollment> findStudentsWithUserByClassIdAndStatusIn(
@@ -74,6 +78,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH se.student s
         JOIN FETCH s.user u
         WHERE se.academicYear.id = :yearId
+          AND s.school.id = c.school.id AND c.school.id = se.academicYear.school.id
         ORDER BY u.lastName, u.firstName
         """)
     List<StudentEnrollment> findByYearWithStudent(@Param("yearId") Long yearId);

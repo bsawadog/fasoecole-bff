@@ -204,11 +204,13 @@ public class EmailVerificationService {
             emailService.sendText(user.getEmail(), subject, template.formatted(user.getFirstName(), expirationHours, url));
             token.setDeliveryStatus("SENT");
             tokenRepository.save(token);
+            log.info("Account confirmation email accepted by SMTP: userId={}, purpose={}", user.getId(), token.getPurpose());
             return true;
         } catch (MailException ex) {
             token.setDeliveryStatus("FAILED");
             tokenRepository.save(token);
-            log.error("Email verification delivery failed; SMTP configuration should be checked");
+            log.error("Account confirmation email delivery failed: userId={}, purpose={}, {}: {}",
+                    user.getId(), token.getPurpose(), ex.getClass().getSimpleName(), ex.getMessage());
             return false;
         }
     }

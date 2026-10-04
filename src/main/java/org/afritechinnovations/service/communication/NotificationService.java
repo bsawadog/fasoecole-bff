@@ -2,7 +2,6 @@ package org.afritechinnovations.service.communication;
 
 import lombok.RequiredArgsConstructor;
 import org.afritechinnovations.dto.communication.NotificationDto;
-import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.model.communication.Notification;
 import org.afritechinnovations.repository.communication.NotificationRepository;
 import org.springframework.stereotype.Service;
@@ -16,6 +15,7 @@ import java.util.List;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
 
     public List<NotificationDto> findAllByUser(Long userId) {
         return notificationRepository.findByUserIdOrderByCreatedAtDesc(userId)
@@ -39,7 +39,7 @@ public class NotificationService {
 
     public NotificationDto create(NotificationDto dto) {
         Notification notification = Notification.builder()
-                .user(User.builder().id(dto.getUserId()).build())
+                .user(userRepository.getReferenceById(dto.getUserId()))
                 .title(dto.getTitle())
                 .content(dto.getContent())
                 .isRead(false)

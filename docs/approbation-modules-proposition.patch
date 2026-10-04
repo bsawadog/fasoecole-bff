@@ -1,0 +1,335 @@
+--- a/src/main/java/org/afritechinnovations/controler/academic/AcademicYearController.java
++++ b/src/main/java/org/afritechinnovations/controler/academic/AcademicYearController.java
+@@ -30,12 +30,14 @@
+     @GetMapping
+     public List<AcademicYearDto> getBySchool(@RequestParam Long schoolId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return academicYearService.findBySchool(schoolId);
+     }
+ 
+     @GetMapping("/current")
+     public AcademicYearDto getCurrent(@RequestParam Long schoolId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return academicYearService.findCurrentBySchool(schoolId);
+     }
+ 
+@@ -43,6 +45,7 @@
+     public AcademicYearDto getById(@PathVariable Long id) {
+         AcademicYearDto year = academicYearService.findById(id);
+         guard.requireSchoolMember(year.getSchoolId());
++        guard.requireApprovedSchool(year.getSchoolId());
+         return year;
+     }
+ 
+@@ -50,12 +53,14 @@
+     @ResponseStatus(HttpStatus.CREATED)
+     public AcademicYearDto create(@RequestBody AcademicYearDto dto) {
+         guard.requireSchoolModule(dto.getSchoolId(), StaffModule.MANAGEMENT);
++        guard.requireApprovedSchool(dto.getSchoolId());
+         return academicYearService.create(dto);
+     }
+ 
+     @PutMapping("/{id}")
+     public AcademicYearDto update(@PathVariable Long id, @RequestBody AcademicYearDto dto) {
+         guard.requireSchoolModule(academicYearService.findById(id).getSchoolId(), StaffModule.MANAGEMENT);
++        guard.requireApprovedSchool(academicYearService.findById(id).getSchoolId());
+         return academicYearService.update(id, dto);
+     }
+ 
+@@ -63,6 +68,7 @@
+     @ResponseStatus(HttpStatus.NO_CONTENT)
+     public void delete(@PathVariable Long id) {
+         guard.requireSchoolModule(academicYearService.findById(id).getSchoolId(), StaffModule.MANAGEMENT);
++        guard.requireApprovedSchool(academicYearService.findById(id).getSchoolId());
+         academicYearService.delete(id);
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/controler/academic/SchoolClassController.java
++++ b/src/main/java/org/afritechinnovations/controler/academic/SchoolClassController.java
+@@ -23,24 +23,28 @@
+     @GetMapping
+     public List<SchoolClassDto> getBySchool(@RequestParam Long schoolId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return schoolClassService.findBySchool(schoolId);
+     }
+ 
+     @GetMapping("/by-year/{academicYearId}")
+     public List<SchoolClassDto> getByAcademicYear(@PathVariable Long academicYearId) {
+         guard.requireSchoolMember(guard.schoolOfYear(academicYearId));
++        guard.requireApprovedSchool(guard.schoolOfYear(academicYearId));
+         return schoolClassService.findByAcademicYear(academicYearId);
+     }
+ 
+     @GetMapping("/with-level")
+     public List<SchoolClassDto> getWithLevel(@RequestParam Long schoolId, @RequestParam Long academicYearId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return schoolClassService.findWithLevelBySchoolAndYear(schoolId, academicYearId);
+     }
+ 
+     @GetMapping("/{id}")
+     public SchoolClassDto getById(@PathVariable Long id) {
+         guard.requireSchoolMember(guard.schoolOfClass(id));
++        guard.requireApprovedSchool(guard.schoolOfClass(id));
+         return schoolClassService.findById(id);
+     }
+ 
+--- a/src/main/java/org/afritechinnovations/controler/academic/LevelController.java
++++ b/src/main/java/org/afritechinnovations/controler/academic/LevelController.java
+@@ -23,6 +23,7 @@
+     @GetMapping
+     public List<LevelDto> getBySchool(@RequestParam Long schoolId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return levelService.findBySchool(schoolId);
+     }
+ 
+@@ -30,6 +31,7 @@
+     public LevelDto getById(@PathVariable Long id) {
+         LevelDto level = levelService.findById(id);
+         guard.requireSchoolMember(level.getSchoolId());
++        guard.requireApprovedSchool(level.getSchoolId());
+         return level;
+     }
+ 
+--- a/src/main/java/org/afritechinnovations/controler/academic/SubjectController.java
++++ b/src/main/java/org/afritechinnovations/controler/academic/SubjectController.java
+@@ -21,6 +21,7 @@
+     @GetMapping
+     public List<SubjectDto> getBySchool(@RequestParam Long schoolId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return subjectService.findBySchool(schoolId);
+     }
+ 
+@@ -28,6 +29,7 @@
+     public SubjectDto getById(@PathVariable Long id) {
+         SubjectDto subject = subjectService.findById(id);
+         guard.requireSchoolMember(subject.getSchoolId());
++        guard.requireApprovedSchool(subject.getSchoolId());
+         return subject;
+     }
+ 
+@@ -35,12 +37,14 @@
+     @ResponseStatus(HttpStatus.CREATED)
+     public SubjectDto create(@RequestBody SubjectDto dto) {
+         guard.requireSchoolModule(dto.getSchoolId(), StaffModule.MANAGEMENT);
++        guard.requireApprovedSchool(dto.getSchoolId());
+         return subjectService.create(dto);
+     }
+ 
+     @PutMapping("/{id}")
+     public SubjectDto update(@PathVariable Long id, @RequestBody SubjectDto dto) {
+         guard.requireSchoolModule(subjectService.findById(id).getSchoolId(), StaffModule.MANAGEMENT);
++        guard.requireApprovedSchool(subjectService.findById(id).getSchoolId());
+         return subjectService.update(id, dto);
+     }
+ 
+@@ -48,6 +52,7 @@
+     @ResponseStatus(HttpStatus.NO_CONTENT)
+     public void delete(@PathVariable Long id) {
+         guard.requireSchoolModule(subjectService.findById(id).getSchoolId(), StaffModule.MANAGEMENT);
++        guard.requireApprovedSchool(subjectService.findById(id).getSchoolId());
+         subjectService.delete(id);
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/controler/people/StudentController.java
++++ b/src/main/java/org/afritechinnovations/controler/people/StudentController.java
+@@ -21,6 +21,7 @@
+     @GetMapping
+     public List<StudentDto> getBySchool(@RequestParam Long schoolId) {
+         guard.requireSchoolStaff(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return studentService.findBySchool(schoolId);
+     }
+ 
+@@ -34,12 +35,14 @@
+     @ResponseStatus(HttpStatus.CREATED)
+     public StudentDto create(@RequestBody StudentDto dto) {
+         guard.requireSchoolModule(dto.getSchoolId(), StaffModule.STUDENTS);
++        guard.requireApprovedSchool(dto.getSchoolId());
+         return studentService.create(dto);
+     }
+ 
+     @PutMapping("/{id}")
+     public StudentDto update(@PathVariable Long id, @RequestBody StudentDto dto) {
+         guard.requireSchoolModule(guard.schoolOfStudent(id), StaffModule.STUDENTS);
++        guard.requireApprovedSchool(guard.schoolOfStudent(id));
+         return studentService.update(id, dto);
+     }
+ 
+@@ -47,6 +50,7 @@
+     @ResponseStatus(HttpStatus.NO_CONTENT)
+     public void delete(@PathVariable Long id) {
+         guard.requireSchoolModule(guard.schoolOfStudent(id), StaffModule.STUDENTS);
++        guard.requireApprovedSchool(guard.schoolOfStudent(id));
+         studentService.delete(id);
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/controler/people/TeacherController.java
++++ b/src/main/java/org/afritechinnovations/controler/people/TeacherController.java
+@@ -21,12 +21,14 @@
+     @GetMapping
+     public List<TeacherDto> getBySchool(@RequestParam Long schoolId) {
+         guard.requireSchoolMember(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return teacherService.findBySchool(schoolId);
+     }
+ 
+     @GetMapping("/{id}")
+     public TeacherDto getById(@PathVariable Long id) {
+         guard.requireSchoolMember(guard.schoolOfTeacher(id));
++        guard.requireApprovedSchool(guard.schoolOfTeacher(id));
+         return teacherService.findById(id);
+     }
+ 
+@@ -34,12 +36,14 @@
+     @ResponseStatus(HttpStatus.CREATED)
+     public TeacherDto create(@RequestBody TeacherDto dto) {
+         guard.requireSchoolModule(dto.getSchoolId(), StaffModule.TEACHERS);
++        guard.requireApprovedSchool(dto.getSchoolId());
+         return teacherService.create(dto);
+     }
+ 
+     @PutMapping("/{id}")
+     public TeacherDto update(@PathVariable Long id, @RequestBody TeacherDto dto) {
+         guard.requireSchoolModule(guard.schoolOfTeacher(id), StaffModule.TEACHERS);
++        guard.requireApprovedSchool(guard.schoolOfTeacher(id));
+         return teacherService.update(id, dto);
+     }
+ 
+@@ -47,6 +51,7 @@
+     @ResponseStatus(HttpStatus.NO_CONTENT)
+     public void delete(@PathVariable Long id) {
+         guard.requireSchoolModule(guard.schoolOfTeacher(id), StaffModule.TEACHERS);
++        guard.requireApprovedSchool(guard.schoolOfTeacher(id));
+         teacherService.delete(id);
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/controler/people/StudentEnrollmentController.java
++++ b/src/main/java/org/afritechinnovations/controler/people/StudentEnrollmentController.java
+@@ -28,6 +28,7 @@
+     @GetMapping("/by-class/{classId}/active")
+     public List<StudentEnrollmentDto> getActiveByClass(@PathVariable Long classId) {
+         guard.requireSchoolStaff(guard.schoolOfClass(classId));
++        guard.requireApprovedSchool(guard.schoolOfClass(classId));
+         return studentEnrollmentService.findActiveByClass(classId);
+     }
+ 
+@@ -43,6 +44,7 @@
+     public StudentEnrollmentDto create(@RequestBody StudentEnrollmentDto dto) {
+         Long schoolId = guard.schoolOfClass(dto.getClassId());
+         guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
++        guard.requireApprovedSchool(schoolId);
+         guard.requireSame(schoolId, guard.schoolOfStudent(dto.getStudentId()), "élève");
+         guard.requireSame(schoolId, guard.schoolOfYear(dto.getAcademicYearId()), "année scolaire");
+         return studentEnrollmentService.create(dto);
+@@ -51,6 +53,7 @@
+     @PatchMapping("/{id}/status")
+     public StudentEnrollmentDto updateStatus(@PathVariable Long id, @RequestParam EnrollmentStatus status) {
+         guard.requireSchoolModule(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()), StaffModule.STUDENTS);
++        guard.requireApprovedSchool(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()));
+         return studentEnrollmentService.updateStatus(id, status);
+     }
+ 
+@@ -58,6 +61,7 @@
+     @ResponseStatus(HttpStatus.NO_CONTENT)
+     public void delete(@PathVariable Long id) {
+         guard.requireSchoolModule(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()), StaffModule.STUDENTS);
++        guard.requireApprovedSchool(guard.schoolOfClass(studentEnrollmentService.findById(id).getClassId()));
+         studentEnrollmentService.delete(id);
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/controler/common/SchoolUserController.java
++++ b/src/main/java/org/afritechinnovations/controler/common/SchoolUserController.java
+@@ -23,6 +23,7 @@
+     @GetMapping("/by-school/{schoolId}")
+     public List<SchoolUserDto> getBySchool(@PathVariable Long schoolId) {
+         guard.requireOwnedSchool(schoolId);
++        guard.requireApprovedSchool(schoolId);
+         return schoolUserService.findBySchool(schoolId);
+     }
+ 
+@@ -37,6 +38,7 @@
+         SchoolUserDto link = schoolUserService.findById(id);
+         if (!guard.currentUserId().equals(link.getUserId())) {
+             guard.requireOwnedSchool(link.getSchoolId());
++            guard.requireApprovedSchool(link.getSchoolId());
+         }
+         return link;
+     }
+@@ -45,6 +47,7 @@
+     @ResponseStatus(HttpStatus.CREATED)
+     public SchoolUserDto create(@RequestBody SchoolUserDto dto) {
+         guard.requireOwnedSchool(dto.getSchoolId());
++        guard.requireApprovedSchool(dto.getSchoolId());
+         if (dto.getRoleId() == null) {
+             throw new IllegalArgumentException("Le rôle est obligatoire");
+         }
+@@ -59,6 +62,7 @@
+     @ResponseStatus(HttpStatus.NO_CONTENT)
+     public void delete(@PathVariable Long id) {
+         guard.requireOwnedSchool(schoolUserService.findById(id).getSchoolId());
++        guard.requireApprovedSchool(schoolUserService.findById(id).getSchoolId());
+         schoolUserService.delete(id);
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/service/people/ClassRosterService.java
++++ b/src/main/java/org/afritechinnovations/service/people/ClassRosterService.java
+@@ -891,6 +891,7 @@
+                 && !permissions.staffAllows(student.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
+             throw new AccessDeniedException("Vous ne pouvez gérer que les élèves de votre établissement");
+         }
++        org.afritechinnovations.security.SchoolApprovalPolicy.requireApproved(student.getSchool(), systemAdmin);
+         return student;
+     }
+ 
+@@ -949,6 +950,7 @@
+                 && !permissions.staffAllows(schoolClass.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
+             throw new AccessDeniedException("Vous ne pouvez consulter que les classes de votre établissement");
+         }
++        org.afritechinnovations.security.SchoolApprovalPolicy.requireApproved(schoolClass.getSchool(), systemAdmin);
+         return schoolClass;
+     }
+ 
+--- a/src/main/java/org/afritechinnovations/service/people/TeacherWorkService.java
++++ b/src/main/java/org/afritechinnovations/service/people/TeacherWorkService.java
+@@ -384,6 +384,7 @@
+                 && !permissions.staffAllows(schoolClass.getSchool().getId(), ownerId, StaffModule.TEACHERS)) {
+             throw new AccessDeniedException("Vous ne pouvez gérer que les classes de votre établissement");
+         }
++        org.afritechinnovations.security.SchoolApprovalPolicy.requireApproved(schoolClass.getSchool(), systemAdmin);
+         return schoolClass;
+     }
+ 
+@@ -912,6 +913,7 @@
+                 && !permissions.staffAllows(teacher.getSchool().getId(), ownerId, StaffModule.TEACHERS)) {
+             throw new AccessDeniedException("Vous ne pouvez gérer que les enseignants de votre établissement");
+         }
++        org.afritechinnovations.security.SchoolApprovalPolicy.requireApproved(teacher.getSchool(), systemAdmin);
+         return teacher;
+     }
+ 
+--- a/src/main/java/org/afritechinnovations/service/people/OwnerEnrollmentService.java
++++ b/src/main/java/org/afritechinnovations/service/people/OwnerEnrollmentService.java
+@@ -591,6 +591,7 @@
+                 && !permissions.staffAllows(schoolId, userId, StaffModule.ENROLLMENT)) {
+             throw new AccessDeniedException("Vous ne pouvez gérer que les inscriptions de vos établissements");
+         }
++        org.afritechinnovations.security.SchoolApprovalPolicy.requireApproved(school, systemAdmin);
+         return school;
+     }
+ }
+--- a/src/main/java/org/afritechinnovations/service/common/OwnerStaffService.java
++++ b/src/main/java/org/afritechinnovations/service/common/OwnerStaffService.java
+@@ -213,6 +213,7 @@
+         if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))) {
+             throw new AccessDeniedException("Seul le propriétaire peut gérer le personnel de l'établissement");
+         }
++        org.afritechinnovations.security.SchoolApprovalPolicy.requireApproved(school, systemAdmin);
+         return school;
+     }
+ 

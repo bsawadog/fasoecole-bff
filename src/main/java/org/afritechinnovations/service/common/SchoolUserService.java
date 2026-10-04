@@ -5,7 +5,6 @@ import org.afritechinnovations.dto.common.SchoolUserDto;
 import org.afritechinnovations.model.common.Role;
 import org.afritechinnovations.model.common.School;
 import org.afritechinnovations.model.common.SchoolUser;
-import org.afritechinnovations.model.common.User;
 import org.afritechinnovations.repository.common.SchoolUserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +17,7 @@ import java.util.List;
 public class SchoolUserService {
 
     private final SchoolUserRepository schoolUserRepository;
+    private final org.afritechinnovations.repository.common.UserRepository userRepository;
 
     public List<SchoolUserDto> findBySchool(Long schoolId) {
         return schoolUserRepository.findAllWithUserAndRoleBySchoolId(schoolId)
@@ -41,7 +41,7 @@ public class SchoolUserService {
 
     public SchoolUserDto create(SchoolUserDto dto) {
         SchoolUser schoolUser = SchoolUser.builder()
-                .user(User.builder().id(dto.getUserId()).build())
+                .user(userRepository.getReferenceById(dto.getUserId()))
                 .school(School.builder().id(dto.getSchoolId()).build())
                 .role(Role.builder().id(dto.getRoleId()).build())
                 .build();

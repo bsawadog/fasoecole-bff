@@ -81,6 +81,17 @@ public class SchoolController {
         return schoolService.finalizeCreation(id);
     }
 
+    @PostMapping("/requests")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SchoolDto createRequest(@Valid @RequestBody SchoolDto dto) {
+        if (!guard.isSuperAdmin()) {
+            if (!guard.current().getRoles().contains("SCHOOL_ADMIN"))
+                throw new AccessDeniedException("Seul un propriétaire peut demander un établissement");
+            dto.setOwnerId(guard.currentUserId());
+        }
+        return schoolService.createRequest(dto);
+    }
+
     @PutMapping("/{id}")
     public SchoolDto update(@PathVariable Long id, @Valid @RequestBody SchoolDto dto) {
         guard.requireOwnedSchool(id);

@@ -443,3 +443,21 @@ L’assistant crée un **DRAFT**, puis soumet l’établissement en **PENDING_AP
 La migration Flyway **V37** ajoute le compte propriétaire, la date de soumission et la synchronisation du statut. Elle s’applique au redémarrage du backend. Les migrations déjà appliquées restent inchangées.
 
 API : `POST /api/auth/register-owner` (public), `POST /api/users/me/owner-account` (compte confirmé), finalisation via l’API existante des écoles.
+
+## Destinataire des courriels en local
+
+Avec le profil `local` seul, tous les courriels (confirmation, invitation, réinitialisation et rappels) sont redirigés par EmailService vers `boubacar.sawadogo02@gmail.com`. La variable `MAIL_TEST_RECIPIENT` permet de choisir une autre boîte ; une valeur vide désactive la redirection. Cette configuration est définie uniquement dans `application-local.yml`. Dans les autres environnements, même si cette variable est présente, les destinataires réels sont utilisés. La redirection est également désactivée si un autre profil est activé avec `local`.
+
+Les adresses des comptes et les jetons restent associés aux utilisateurs de test : seule la destination SMTP change. Les logs indiquent le destinataire original et la boîte de test, sans afficher les liens ou les jetons. Redémarrer le backend après modification.
+
+## Validation visible des formulaires
+
+Les formulaires utilisent une directive commune : erreurs sous les champs et résumé lors de la soumission, focus du premier champ invalide, aucun appel de création tant que les formats et limites ne sont pas respectés. Courriels, téléphones (6 à 15 chiffres, séparateurs usuels), nombres, dates, champs obligatoires et limites déclarées sont contrôlés. Les boutons de validation restent accessibles pour expliquer les erreurs.
+
+La création d’un établissement charge le véritable propriétaire au lieu de reconstruire un utilisateur avec un identifiant seul : les comptes versionnés doivent conserver leur état JPA. Les autres associations vers User utilisent également une référence JPA gérée. Aucune migration supplémentaire n’est nécessaire.
+
+## Isolation des enseignants lors des affectations
+
+Le sélecteur « Affecter un enseignant existant » est limité aux établissements du propriétaire de l’école cible. Le backend interroge ces établissements par propriétaire ; il ne charge plus le catalogue global. Cette limite s’applique aussi au SUPER_ADMIN dans ce sélecteur. Le personnel délégué ne voit que les enseignants de son établissement courant.
+
+Le backend refuse l’affectation d’un enseignant d’un autre propriétaire, même si son identifiant est fourni directement. Une réutilisation entre deux écoles du même propriétaire conserve les profils par établissement. Le frontend filtre également les propositions selon les établissements accessibles au compte. Aucune migration de données n’est requise.

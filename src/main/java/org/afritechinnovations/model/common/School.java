@@ -55,6 +55,15 @@ public class School {
     @Column(name = "submitted_at")
     private LocalDateTime submittedAt;
 
+    @Column(name = "expected_student_count")
+    private Integer expectedStudentCount;
+
+    @Column(name = "expected_class_count")
+    private Integer expectedClassCount;
+
+    @Column(name = "expected_teacher_count")
+    private Integer expectedTeacherCount;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

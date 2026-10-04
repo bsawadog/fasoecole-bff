@@ -92,7 +92,7 @@ public class ClassRosterService {
     private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
 
     public List<ClassRosterRowDto> getRoster(Long classId, Long ownerId, boolean systemAdmin) {
-        requireOwnedClass(classId, ownerId, systemAdmin);
+        SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         List<String> teacherNames = teacherNamesForClass(classId);
 
         return studentEnrollmentRepository
@@ -100,15 +100,18 @@ public class ClassRosterService {
                         List.of(EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED))
                 .stream()
                 .map(StudentEnrollment::getStudent)
+                .filter(student -> student.getSchool().getId().equals(schoolClass.getSchool().getId()))
                 .map(student -> toRow(student, teacherNames))
                 .toList();
     }
 
     public ClassRosterRowDto updateStudentProfile(Long classId, Long studentId, UpdateStudentProfileRequest request,
                                                    Long ownerId, boolean systemAdmin) {
-        requireOwnedClass(classId, ownerId, systemAdmin);
+        SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new IllegalArgumentException("Élève introuvable: " + studentId));
+        if (!student.getSchool().getId().equals(schoolClass.getSchool().getId()))
+            throw new AccessDeniedException("Cet élève n’appartient pas à cet établissement");
         if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId)
                 && !permissions.staffAllows(student.getSchool().getId(), ownerId, StaffModule.STUDENTS)) {
             throw new AccessDeniedException("Vous ne pouvez modifier que les élèves de votre établissement");
