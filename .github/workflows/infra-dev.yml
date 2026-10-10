@@ -41,7 +41,10 @@ jobs:
               core.info(`${name}=${JSON.stringify(value)}`);
               if (!rolePattern.test(value)) invalid.push(name);
             }
-            if (!/^pl-[a-f0-9]+$/.test(process.env.CLOUDFRONT_PREFIX_LIST_ID || '')) {
+            const prefixList = process.env.CLOUDFRONT_PREFIX_LIST_ID || '';
+            core.info(`CLOUDFRONT_PREFIX_LIST_ID=${JSON.stringify(prefixList)}`);
+            if (!/^pl-[a-f0-9]+$/.test(prefixList)) {
+              core.error(prefixList ? 'CLOUDFRONT_PREFIX_LIST_ID must be a pl- identifier without spaces or quotes.' : 'CLOUDFRONT_PREFIX_LIST_ID is empty in vars. Set it under Environment variables, not Environment secrets, in environment dev of this repository.');
               invalid.push('CLOUDFRONT_PREFIX_LIST_ID');
             }
             if (invalid.length) {
