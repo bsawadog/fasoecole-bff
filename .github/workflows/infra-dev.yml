@@ -99,6 +99,11 @@ jobs:
       - name: Show CloudFormation failure reasons
         if: ${{ failure() && steps.platform.outcome == 'failure' }}
         run: |
+          aws cloudformation describe-events \
+            --region "$AWS_REGION" \
+            --stack-name fasoecole-dev-platform \
+            --query "OperationEvents[?EventType == 'VALIDATION_ERROR']" \
+            --output json || echo "::warning::Early validation details unavailable; use CloudShell to run cloudformation describe-events."
           aws cloudformation describe-stack-events \
             --region "$AWS_REGION" \
             --stack-name fasoecole-dev-platform \

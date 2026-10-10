@@ -342,6 +342,7 @@
                     "cloudformation:UpdateStack",
                     "cloudformation:DescribeStacks",
                     "cloudformation:DescribeStackEvents",
+                    "cloudformation:DescribeEvents",
                     "cloudformation:CreateChangeSet",
                     "cloudformation:DescribeChangeSet",
                     "cloudformation:ExecuteChangeSet",
