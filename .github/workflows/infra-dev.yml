@@ -3,12 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       api_domain:
-        description: API DNS name (create CNAME to ApiDnsTarget after deployment)
-        required: true
+        description: Optional API DNS name; leave empty for dev without a domain
+        required: false
         type: string
       api_certificate_arn:
-        description: Issued ACM certificate ARN in eu-west-3 covering API DNS name
-        required: true
+        description: Optional ACM certificate ARN in eu-west-3; leave empty with API DNS name
+        required: false
         type: string
 permissions:
   contents: read
@@ -42,6 +42,10 @@ jobs:
           CF_PREFIX_LIST: ${{ vars.CLOUDFRONT_PREFIX_LIST_ID }}
         run: |
           set -euo pipefail
+          if { [ -n "$API_DOMAIN" ] && [ -z "$API_CERTIFICATE_ARN" ]; } || { [ -z "$API_DOMAIN" ] && [ -n "$API_CERTIFICATE_ARN" ]; }; then
+            echo "::error::Provide both API domain and ACM certificate ARN, or leave both empty."
+            exit 1
+          fi
           test -n "$CFN_ROLE"
           test -n "$CF_PREFIX_LIST"
           aws cloudformation deploy --stack-name fasoecole-dev-platform \

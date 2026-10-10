@@ -10,12 +10,27 @@
       "Type": "String",
       "Default": "bsawadog/fasoecole-spa"
     },
+    "FrontendOidcSubject": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Exact GitHub OIDC sub for frontend; empty uses the legacy repository/environment format"
+    },
     "ExistingOidcProviderArn": {
       "Type": "String",
       "Default": ""
     }
   },
   "Conditions": {
+    "HasFrontendOidcSubject": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            { "Ref": "FrontendOidcSubject" },
+            ""
+          ]
+        }
+      ]
+    },
     "CreateOidc": {
       "Fn::Equals": [
         {
@@ -405,7 +420,11 @@
                 "StringEquals": {
                   "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                   "token.actions.githubusercontent.com:sub": {
-                    "Fn::Sub": "repo:${FrontendRepository}:environment:dev"
+                    "Fn::If": [
+                      "HasFrontendOidcSubject",
+                      { "Ref": "FrontendOidcSubject" },
+                      { "Fn::Sub": "repo:${FrontendRepository}:environment:dev" }
+                    ]
                   }
                 }
               }

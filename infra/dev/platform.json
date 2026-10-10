@@ -1,19 +1,35 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "FasoEcole dev Paris: network, private PostgreSQL, ALB HTTPS, S3 CloudFront.",
+  "Description": "FasoEcole dev Paris: network, private PostgreSQL, ALB, S3 CloudFront; optional HTTPS origin.",
   "Parameters": {
     "ApiDomain": {
       "Type": "String",
-      "AllowedPattern": "[a-zA-Z0-9.-]+"
+      "Default": "",
+      "AllowedPattern": "[a-zA-Z0-9.-]*"
     },
     "ApiCertificateArn": {
       "Type": "String",
-      "AllowedPattern": "arn:aws:acm:eu-west-3:[0-9]{12}:certificate/.+"
+      "Default": "",
+      "AllowedPattern": "^$|arn:aws:acm:eu-west-3:[0-9]{12}:certificate/.+"
     },
     "CloudFrontPrefixListId": {
       "Type": "String",
       "AllowedPattern": "pl-.+"
     }
+  },
+  "Rules": {
+    "ApiTlsParametersTogether": {
+      "Assertions": [{
+        "Assert": { "Fn::Equals": [
+          { "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] },
+          { "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }
+        ] },
+        "AssertDescription": "Provide both ApiDomain and ApiCertificateArn, or leave both empty for dev without a domain."
+      }]
+    }
+  },
+  "Conditions": {
+    "UseApiTls": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }] }
   },
   "Resources": {
     "Vpc": {
@@ -153,15 +169,15 @@
     "AlbSecurity": {
       "Type": "AWS::EC2::SecurityGroup",
       "Properties": {
-        "GroupDescription": "Only CloudFront HTTPS",
+        "GroupDescription": "Only CloudFront to API origin",
         "VpcId": {
           "Ref": "Vpc"
         },
         "SecurityGroupIngress": [
           {
             "IpProtocol": "tcp",
-            "FromPort": 443,
-            "ToPort": 443,
+            "FromPort": { "Fn::If": ["UseApiTls", 443, 80] },
+            "ToPort": { "Fn::If": ["UseApiTls", 443, 80] },
             "SourcePrefixListId": {
               "Ref": "CloudFrontPrefixListId"
             }
@@ -342,16 +358,16 @@
         "LoadBalancerArn": {
           "Ref": "Alb"
         },
-        "Port": 443,
-        "Protocol": "HTTPS",
-        "Certificates": [
+        "Port": { "Fn::If": ["UseApiTls", 443, 80] },
+        "Protocol": { "Fn::If": ["UseApiTls", "HTTPS", "HTTP"] },
+        "Certificates": { "Fn::If": ["UseApiTls", [
           {
             "CertificateArn": {
               "Ref": "ApiCertificateArn"
             }
           }
-        ],
-        "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+        ], { "Ref": "AWS::NoValue" }] },
+        "SslPolicy": { "Fn::If": ["UseApiTls", "ELBSecurityPolicy-TLS13-1-2-2021-06", { "Ref": "AWS::NoValue" }] },
         "DefaultActions": [
           {
             "Type": "forward",
@@ -437,10 +453,10 @@
             {
               "Id": "api",
               "DomainName": {
-                "Ref": "ApiDomain"
+                "Fn::If": ["UseApiTls", { "Ref": "ApiDomain" }, { "Fn::GetAtt": ["Alb", "DNSName"] }]
               },
               "CustomOriginConfig": {
-                "OriginProtocolPolicy": "https-only",
+                "OriginProtocolPolicy": { "Fn::If": ["UseApiTls", "https-only", "http-only"] },
                 "OriginSSLProtocols": [
                   "TLSv1.2"
                 ]

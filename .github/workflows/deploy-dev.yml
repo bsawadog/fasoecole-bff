@@ -48,6 +48,23 @@ jobs:
             echo "::error::Configure AWS_ROLE_ARN and AWS_CLOUDFORMATION_ROLE_ARN in GitHub environment $TARGET_ENVIRONMENT."
             exit 1
           fi
+      - name: Diagnose AWS OIDC identity
+        uses: actions/github-script@v7
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+            core.setSecret(token);
+            const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+            core.info(JSON.stringify({
+              role: process.env.AWS_ROLE_ARN,
+              repository: process.env.GITHUB_REPOSITORY,
+              ref: process.env.GITHUB_REF,
+              sub: claims.sub,
+              aud: claims.aud,
+              iss: claims.iss
+            }, null, 2));
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

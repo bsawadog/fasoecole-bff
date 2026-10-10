@@ -1,10 +1,11 @@
 # FasoEcole dev — AWS Paris
 
-Architecture : Angular sur S3 privé + CloudFront ; API Spring Boot sur ALB HTTPS
+Architecture : Angular sur S3 privé + CloudFront ; API Spring Boot sur ALB
 et ECS Fargate ; PostgreSQL 16 RDS Single-AZ dans deux sous-réseaux privés.
 Une seule tâche : 0,5 vCPU / 2 Go. Pas de NAT Gateway.
 La tâche a une IPv4 publique mais accepte seulement le port 8080 depuis l'ALB.
-L'ALB accepte le port 443 seulement depuis les adresses d'origine CloudFront.
+L'ALB accepte seulement les adresses d'origine CloudFront : port 80 sans domaine,
+ou port 443 avec un domaine et un certificat ACM.
 CloudFront transmet /api/* sans cache, avec Authorization, cookies, paramètres
 et en-têtes métier ; les routes Angular sont réécrites séparément vers index.html.
 Le domaine CloudFront par défaut fournit HTTPS au navigateur.
@@ -48,13 +49,17 @@ Aucune clé AWS permanente n'est stockée dans GitHub.
 - Compte AWS autorisé à créer ces ressources.
 - Deux dépôts : bsawadog/fasoecole-bff et bsawadog/fasoecole-spa.
 - Branche develop ; changer aussi les conditions des workflows si elle change.
-- Domaine API contrôlé, par exemple api.dev.votre-domaine.
-- Certificat public ACM ISSUED à Paris couvrant ce domaine, validé dans votre DNS.
+- Facultatif : domaine API contrôlé, par exemple api.dev.votre-domaine,
+  et certificat public ACM ISSUED à Paris couvrant ce domaine.
   Le fournisseur DNS peut être externe à Route 53.
 - AWS CLI v2 et GitHub Actions activé.
 
-Les certificats ne sont pas créés automatiquement : leur validation nécessite
-un accès au DNS du domaine. Ne pas utiliser un domaine que vous ne contrôlez pas.
+Sans domaine, laisser les deux champs du workflow infrastructure vides.
+CloudFront utilise directement le DNS AWS de l'ALB en HTTP. Les visiteurs
+utilisent toujours HTTPS via FrontendUrl, y compris pour /api/*.
+Ce mode est destiné aux tests : le trajet CloudFront vers l'ALB n'est pas chiffré.
+Avec un domaine, fournir les deux champs. Le certificat n'est pas créé
+automatiquement : sa validation nécessite un accès au DNS du domaine.
 
 ## Première installation (PowerShell)
 
@@ -86,10 +91,13 @@ aws ec2 describe-managed-prefix-lists --region eu-west-3 --filters Name=prefix-l
 
 Publier les fichiers dans les dépôts GitHub. workflow_dispatch exige que le
 workflow existe sur la branche par défaut ; ensuite sélectionner develop.
-Lancer "Deploy infrastructure dev" sur develop avec le domaine API et l'ARN ACM.
+Lancer "Deploy infrastructure dev" sur develop. Sans domaine personnel,
+laisser api_domain et api_certificate_arn vides. Avec un domaine,
+renseigner le domaine API et l'ARN ACM.
 Le premier déploiement RDS/CloudFront peut durer plusieurs minutes.
-Récupérer ApiDnsTarget dans les sorties et créer le CNAME du domaine API vers
-ce nom ALB. Attendre sa résolution avant de lancer le backend.
+Avec un domaine uniquement : récupérer ApiDnsTarget dans les sorties et créer
+le CNAME du domaine API vers ce nom ALB. Attendre sa résolution avant de lancer
+le backend. Sans domaine, aucune configuration DNS n'est nécessaire.
 
 Dans Secrets Manager, remplir le secret SmtpSecret avec username et password
 sans mettre ces valeurs dans Git ou les variables GitHub. Pour Gmail, utiliser
