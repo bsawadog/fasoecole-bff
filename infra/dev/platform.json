@@ -1,0 +1,655 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "FasoEcole dev Paris: network, private PostgreSQL, ALB HTTPS, S3 CloudFront.",
+  "Parameters": {
+    "ApiDomain": {
+      "Type": "String",
+      "AllowedPattern": "[a-zA-Z0-9.-]+"
+    },
+    "ApiCertificateArn": {
+      "Type": "String",
+      "AllowedPattern": "arn:aws:acm:eu-west-3:[0-9]{12}:certificate/.+"
+    },
+    "CloudFrontPrefixListId": {
+      "Type": "String",
+      "AllowedPattern": "pl-.+"
+    }
+  },
+  "Resources": {
+    "Vpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.42.0.0/16",
+        "EnableDnsSupport": true,
+        "EnableDnsHostnames": true
+      }
+    },
+    "Gateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {}
+    },
+    "Attach": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "InternetGatewayId": {
+          "Ref": "Gateway"
+        }
+      }
+    },
+    "Routes": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "Internet": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "Routes"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "Gateway"
+        }
+      },
+      "DependsOn": "Attach"
+    },
+    "Public0": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.42.0.0/24",
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        }
+      }
+    },
+    "Associate0": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "Public0"
+        },
+        "RouteTableId": {
+          "Ref": "Routes"
+        }
+      }
+    },
+    "Private0": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.42.10.0/24",
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        }
+      }
+    },
+    "Public1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.42.1.0/24",
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        }
+      }
+    },
+    "Associate1": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "Public1"
+        },
+        "RouteTableId": {
+          "Ref": "Routes"
+        }
+      }
+    },
+    "Private1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "CidrBlock": "10.42.11.0/24",
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        }
+      }
+    },
+    "AlbSecurity": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Only CloudFront HTTPS",
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "SourcePrefixListId": {
+              "Ref": "CloudFrontPrefixListId"
+            }
+          }
+        ]
+      }
+    },
+    "TaskSecurity": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Only ALB to API",
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 8080,
+            "ToPort": 8080,
+            "SourceSecurityGroupId": {
+              "Ref": "AlbSecurity"
+            }
+          }
+        ]
+      }
+    },
+    "DbSecurity": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Only API to PostgreSQL",
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "SourceSecurityGroupId": {
+              "Ref": "TaskSecurity"
+            }
+          }
+        ]
+      }
+    },
+    "DbSubnets": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "Private dev database",
+        "SubnetIds": [
+          {
+            "Ref": "Private0"
+          },
+          {
+            "Ref": "Private1"
+          }
+        ]
+      }
+    },
+    "Database": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "Engine": "postgres",
+        "EngineVersion": "16.15",
+        "DBInstanceClass": "db.t4g.micro",
+        "AllocatedStorage": "20",
+        "StorageType": "gp3",
+        "StorageEncrypted": true,
+        "DBName": "fasoecoleBD",
+        "MasterUsername": "fasoecole_admin",
+        "ManageMasterUserPassword": true,
+        "DBSubnetGroupName": {
+          "Ref": "DbSubnets"
+        },
+        "VPCSecurityGroups": [
+          {
+            "Ref": "DbSecurity"
+          }
+        ],
+        "PubliclyAccessible": false,
+        "MultiAZ": false,
+        "BackupRetentionPeriod": 1,
+        "AutoMinorVersionUpgrade": true,
+        "DeletionProtection": false
+      },
+      "DeletionPolicy": "Snapshot",
+      "UpdateReplacePolicy": "Snapshot"
+    },
+    "JwtSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "GenerateSecretString": {
+          "PasswordLength": 64,
+          "ExcludePunctuation": true
+        }
+      }
+    },
+    "SmtpSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "Description": "Fill username/password before testing mail",
+        "SecretString": "{\"username\":\"\",\"password\":\"\"}"
+      }
+    },
+    "Repository": {
+      "Type": "AWS::ECR::Repository",
+      "Properties": {
+        "RepositoryName": "fasoecole-dev-bff",
+        "ImageTagMutability": "IMMUTABLE",
+        "ImageScanningConfiguration": {
+          "ScanOnPush": true
+        },
+        "LifecyclePolicy": {
+          "LifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Keep 20 releases\",\"selection\":{\"tagStatus\":\"any\",\"countType\":\"imageCountMoreThan\",\"countNumber\":20},\"action\":{\"type\":\"expire\"}}]}"
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "Cluster": {
+      "Type": "AWS::ECS::Cluster",
+      "Properties": {
+        "ClusterName": "fasoecole-dev"
+      }
+    },
+    "Logs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/ecs/fasoecole-dev-bff",
+        "RetentionInDays": 7
+      }
+    },
+    "Alb": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Scheme": "internet-facing",
+        "Type": "application",
+        "Subnets": [
+          {
+            "Ref": "Public0"
+          },
+          {
+            "Ref": "Public1"
+          }
+        ],
+        "SecurityGroups": [
+          {
+            "Ref": "AlbSecurity"
+          }
+        ]
+      },
+      "DependsOn": "Internet"
+    },
+    "Target": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "Port": 8080,
+        "Protocol": "HTTP",
+        "TargetType": "ip",
+        "HealthCheckPath": "/actuator/health",
+        "Matcher": {
+          "HttpCode": "200"
+        },
+        "TargetGroupAttributes": [
+          {
+            "Key": "deregistration_delay.timeout_seconds",
+            "Value": "30"
+          }
+        ]
+      }
+    },
+    "Listener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "LoadBalancerArn": {
+          "Ref": "Alb"
+        },
+        "Port": 443,
+        "Protocol": "HTTPS",
+        "Certificates": [
+          {
+            "CertificateArn": {
+              "Ref": "ApiCertificateArn"
+            }
+          }
+        ],
+        "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": {
+              "Ref": "Target"
+            }
+          }
+        ]
+      }
+    },
+    "Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "Oac": {
+      "Type": "AWS::CloudFront::OriginAccessControl",
+      "Properties": {
+        "OriginAccessControlConfig": {
+          "Name": {
+            "Fn::Sub": "${AWS::StackName}-s3"
+          },
+          "OriginAccessControlOriginType": "s3",
+          "SigningBehavior": "always",
+          "SigningProtocol": "sigv4"
+        }
+      }
+    },
+    "SpaRoutes": {
+      "Type": "AWS::CloudFront::Function",
+      "Properties": {
+        "Name": "fasoecole-dev-spa-routes",
+        "AutoPublish": true,
+        "FunctionConfig": {
+          "Comment": "Rewrite Angular routes only; leave missing assets as errors",
+          "Runtime": "cloudfront-js-2.0"
+        },
+        "FunctionCode": "function handler(event) { var r = event.request; if (!r.uri.startsWith('/api/') && r.uri.split('/').pop().indexOf('.') === -1) r.uri = '/index.html'; return r; }"
+      }
+    },
+    "Distribution": {
+      "Type": "AWS::CloudFront::Distribution",
+      "Properties": {
+        "DistributionConfig": {
+          "Enabled": true,
+          "DefaultRootObject": "index.html",
+          "PriceClass": "PriceClass_All",
+          "HttpVersion": "http2and3",
+          "IPV6Enabled": true,
+          "Origins": [
+            {
+              "Id": "spa",
+              "DomainName": {
+                "Fn::GetAtt": [
+                  "Bucket",
+                  "RegionalDomainName"
+                ]
+              },
+              "OriginAccessControlId": {
+                "Ref": "Oac"
+              },
+              "S3OriginConfig": {
+                "OriginAccessIdentity": ""
+              }
+            },
+            {
+              "Id": "api",
+              "DomainName": {
+                "Ref": "ApiDomain"
+              },
+              "CustomOriginConfig": {
+                "OriginProtocolPolicy": "https-only",
+                "OriginSSLProtocols": [
+                  "TLSv1.2"
+                ]
+              }
+            }
+          ],
+          "DefaultCacheBehavior": {
+            "TargetOriginId": "spa",
+            "ViewerProtocolPolicy": "redirect-to-https",
+            "Compress": true,
+            "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+            "FunctionAssociations": [
+              {
+                "EventType": "viewer-request",
+                "FunctionARN": {
+                  "Fn::GetAtt": [
+                    "SpaRoutes",
+                    "FunctionARN"
+                  ]
+                }
+              }
+            ]
+          },
+          "CacheBehaviors": [
+            {
+              "PathPattern": "/api/*",
+              "TargetOriginId": "api",
+              "ViewerProtocolPolicy": "https-only",
+              "AllowedMethods": [
+                "GET",
+                "HEAD",
+                "OPTIONS",
+                "PUT",
+                "PATCH",
+                "POST",
+                "DELETE"
+              ],
+              "CachedMethods": [
+                "GET",
+                "HEAD"
+              ],
+              "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+              "OriginRequestPolicyId": "b689b0a8-53d0-40ab-baf2-68738e2966ac",
+              "Compress": true
+            }
+          ]
+        }
+      }
+    },
+    "BucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "Bucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudfront.amazonaws.com"
+              },
+              "Action": "s3:GetObject",
+              "Resource": {
+                "Fn::Sub": "${Bucket.Arn}/*"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "AWS:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "Cluster": {
+      "Value": {
+        "Ref": "Cluster"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-Cluster"
+      }
+    },
+    "Public0": {
+      "Value": {
+        "Ref": "Public0"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-Public0"
+      }
+    },
+    "Public1": {
+      "Value": {
+        "Ref": "Public1"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-Public1"
+      }
+    },
+    "TaskSecurity": {
+      "Value": {
+        "Ref": "TaskSecurity"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-TaskSecurity"
+      }
+    },
+    "Target": {
+      "Value": {
+        "Ref": "Target"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-Target"
+      }
+    },
+    "DatabaseHost": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Database",
+          "Endpoint.Address"
+        ]
+      },
+      "Export": {
+        "Name": "fasoecole-dev-DatabaseHost"
+      }
+    },
+    "DatabaseSecret": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Database",
+          "MasterUserSecret.SecretArn"
+        ]
+      },
+      "Export": {
+        "Name": "fasoecole-dev-DatabaseSecret"
+      }
+    },
+    "JwtSecret": {
+      "Value": {
+        "Ref": "JwtSecret"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-JwtSecret"
+      }
+    },
+    "SmtpSecret": {
+      "Value": {
+        "Ref": "SmtpSecret"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-SmtpSecret"
+      }
+    },
+    "RepositoryUri": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Repository",
+          "RepositoryUri"
+        ]
+      },
+      "Export": {
+        "Name": "fasoecole-dev-RepositoryUri"
+      }
+    },
+    "LogGroup": {
+      "Value": {
+        "Ref": "Logs"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-LogGroup"
+      }
+    },
+    "FrontendUrl": {
+      "Value": {
+        "Fn::Sub": "https://${Distribution.DomainName}"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-FrontendUrl"
+      }
+    },
+    "Bucket": {
+      "Value": {
+        "Ref": "Bucket"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-Bucket"
+      }
+    },
+    "Distribution": {
+      "Value": {
+        "Ref": "Distribution"
+      },
+      "Export": {
+        "Name": "fasoecole-dev-Distribution"
+      }
+    },
+    "ApiDnsTarget": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Alb",
+          "DNSName"
+        ]
+      }
+    }
+  }
+}

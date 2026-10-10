@@ -13,6 +13,28 @@ final class SchoolExportCatalog {
     static final String PORTAL_PATH="'documents/portail/' || f.id || '_' || regexp_replace(f.filename,'[^a-zA-Z0-9._-]','_','g')";
     static final String MESSAGE_PATH="'documents/messages/' || f.id || '_' || regexp_replace(f.filename,'[^a-zA-Z0-9._-]','_','g')";
     static final List<DataSheet> SHEETS=List.of(
+        new DataSheet("Calendrier scolaire", """
+            SELECT e.title "Titre",e.kind "Type",c.name "Classe",e.starts_on "Début",e.ends_on "Fin",e.description "Informations"
+            FROM school_calendar_events e LEFT JOIN classes c ON c.id=e.class_id WHERE e.school_id=? ORDER BY e.starts_on,e.id
+            """),
+        new DataSheet("Discipline", """
+            SELECT s.registration_number "Matricule",concat(u.first_name,' ',u.last_name) "Élève",o.kind "Type",
+            o.observed_on "Date",o.description "Observation",o.action "Mesure prise",o.shared_with_family "Partagé",o.resolved "Traité"
+            FROM student_observations o JOIN students s ON s.id=o.student_id JOIN users u ON u.id=s.user_id WHERE o.school_id=? ORDER BY o.id
+            """),
+        new DataSheet("Demandes administratives", """
+            SELECT s.registration_number "Matricule",r.kind "Document",r.reason "Motif",r.status "Statut",r.response "Réponse",r.created_at "Demande",r.updated_at "Modification"
+            FROM school_document_requests r JOIN students s ON s.id=r.student_id WHERE r.school_id=? ORDER BY r.id
+            """),
+        new DataSheet("Livres", "SELECT title \"Titre\",author \"Auteur\",reference \"Référence\",copies \"Exemplaires\" FROM library_books WHERE school_id=? ORDER BY id"),
+        new DataSheet("Prêts bibliothèque", """
+            SELECT b.title "Livre",b.reference "Référence",s.registration_number "Matricule",l.borrowed_on "Emprunt",l.due_on "Retour prévu",l.returned_on "Retour effectué"
+            FROM library_loans l JOIN library_books b ON b.id=l.book_id JOIN students s ON s.id=l.student_id WHERE l.school_id=? ORDER BY l.id
+            """),
+        new DataSheet("Suivi devoirs", """
+            SELECT p.title "Devoir",s.registration_number "Matricule",h.status "Statut",h.feedback "Retour",h.updated_at "Modification"
+            FROM homework_progress h JOIN parent_portal_posts p ON p.id=h.post_id JOIN students s ON s.id=h.student_id WHERE h.school_id=? ORDER BY h.id
+            """),
         new DataSheet("Établissement","""
             SELECT s.id "ID établissement",s.name "Nom",s.type "Type",s.status "Statut",s.address "Adresse",
             s.phone "Téléphone",s.email "Courriel",u.first_name "Prénom propriétaire",u.last_name "Nom propriétaire",
@@ -63,7 +85,7 @@ final class SchoolExportCatalog {
             """),
         new DataSheet("Employés","""
             SELECT st.id "ID employé",u.first_name "Prénom",u.last_name "Nom",u.email "Courriel",u.phone "Téléphone",
-            st.job_title "Fonction",st.active "Employé actif",u.active "Compte actif",st.created_at "Création",st.updated_at "Modification",
+            st.job_title "Fonction",st.monthly_salary "Salaire mensuel",st.active "Employé actif",u.active "Compte actif",st.created_at "Création",st.updated_at "Modification",
             (SELECT STRING_AGG(m.module,', ' ORDER BY m.module) FROM school_staff_modules m WHERE m.staff_id=st.id) "Modules autorisés"
             FROM school_staff st JOIN users u ON u.id=st.user_id WHERE st.school_id=? ORDER BY u.last_name,u.first_name,st.id
             """),
@@ -221,6 +243,24 @@ final class SchoolExportCatalog {
             e.created_at "Création",e.updated_at "Modification"
             FROM expenses e JOIN expense_categories c ON c.id=e.category_id AND c.school_id=e.school_id LEFT JOIN users u ON u.id=e.created_by
             WHERE e.school_id=? ORDER BY e.expense_date,e.id
+            """),
+        new DataSheet("Charges fixes","""
+            SELECT f.id "ID charge",c.name "Catégorie",f.label "Libellé",f.supplier "Bénéficiaire",f.amount "Montant mensuel",
+            f.due_day "Jour échéance",f.start_month "Premier mois",f.active "Active",f.created_at "Création"
+            FROM fixed_school_charges f JOIN expense_categories c ON c.id=f.category_id WHERE f.school_id=? ORDER BY f.label,f.id
+            """),
+        new DataSheet("Dépenses à payer","""
+            SELECT p.id "ID échéance",p.source "Origine",p.period "Mois",p.due_date "Échéance",c.name "Catégorie",
+            p.label "Libellé",p.supplier "Bénéficiaire",p.amount "Montant à la préparation",p.cancelled "Annulée",p.notes "Notes",
+            p.teacher_id "ID enseignant",p.created_at "Création"
+            FROM school_payables p JOIN expense_categories c ON c.id=p.category_id WHERE p.school_id=? ORDER BY p.due_date,p.id
+            """),
+        new DataSheet("Versements dépenses","""
+            SELECT x.id "ID versement",p.label "Dépense",p.id "ID échéance",x.payment_date "Date",x.amount "Montant",
+            x.method "Mode",x.reference "Référence",x.expense_id "ID sortie caisse",x.teacher_payment_id "ID paie enseignant",
+            CONCAT_WS(' ',u.first_name,u.last_name) "Enregistré par",x.created_at "Enregistrement"
+            FROM school_payable_payments x JOIN school_payables p ON p.id=x.payable_id LEFT JOIN users u ON u.id=x.created_by
+            WHERE x.school_id=? ORDER BY x.payment_date,x.id
             """),
         new DataSheet("Budgets","""
             SELECT b.id "ID budget",y.label "Année",c.name "Catégorie",b.amount "Montant"

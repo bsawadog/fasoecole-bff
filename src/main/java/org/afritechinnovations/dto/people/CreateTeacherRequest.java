@@ -41,5 +41,9 @@ public class CreateTeacherRequest {
 
     private LocalDate hireDate;
 
+    @jakarta.validation.constraints.DecimalMin("0.00")
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
+    private java.math.BigDecimal monthlySalary;
+
 
 }

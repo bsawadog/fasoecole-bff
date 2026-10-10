@@ -35,6 +35,27 @@ public class ConversationMessagingController {
         return service.recipients(guard.currentUserId(), schoolId, studentId);
     }
 
+    @GetMapping("/teacher/recipients")
+    public List<FamilyContactDto.Recipient> teacherRecipients(@RequestParam Long schoolId,
+            @RequestParam(required = false) Long classId) {
+        return service.teacherRecipients(guard.currentUserId(), schoolId, classId);
+    }
+
+    @PostMapping(value = "/teacher/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<FamilyContactDto.ConversationSummary> sendTeacherMessage(
+            @Valid @RequestBody FamilyContactDto.TeacherMessageRequest request) {
+        return service.sendTeacherMessage(guard.currentUserId(), request, List.of());
+    }
+
+    @PostMapping(value = "/teacher/messages", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<FamilyContactDto.ConversationSummary> sendTeacherMessageWithFiles(
+            @Valid @RequestPart("request") FamilyContactDto.TeacherMessageRequest request,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return service.sendTeacherMessage(guard.currentUserId(), request, files);
+    }
+
     @GetMapping("/unread-count")
     public long unreadCount() { return service.unreadCount(guard.currentUserId()); }
 

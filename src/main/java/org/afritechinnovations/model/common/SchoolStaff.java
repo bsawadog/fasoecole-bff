@@ -21,6 +21,9 @@ public class SchoolStaff {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "monthly_salary", precision = 12, scale = 2)
+    private java.math.BigDecimal monthlySalary;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "school_id", nullable = false)
     private School school;

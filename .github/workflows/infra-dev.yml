@@ -1,0 +1,51 @@
+name: Deploy infrastructure dev
+on:
+  workflow_dispatch:
+    inputs:
+      api_domain:
+        description: API DNS name (create CNAME to ApiDnsTarget after deployment)
+        required: true
+        type: string
+      api_certificate_arn:
+        description: Issued ACM certificate ARN in eu-west-3 covering API DNS name
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: fasoecole-dev-platform
+  cancel-in-progress: false
+env:
+  AWS_REGION: eu-west-3
+jobs:
+  infrastructure:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'cfn-lint>=1,<2'
+      - run: cfn-lint -r eu-west-3 -t infra/dev/*.json
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy platform
+        env:
+          API_DOMAIN: ${{ inputs.api_domain }}
+          API_CERTIFICATE_ARN: ${{ inputs.api_certificate_arn }}
+          CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+          CF_PREFIX_LIST: ${{ vars.CLOUDFRONT_PREFIX_LIST_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CFN_ROLE"
+          test -n "$CF_PREFIX_LIST"
+          aws cloudformation deploy --stack-name fasoecole-dev-platform \
+            --template-file infra/dev/platform.json --role-arn "$CFN_ROLE" \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides "ApiDomain=$API_DOMAIN" "ApiCertificateArn=$API_CERTIFICATE_ARN" "CloudFrontPrefixListId=$CF_PREFIX_LIST"
+          aws cloudformation describe-stacks --stack-name fasoecole-dev-platform --query 'Stacks[0].Outputs'

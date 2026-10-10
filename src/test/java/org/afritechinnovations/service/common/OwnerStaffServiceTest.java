@@ -77,7 +77,7 @@ class OwnerStaffServiceTest {
     }
 
     private OwnerStaffDto.StaffRequest request(String email, Set<StaffModule> modules) {
-        return new OwnerStaffDto.StaffRequest("Awa", "Ouédraogo", email, "70000000", "Comptable", modules);
+        return new OwnerStaffDto.StaffRequest("Awa", "Ouédraogo", email, "70000000", "Comptable", modules, new java.math.BigDecimal("100000.00"));
     }
 
     @Test
@@ -97,6 +97,7 @@ class OwnerStaffServiceTest {
         assertFalse(created.existingAccount());
         assertFalse(created.emailSent());
         assertEquals("awa@ecole.bf", created.staff().email());
+        assertEquals(new java.math.BigDecimal("100000.00"), created.staff().monthlySalary());
         assertEquals(List.of("FINANCE", "EXPENSES"), created.staff().modules());
         ArgumentCaptor<SchoolUser> link = ArgumentCaptor.forClass(SchoolUser.class);
         verify(schoolUserRepository).save(link.capture());

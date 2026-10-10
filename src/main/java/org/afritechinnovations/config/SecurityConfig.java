@@ -80,6 +80,7 @@ public class SecurityConfig {
                     response.getWriter().write("{\"status\":401,\"message\":\"Authentification requise\"}");
                 }))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/schools/registration-options").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()

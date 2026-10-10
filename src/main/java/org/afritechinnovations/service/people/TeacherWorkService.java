@@ -323,7 +323,13 @@ public class TeacherWorkService {
                 .employeeNumber(employeeNumber)
                 .specialty(blankToNull(request.getSpecialty()))
                 .hireDate(request.getHireDate())
+                .monthlySalary(request.getMonthlySalary())
                 .build());
+        if (request.getMonthlySalary() != null && request.getMonthlySalary().signum() > 0) {
+            teacherRateRepository.save(TeacherRate.builder().teacher(teacher).rateType(TeacherRateType.FIXED_MONTHLY)
+                    .amount(request.getMonthlySalary()).effectiveFrom(java.time.YearMonth.from(
+                            request.getHireDate() == null ? LocalDate.now(clock) : request.getHireDate()).atDay(1)).build());
+        }
         return teacher;
     }
 
@@ -756,6 +762,7 @@ public class TeacherWorkService {
         if (!payment.getTeacher().getId().equals(teacher.getId())) {
             throw new IllegalArgumentException("Paiement introuvable pour cet enseignant: " + paymentId);
         }
+        if (payment.isManagedPayment()) throw new IllegalArgumentException("Ce versement est suivi dans les dépenses à payer et ne peut pas être supprimé depuis cette fiche");
         teacherPaymentRepository.delete(payment);
     }
     // ------------------------------------------------------------------ calcul mensuel
@@ -850,6 +857,7 @@ public class TeacherWorkService {
         if (rate.get().getRateType() == TeacherRateType.HOURLY) {
             return amount.multiply(payableMinutes).divide(SIXTY, 2, RoundingMode.HALF_UP);
         }
+        if (rate.get().getRateType() == TeacherRateType.FIXED_MONTHLY) return amount.setScale(2, RoundingMode.HALF_UP);
         if (plannedMinutes == 0) {
             return BigDecimal.ZERO.setScale(2);
         }
@@ -964,13 +972,14 @@ public class TeacherWorkService {
     }
 
     private static TeacherRateType parseRateType(String type) {
+        if ("FIXED_MONTHLY".equals(type)) return TeacherRateType.FIXED_MONTHLY;
         if ("HOURLY".equals(type)) {
             return TeacherRateType.HOURLY;
         }
         if ("MONTHLY".equals(type)) {
             return TeacherRateType.MONTHLY;
         }
-        throw new IllegalArgumentException("Le type de taux doit être HOURLY ou MONTHLY");
+        throw new IllegalArgumentException("Le type de taux doit être HOURLY, MONTHLY ou FIXED_MONTHLY");
     }
 
     private static void requirePositiveAmount(BigDecimal amount) {

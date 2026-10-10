@@ -1,0 +1,8 @@
+*
+!target/
+target/*
+!target/fasoecole-bff-1.0-SNAPSHOT.jar
+!infra/
+!infra/dev/
+!infra/dev/certs/
+!infra/dev/certs/eu-west-3-bundle.pem

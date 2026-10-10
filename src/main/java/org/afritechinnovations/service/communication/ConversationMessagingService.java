@@ -67,8 +67,10 @@ public class ConversationMessagingService {
         if (schoolId == null) return conversations(userId);
         guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
         return conversationRepository.findBySchool(schoolId).stream()
-                .filter(c -> c.getParticipants().stream().anyMatch(p -> p.getSchool() != null))
-                .map(c -> FamilyContactMapper.summary(c, true)).toList();
+                .filter(c -> c.getParticipants().stream().anyMatch(p -> p.getSchool() != null
+                        || (p.getUser() != null && p.getUser().getId().equals(userId))))
+                .map(c -> c.getParticipants().stream().anyMatch(p -> p.getUser() != null && p.getUser().getId().equals(userId))
+                        ? FamilyContactMapper.summaryForUser(c, userId) : FamilyContactMapper.summary(c, true)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -105,11 +107,67 @@ public class ConversationMessagingService {
         return List.copyOf(recipients.values());
     }
 
+    /** Teacher recipients are restricted to current assignments and active enrollments. */
+    @Transactional(readOnly = true)
+    public List<FamilyContactDto.Recipient> teacherRecipients(Long userId, Long schoolId, Long classId) {
+        School school = school(schoolId);
+        var teachers = teacherRepository.findByUserId(userId).stream()
+                .filter(t -> t.getSchool().getId().equals(schoolId)).toList();
+        if (teachers.isEmpty()) throw new AccessDeniedException("Vous n'enseignez pas dans cet établissement");
+        var assignments = teachers.stream().flatMap(t -> classTeacherRepository.findByTeacherId(t.getId()).stream())
+                .filter(a -> a.isActive() && a.getSchoolClass().getSchool().getId().equals(schoolId))
+                .filter(a -> Boolean.TRUE.equals(a.getSchoolClass().getAcademicYear().getIsCurrent()))
+                .filter(a -> !a.getSchoolClass().getAcademicYear().isClosed()).toList();
+        if (classId != null && assignments.stream().noneMatch(a -> a.getSchoolClass().getId().equals(classId))) {
+            throw new AccessDeniedException("Cette classe ne vous est pas affectée pour l'année en cours");
+        }
+        LinkedHashMap<Long, FamilyContactDto.Recipient> result = new LinkedHashMap<>();
+        addRecipient(result, school.getOwner(), "PROPRIETAIRE");
+        if (classId != null) {
+            var schoolClass = assignments.stream().filter(a -> a.getSchoolClass().getId().equals(classId))
+                    .findFirst().orElseThrow().getSchoolClass();
+            enrollmentRepository.findActiveStudentsWithUserByClassId(classId,
+                    org.afritechinnovations.model.people.EnrollmentStatus.ACTIVE).stream()
+                    .filter(e -> e.getStudent().getSchool().getId().equals(schoolId))
+                    .filter(e -> e.getAcademicYear().getId().equals(schoolClass.getAcademicYear().getId()))
+                    .forEach(e -> {
+                        addRecipient(result, e.getStudent().getUser(), "ELEVE");
+                        parentStudentRepository.findByStudentIdWithParentUser(e.getStudent().getId())
+                                .forEach(ps -> addRecipient(result, ps.getParent().getUser(), "PARENT"));
+                    });
+        }
+        result.remove(userId);
+        return List.copyOf(result.values());
+    }
+
+    /** Validate the complete recipient list before creating one private thread per recipient. */
+    public List<FamilyContactDto.ConversationSummary> sendTeacherMessage(Long userId,
+            FamilyContactDto.TeacherMessageRequest request, List<MultipartFile> files) {
+        Set<Long> allowed = teacherRecipients(userId, request.schoolId(), request.classId()).stream()
+                .map(FamilyContactDto.Recipient::userId).collect(java.util.stream.Collectors.toSet());
+        List<Long> ids = request.recipientUserIds().stream().distinct().toList();
+        if (ids.isEmpty() || !allowed.containsAll(ids)) {
+            throw new AccessDeniedException("Un destinataire n'est pas autorisé pour cette classe");
+        }
+        var uploads = prepareUploads(files);
+        if (request.content().isBlank() && uploads.isEmpty()) {
+            throw new IllegalArgumentException("Ajoutez un message ou une pièce jointe");
+        }
+        return ids.stream().map(id -> start(userId, new FamilyContactDto.NewConversationRequest(
+                request.schoolId(), null, request.subject(), request.content(), List.of(id), false), uploads, true)
+                .conversation()).toList();
+    }
+
     public FamilyContactDto.ConversationThread start(Long userId, FamilyContactDto.NewConversationRequest request) {
         return start(userId, request, List.of());
     }
 
     private FamilyContactDto.ConversationThread start(Long userId, FamilyContactDto.NewConversationRequest request, List<Upload> uploads) {
+        return start(userId, request, uploads, false);
+    }
+
+    private FamilyContactDto.ConversationThread start(Long userId, FamilyContactDto.NewConversationRequest request,
+            List<Upload> uploads, boolean teacherDelivery) {
         School school = school(request.schoolId());
         requireSchoolAccess(userId, request.schoolId(), request.studentId());
         List<Long> recipientIds = request.recipientUserIds() == null ? List.of() : request.recipientUserIds().stream()
@@ -117,8 +175,8 @@ public class ConversationMessagingService {
         if (!request.recipientSchool() && recipientIds.isEmpty()) {
             throw new IllegalArgumentException("Sélectionnez au moins un destinataire");
         }
-        boolean schoolActor = isSchoolAccount(userId, request.schoolId());
-        for (Long recipientId : recipientIds) validateRecipient(recipientId, request.schoolId(), request.studentId(), schoolActor);
+        boolean schoolActor = !teacherDelivery && isSchoolAccount(userId, request.schoolId());
+        if (!teacherDelivery) for (Long recipientId : recipientIds) validateRecipient(recipientId, request.schoolId(), request.studentId(), schoolActor);
         Student student = null;
         if (request.studentId() != null) {
             student = studentRepository.findById(request.studentId()).orElse(null);
@@ -128,7 +186,7 @@ public class ConversationMessagingService {
         }
         User sender = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable"));
         LocalDateTime now = LocalDateTime.now();
-        boolean schoolSender = isSchoolAccount(userId, request.schoolId());
+        boolean schoolSender = !teacherDelivery && isSchoolAccount(userId, request.schoolId());
         if (!schoolSender && recipientIds.isEmpty() && !request.recipientSchool()) {
             throw new IllegalArgumentException("Sélectionnez au moins un destinataire");
         }

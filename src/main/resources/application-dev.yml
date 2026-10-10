@@ -8,7 +8,7 @@ app:
 
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:fasoecoleBD}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:fasoecoleBD}?sslmode=verify-full&sslrootcert=${DB_SSL_ROOT_CERT:/app/certs/eu-west-3-bundle.pem}
     username: ${DB_USER:fasoecole_bd_user}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
@@ -23,5 +23,26 @@ jwt:
 
 logging:
   level:
-    org.afritechinnovations: DEBUG
+    org.afritechinnovations: INFO
     org.hibernate.SQL: INFO
+
+management:
+  health:
+    mail:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+server:
+  forward-headers-strategy: framework
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
