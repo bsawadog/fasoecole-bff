@@ -6,6 +6,11 @@
       "Type": "String",
       "Default": "bsawadog/fasoecole-bff"
     },
+    "BackendOidcSubject": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Exact GitHub OIDC sub for backend; empty uses the legacy repository/environment format"
+    },
     "FrontendRepository": {
       "Type": "String",
       "Default": "bsawadog/fasoecole-spa"
@@ -21,6 +26,16 @@
     }
   },
   "Conditions": {
+    "HasBackendOidcSubject": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            { "Ref": "BackendOidcSubject" },
+            ""
+          ]
+        }
+      ]
+    },
     "HasFrontendOidcSubject": {
       "Fn::Not": [
         {
@@ -302,7 +317,11 @@
                 "StringEquals": {
                   "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                   "token.actions.githubusercontent.com:sub": {
-                    "Fn::Sub": "repo:${BackendRepository}:environment:dev"
+                    "Fn::If": [
+                      "HasBackendOidcSubject",
+                      { "Ref": "BackendOidcSubject" },
+                      { "Fn::Sub": "repo:${BackendRepository}:environment:dev" }
+                    ]
                   }
                 }
               }
