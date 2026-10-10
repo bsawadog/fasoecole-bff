@@ -86,6 +86,10 @@ public class GlobalExceptionHandler {
         if (cause.getMessage() != null && cause.getMessage().contains("année scolaire est clôturée")) {
             return buildResponse(HttpStatus.CONFLICT, "Cette année scolaire est clôturée et consultable uniquement.");
         }
+        if (cause.getMessage() != null && (cause.getMessage().contains("période de caisse est clôturée")
+                || cause.getMessage().contains("caisse est clôturée"))) {
+            return buildResponse(HttpStatus.CONFLICT, "Cette période de caisse est clôturée et consultable uniquement.");
+        }
         if ("users_email_key".equals(constraint) || "uk_school_access_requests_pending".equals(constraint)) {
             return buildResponse(HttpStatus.CONFLICT, "Un compte ou une demande existe déjà avec ces informations");
         }
