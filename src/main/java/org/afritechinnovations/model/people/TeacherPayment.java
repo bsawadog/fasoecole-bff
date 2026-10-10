@@ -20,6 +20,9 @@ public class TeacherPayment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "managed_payment", nullable = false)
+    private boolean managedPayment;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "teacher_id", nullable = false)
     private Teacher teacher;

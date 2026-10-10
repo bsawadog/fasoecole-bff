@@ -1,0 +1,103 @@
+name: Deploy backend
+run-name: Deploy backend ${{ inputs.environment }} from ${{ github.ref_name }}
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environnement cible
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - prod
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: fasoecole-${{ inputs.environment }}-backend
+  cancel-in-progress: false
+env:
+  AWS_REGION: eu-west-3
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      PLATFORM_STACK: fasoecole-${{ inputs.environment }}-platform
+      BACKEND_STACK: fasoecole-${{ inputs.environment }}-backend
+      ECS_CLUSTER: fasoecole-${{ inputs.environment }}
+      ECS_SERVICE: fasoecole-${{ inputs.environment }}-bff
+      ECR_REPOSITORY: fasoecole-${{ inputs.environment }}-bff
+      DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH || (inputs.environment == 'prod' && 'main' || 'develop') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate target and environment configuration
+        env:
+          AWS_ROLE: ${{ vars.AWS_ROLE_ARN }}
+          CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_ENVIRONMENT" in dev|prod) ;; *) exit 1 ;; esac
+          if [ "$GITHUB_REF" != "refs/heads/$DEPLOY_BRANCH" ]; then
+            echo "::error::Deploy $TARGET_ENVIRONMENT from branch $DEPLOY_BRANCH."
+            exit 1
+          fi
+          if [ -z "$AWS_ROLE" ] || [ -z "$CFN_ROLE" ]; then
+            echo "::error::Configure AWS_ROLE_ARN and AWS_CLOUDFORMATION_ROLE_ARN in GitHub environment $TARGET_ENVIRONMENT."
+            exit 1
+          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Test and package
+        run: mvn --batch-mode --no-transfer-progress package
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Check target platform exists
+        run: |
+          set -euo pipefail
+          aws cloudformation describe-stacks --stack-name "$PLATFORM_STACK" --query 'Stacks[0].StackStatus' --output text
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and publish immutable release
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPOSITORY=$(aws cloudformation describe-stacks --stack-name "$PLATFORM_STACK" --query "Stacks[0].Outputs[?OutputKey=='RepositoryUri'].OutputValue | [0]" --output text)
+          if [ "${REPOSITORY##*/}" != "$ECR_REPOSITORY" ]; then
+            echo "::error::RepositoryUri must reference $ECR_REPOSITORY."
+            exit 1
+          fi
+          IMAGE="$REPOSITORY:${GITHUB_SHA}"
+          # Reuse an existing immutable tag when a workflow is retried.
+          if ! aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            docker build --platform linux/amd64 -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Deploy service through CloudFormation
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+          SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+        run: |
+          set -euo pipefail
+          aws cloudformation deploy --stack-name "$BACKEND_STACK" \
+            --template-file infra/dev/backend.json --capabilities CAPABILITY_NAMED_IAM \
+            --role-arn "$CFN_ROLE" --no-fail-on-empty-changeset \
+            --parameter-overrides "TargetEnvironment=$TARGET_ENVIRONMENT" "ImageUri=$IMAGE_URI" "SmtpHost=$SMTP_HOST" "MailFrom=$MAIL_FROM" DesiredCount=1
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+      - name: Verify API through CloudFront
+        run: |
+          set -euo pipefail
+          URL=$(aws cloudformation describe-stacks --stack-name "$PLATFORM_STACK" --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue | [0]" --output text)
+          # A protected route must return 401, proving API errors are not rewritten to index.html.
+          CODE=$(curl --silent --show-error --max-time 30 --output /tmp/api-response.json --write-out '%{http_code}' "$URL/api/users/me")
+          test "$CODE" = 401

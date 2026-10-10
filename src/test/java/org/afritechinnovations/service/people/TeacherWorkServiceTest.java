@@ -173,6 +173,15 @@ class TeacherWorkServiceTest {
         verify(teacherPaymentRepository, never()).save(any());
     }
 
+    @Test void fixedMonthlySalaryIsPayableWithoutScheduledHours() {
+        TeacherRate rate = TeacherRate.builder().rateType(TeacherRateType.FIXED_MONTHLY).amount(new BigDecimal("80000.00")).build();
+        when(teacherRateRepository.findFirstByTeacherIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(anyLong(), any()))
+                .thenReturn(Optional.of(rate));
+        when(slotRepository.findAllWithClassByTeacherId(5L)).thenReturn(List.of());
+        assertEquals(new BigDecimal("80000.00"), service.getTeacherDetail(5L,"2026-09",OWNER_ID,false).month().amountDue());
+        assertEquals(new BigDecimal("20000.00"), service.addPayment(5L,paymentRequest("2026-09","20000"),OWNER_ID,false).amount());
+    }
+
     @Test
     void paymentCannotExceedRemainingBalance() {
         monthlyRate("80000.00");
@@ -357,6 +366,7 @@ class TeacherWorkServiceTest {
         var request = new org.afritechinnovations.dto.people.CreateClassTeacherRequest();
         request.setFirstName(" Awa "); request.setLastName(" Diallo "); request.setEmail(" Awa@Test.bf ");
         request.setPassword("AdminChosenPassword"); request.setSubjectId(8L);
+        request.setMonthlySalary(new BigDecimal("95000.00")); request.setHireDate(SEPT);
         var result = service.createClassTeacher(3L, request, OWNER_ID, false);
         ArgumentCaptor<User> account = ArgumentCaptor.forClass(User.class);
         verify(users).save(account.capture());
@@ -367,6 +377,9 @@ class TeacherWorkServiceTest {
         verify(schoolUsers).save(argThat(link -> "TEACHER".equals(link.getRole().getName()) && link.getSchool() == school));
         verify(classSubjectTeacherRepository).save(argThat(a -> a.getSchoolClass() == schoolClass && a.getSubject() == subject));
         assertFalse(result.emailVerified()); assertEquals("FAILED", result.invitationDeliveryStatus());
+        verify(teacherRepository).save(argThat(t -> new BigDecimal("95000.00").equals(t.getMonthlySalary())));
+        verify(teacherRateRepository).save(argThat(r -> r.getRateType()==TeacherRateType.FIXED_MONTHLY
+                && new BigDecimal("95000.00").equals(r.getAmount()) && SEPT.equals(r.getEffectiveFrom())));
     }
 
     private static TeacherSessionRequest sessionRequest(LocalDate date, String status) {

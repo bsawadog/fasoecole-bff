@@ -16,7 +16,7 @@ import java.time.LocalDate;
 public class TeacherRateRequest {
 
     @NotBlank(message = "Le type de taux est obligatoire")
-    @Pattern(regexp = "HOURLY|MONTHLY", message = "Le type de taux doit être HOURLY ou MONTHLY")
+    @Pattern(regexp = "HOURLY|MONTHLY|FIXED_MONTHLY", message = "Le type de taux doit être HOURLY, MONTHLY ou FIXED_MONTHLY")
     private String type;
 
     @NotNull(message = "Le montant est obligatoire")

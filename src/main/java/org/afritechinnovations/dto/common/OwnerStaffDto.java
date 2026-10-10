@@ -21,7 +21,7 @@ public final class OwnerStaffDto {
 
     public record StaffRow(Long id, Long userId, String firstName, String lastName, String email, String phone,
                            String jobTitle, List<String> modules, boolean active, boolean managedAccount,
-                           LocalDateTime createdAt, Boolean emailVerified, String invitationDeliveryStatus) {
+                           LocalDateTime createdAt, Boolean emailVerified, String invitationDeliveryStatus, java.math.BigDecimal monthlySalary) {
     }
 
     public record StaffRequest(
@@ -30,7 +30,12 @@ public final class OwnerStaffDto {
             @Email(message = "Adresse e-mail invalide") @Size(max = 150) String email,
             @Size(max = 30) String phone,
             @NotBlank(message = "La fonction est obligatoire") @Size(max = 80) String jobTitle,
-            @jakarta.validation.constraints.NotNull Set<StaffModule> modules) {
+            @jakarta.validation.constraints.NotNull Set<StaffModule> modules,
+            @jakarta.validation.constraints.DecimalMin("0.00")
+            @jakarta.validation.constraints.Digits(integer = 10, fraction = 2) java.math.BigDecimal monthlySalary) {
+        public StaffRequest(String firstName, String lastName, String email, String phone, String jobTitle, Set<StaffModule> modules) {
+            this(firstName, lastName, email, phone, jobTitle, modules, null);
+        }
     }
 
     /** temporaryPassword reste null pour compatibilité ; seul le titulaire choisit son mot de passe. */

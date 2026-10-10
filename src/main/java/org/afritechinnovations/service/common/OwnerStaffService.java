@@ -119,6 +119,7 @@ public class OwnerStaffService {
                 .school(school)
                 .user(user)
                 .jobTitle(request.jobTitle().trim())
+                .monthlySalary(request.monthlySalary())
                 .modules(request.modules().isEmpty() ? EnumSet.noneOf(StaffModule.class) : EnumSet.copyOf(request.modules()))
                 .createdBy(userRepository.getReferenceById(ownerId))
                 .build());
@@ -133,6 +134,7 @@ public class OwnerStaffService {
                                          Long ownerId, boolean systemAdmin) {
         SchoolStaff staff = requireOwnedStaff(staffId, ownerId, systemAdmin);
         staff.setJobTitle(request.jobTitle().trim());
+        staff.setMonthlySalary(request.monthlySalary());
         staff.getModules().clear();
         staff.getModules().addAll(request.modules());
         staff.setUpdatedAt(LocalDateTime.now());
@@ -200,7 +202,7 @@ public class OwnerStaffService {
         User user = staff.getUser();
         return new OwnerStaffDto.StaffRow(staff.getId(), user.getId(), user.getFirstName(), user.getLastName(),
                 user.getEmail(), user.getPhone(), staff.getJobTitle(), sortedModules(staff.getModules()),
-                staff.isActive(), isManagedAccount(user), staff.getCreatedAt(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()));
+                staff.isActive(), isManagedAccount(user), staff.getCreatedAt(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()), staff.getMonthlySalary());
     }
 
     private static List<String> sortedModules(Set<StaffModule> modules) {

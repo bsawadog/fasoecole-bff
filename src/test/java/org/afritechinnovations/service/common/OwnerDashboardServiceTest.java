@@ -57,7 +57,9 @@ class OwnerDashboardServiceTest {
     void expectedAmountExcludesCancelledInvoicesWhileReceivedAmountCountsActualPayments() {
         School school = School.builder().id(5L).owner(User.builder().id(10L).build()).build();
         when(schoolRepository.findById(5L)).thenReturn(Optional.of(school));
-        lenient().when(jdbcTemplate.queryForObject(anyString(), eq(BigDecimal.class), eq(5L)))
+        when(jdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Long>>any(), eq(5L)))
+                .thenReturn(List.of(9L));
+        lenient().when(jdbcTemplate.queryForObject(anyString(), eq(BigDecimal.class), eq(5L), eq(9L)))
                 .thenAnswer(invocation -> {
                     String sql = invocation.getArgument(0);
                     if (sql.contains("SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0),0))")) return new BigDecimal("80.00");
@@ -65,6 +67,8 @@ class OwnerDashboardServiceTest {
                     if (sql.contains("GREATEST(i.amount_due")) return new BigDecimal("60.00");
                     return BigDecimal.ZERO;
                 });
+        lenient().when(jdbcTemplate.queryForObject(anyString(), eq(BigDecimal.class), eq(5L), eq(9L), eq(9L)))
+                .thenReturn(new BigDecimal("20.00"));
 
         var dashboard = dashboardService.getDashboard(5L, 10L);
 
@@ -72,7 +76,8 @@ class OwnerDashboardServiceTest {
         assertEquals(new BigDecimal("20.00"), dashboard.receivedAmount());
         assertEquals(new BigDecimal("60.00"), dashboard.outstandingAmount());
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        verify(jdbcTemplate, atLeastOnce()).queryForObject(sql.capture(), eq(BigDecimal.class), eq(5L));
+        verify(jdbcTemplate, atLeastOnce()).queryForObject(sql.capture(), eq(BigDecimal.class), eq(5L), eq(9L));
+        verify(jdbcTemplate).queryForObject(sql.capture(), eq(BigDecimal.class), eq(5L), eq(9L), eq(9L));
         assertTrue(sql.getAllValues().stream().anyMatch(query ->
                 query.contains("SUM(GREATEST(i.amount_due - COALESCE(i.discount_amount,0),0))") && query.contains("i.status <> 'CANCELLED'")));
         assertTrue(sql.getAllValues().stream().anyMatch(query ->

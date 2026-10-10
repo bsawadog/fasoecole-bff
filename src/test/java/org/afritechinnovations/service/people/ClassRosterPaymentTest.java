@@ -171,6 +171,10 @@ class ClassRosterPaymentTest {
                 .amountDue(new BigDecimal("80.00")).dueDate(LocalDate.now().plusDays(1))
                 .status(InvoiceStatus.PENDING).build();
         invoice.setStudent(student);
+        var year = org.afritechinnovations.model.academic.AcademicYear.builder()
+                .id(9L).school(student.getSchool()).isCurrent(true).build();
+        invoice.setAcademicYear(year);
+        active.setAcademicYear(year);
         invoice.setStatus(InvoiceStatus.CANCELLED);
         payment.setAmount(new BigDecimal("20.00"));
         when(studentRepository.findById(1L)).thenReturn(Optional.of(student));

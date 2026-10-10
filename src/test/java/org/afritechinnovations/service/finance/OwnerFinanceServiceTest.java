@@ -83,7 +83,7 @@ class OwnerFinanceServiceTest {
     void setUp() {
         service.setClock(Clock.fixed(LocalDate.of(2026, 10, 1).atStartOfDay().toInstant(ZoneOffset.UTC), ZoneOffset.UTC));
         school = School.builder().id(1L).name("École ABC").owner(User.builder().id(OWNER_ID).build()).build();
-        AcademicYear year = AcademicYear.builder().id(2L).build();
+        AcademicYear year = AcademicYear.builder().id(2L).school(school).isCurrent(true).build();
         Level sixieme = Level.builder().id(4L).school(school).name("6e").build();
         sixA = SchoolClass.builder().id(3L).name("6e A").school(school).level(sixieme).academicYear(year).build();
         fee = FeeType.builder().id(7L).school(school).name("Scolarité").amount(new BigDecimal("50000")).build();
@@ -187,12 +187,12 @@ class OwnerFinanceServiceTest {
     }
 
     private StudentEnrollment enrollment(Student student) {
-        return StudentEnrollment.builder().student(student).schoolClass(sixA)
+        return StudentEnrollment.builder().student(student).schoolClass(sixA).academicYear(sixA.getAcademicYear())
                 .enrollmentDate(LocalDate.of(2026, 9, 1)).build();
     }
 
     private Invoice invoice(Long id, Student student, LocalDate dueDate) {
-        return Invoice.builder().id(id).student(student).feeType(fee).amountDue(new BigDecimal("50000"))
+        return Invoice.builder().id(id).student(student).feeType(fee).academicYear(sixA.getAcademicYear()).amountDue(new BigDecimal("50000"))
                 .dueDate(dueDate).status(InvoiceStatus.PENDING).build();
     }
 

@@ -56,6 +56,13 @@ public final class FamilyContactDto {
         }
     }
 
+    public record TeacherMessageRequest(
+            @NotNull Long schoolId,
+            Long classId,
+            @NotBlank @Size(max = 160) String subject,
+            @NotNull @Size(max = 4000) String content,
+            @NotNull @Size(min = 1, max = 1000) List<@NotNull Long> recipientUserIds) { }
+
     public record ReplyRequest(
             @NotBlank(message = "Le message est obligatoire")
             @Size(max = 4000, message = "Le message ne doit pas dépasser 4000 caractères") String content) {

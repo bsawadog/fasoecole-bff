@@ -53,7 +53,7 @@ public class OwnerExpenseService {
     private static final List<String[]> DEFAULT_CATEGORIES = List.of(
             new String[]{"Salaires des enseignants", "Alimentée automatiquement par la paie des enseignants",
                     ExpenseCategory.PAYROLL},
-            new String[]{"Salaires du personnel", "Direction, secrétariat, gardiennage, entretien", null},
+            new String[]{"Salaires du personnel", "Direction, secrétariat, gardiennage, entretien", "STAFF_PAYROLL"},
             new String[]{"Loyer & locaux", "Loyer, aménagement des salles", null},
             new String[]{"Eau & électricité", "Factures ONEA, SONABEL, carburant groupe électrogène", null},
             new String[]{"Fournitures & matériel pédagogique", "Craie, cahiers, manuels, matériel informatique", null},
@@ -129,10 +129,10 @@ public class OwnerExpenseService {
     /** Supprime une catégorie jamais utilisée ; sinon l'archive pour conserver l'historique. */
     public boolean deleteCategory(Long categoryId, Long ownerId, boolean systemAdmin) {
         ExpenseCategory category = requireOwnedCategory(categoryId, ownerId, systemAdmin);
-        if (category.isPayroll()) {
-            throw new IllegalArgumentException("La catégorie de la paie des enseignants ne peut pas être supprimée");
+        if (category.isPayroll() || "STAFF_PAYROLL".equals(category.getSystemCode())) {
+            throw new IllegalArgumentException("Les catégories des salaires ne peuvent pas être supprimées");
         }
-        if (expenseRepository.existsByCategoryId(categoryId)) {
+        if (expenseRepository.existsByCategoryId(categoryId) || categoryRepository.isUsedByPayables(categoryId)) {
             category.setActive(false);
             categoryRepository.save(category);
             return false;
@@ -181,6 +181,7 @@ public class OwnerExpenseService {
     public OwnerExpenseDto.ExpenseRow updateExpense(Long expenseId, OwnerExpenseDto.ExpenseRequest request,
                                                     Long ownerId, boolean systemAdmin) {
         Expense expense = requireOwnedExpense(expenseId, ownerId, systemAdmin);
+        if (expense.isManagedPayment()) throw new IllegalArgumentException("Ce paiement est lié à une dépense à payer et ne peut pas être modifié ici");
         boolean categoryChanged = !expense.getCategory().getId().equals(request.categoryId());
         apply(expense, request, expense.getSchool().getId(), categoryChanged);
         expense.setUpdatedAt(LocalDateTime.now(clock));
@@ -188,7 +189,9 @@ public class OwnerExpenseService {
     }
 
     public void deleteExpense(Long expenseId, Long ownerId, boolean systemAdmin) {
-        expenseRepository.delete(requireOwnedExpense(expenseId, ownerId, systemAdmin));
+        Expense expense = requireOwnedExpense(expenseId, ownerId, systemAdmin);
+        if (expense.isManagedPayment()) throw new IllegalArgumentException("Ce paiement est lié à une dépense à payer et ne peut pas être supprimé");
+        expenseRepository.delete(expense);
     }
 
     public String exportExpensesCsv(Long schoolId, LocalDate from, LocalDate to, Long categoryId,
@@ -393,7 +396,7 @@ public class OwnerExpenseService {
 
     private static OwnerExpenseDto.ExpenseRow toRow(Expense e) {
         User author = e.getCreatedBy();
-        return new OwnerExpenseDto.ExpenseRow(e.getId(), SOURCE_MANUAL, e.getExpenseDate(), e.getCategory().getId(),
+        return new OwnerExpenseDto.ExpenseRow(e.getId(), e.isManagedPayment() ? "PAYABLE" : SOURCE_MANUAL, e.getExpenseDate(), e.getCategory().getId(),
                 e.getCategory().getName(), e.getLabel(), e.getSupplier(), e.getAmount(), e.getPaymentMethod().name(),
                 e.getReference(), e.getNotes(), author == null ? null : fullName(author));
     }
