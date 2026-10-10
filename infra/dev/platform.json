@@ -20,9 +20,15 @@
   "Rules": {
     "ApiTlsParametersTogether": {
       "Assertions": [{
-        "Assert": { "Fn::Equals": [
-          { "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] },
-          { "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }
+        "Assert": { "Fn::Or": [
+          { "Fn::And": [
+            { "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] },
+            { "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }
+          ] },
+          { "Fn::And": [
+            { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] }] },
+            { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }] }
+          ] }
         ] },
         "AssertDescription": "Provide both ApiDomain and ApiCertificateArn, or leave both empty for dev without a domain."
       }]
