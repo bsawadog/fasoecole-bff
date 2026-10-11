@@ -60,7 +60,7 @@
     }
   },
   "Conditions": {
-    "UseFrontendDomain": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "FrontendDomain" }, ""] }] },
+    "UseFrontendDomain": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "FrontendCertificateArn" }, ""] }] },
     "UseApiTls": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }] }
   },
   "Resources": {
