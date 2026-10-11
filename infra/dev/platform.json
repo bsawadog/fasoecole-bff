@@ -373,6 +373,10 @@
         "Protocol": "HTTP",
         "TargetType": "ip",
         "HealthCheckPath": "/actuator/health",
+        "HealthCheckIntervalSeconds": 15,
+        "HealthCheckTimeoutSeconds": 5,
+        "HealthyThresholdCount": 2,
+        "UnhealthyThresholdCount": 2,
         "Matcher": {
           "HttpCode": "200"
         },

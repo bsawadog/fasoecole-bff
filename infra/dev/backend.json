@@ -325,7 +325,7 @@
         "DesiredCount": {
           "Ref": "DesiredCount"
         },
-        "HealthCheckGracePeriodSeconds": 180,
+        "HealthCheckGracePeriodSeconds": 300,
         "DeploymentConfiguration": {
           "MinimumHealthyPercent": 100,
           "MaximumPercent": 200,
