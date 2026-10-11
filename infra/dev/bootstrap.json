@@ -217,6 +217,11 @@
                 },
                 {
                   "Effect": "Allow",
+                  "Action": "elasticloadbalancing:ModifyTargetGroup",
+                  "Resource": "arn:aws:elasticloadbalancing:eu-west-3:836533914034:targetgroup/fasoec-Targe-WTS9E1N0IZ3E/ac5bb210fa975466"
+                },
+                {
+                  "Effect": "Allow",
                   "Action": [
                     "iam:CreateRole",
                     "iam:DeleteRole",
