@@ -2,6 +2,14 @@ name: Deploy infrastructure dev
 on:
   workflow_dispatch:
     inputs:
+      frontend_domain:
+        description: Optional frontend DNS name (for example app.dev.fasoecole.com)
+        required: false
+        type: string
+      frontend_certificate_arn:
+        description: Issued ACM certificate ARN in us-east-1 covering the frontend domain
+        required: false
+        type: string
       api_domain:
         description: Optional API DNS name; leave empty for dev without a domain
         required: false
@@ -81,10 +89,16 @@ jobs:
         env:
           API_DOMAIN: ${{ inputs.api_domain }}
           API_CERTIFICATE_ARN: ${{ inputs.api_certificate_arn }}
+          FRONTEND_DOMAIN: ${{ inputs.frontend_domain || vars.FRONTEND_DOMAIN }}
+          FRONTEND_CERTIFICATE_ARN: ${{ inputs.frontend_certificate_arn || vars.FRONTEND_CERTIFICATE_ARN }}
           CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           CF_PREFIX_LIST: ${{ vars.CLOUDFRONT_PREFIX_LIST_ID }}
         run: |
           set -euo pipefail
+          if { [ -n "$FRONTEND_DOMAIN" ] && [ -z "$FRONTEND_CERTIFICATE_ARN" ]; } || { [ -z "$FRONTEND_DOMAIN" ] && [ -n "$FRONTEND_CERTIFICATE_ARN" ]; }; then
+            echo "::error::Provide both frontend domain and its issued ACM certificate ARN in us-east-1."
+            exit 1
+          fi
           if { [ -n "$API_DOMAIN" ] && [ -z "$API_CERTIFICATE_ARN" ]; } || { [ -z "$API_DOMAIN" ] && [ -n "$API_CERTIFICATE_ARN" ]; }; then
             echo "::error::Provide both API domain and ACM certificate ARN, or leave both empty."
             exit 1
@@ -94,7 +108,7 @@ jobs:
           aws cloudformation deploy --stack-name fasoecole-dev-platform \
             --template-file infra/dev/platform.json --role-arn "$CFN_ROLE" \
             --no-fail-on-empty-changeset \
-            --parameter-overrides "ApiDomain=$API_DOMAIN" "ApiCertificateArn=$API_CERTIFICATE_ARN" "CloudFrontPrefixListId=$CF_PREFIX_LIST"
+            --parameter-overrides "ApiDomain=$API_DOMAIN" "ApiCertificateArn=$API_CERTIFICATE_ARN" "CloudFrontPrefixListId=$CF_PREFIX_LIST" "FrontendDomain=$FRONTEND_DOMAIN" "FrontendCertificateArn=$FRONTEND_CERTIFICATE_ARN"
           aws cloudformation describe-stacks --stack-name fasoecole-dev-platform --query 'Stacks[0].Outputs'
       - name: Show CloudFormation failure reasons
         if: ${{ failure() && steps.platform.outcome == 'failure' }}

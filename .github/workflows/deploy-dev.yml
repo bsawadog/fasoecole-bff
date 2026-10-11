@@ -105,12 +105,13 @@ jobs:
           CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
+          FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
         run: |
           set -euo pipefail
           aws cloudformation deploy --stack-name "$BACKEND_STACK" \
             --template-file infra/dev/backend.json --capabilities CAPABILITY_NAMED_IAM \
             --role-arn "$CFN_ROLE" --no-fail-on-empty-changeset \
-            --parameter-overrides "TargetEnvironment=$TARGET_ENVIRONMENT" "ImageUri=$IMAGE_URI" "SmtpHost=$SMTP_HOST" "MailFrom=$MAIL_FROM" DesiredCount=1
+            --parameter-overrides "TargetEnvironment=$TARGET_ENVIRONMENT" "ImageUri=$IMAGE_URI" "SmtpHost=$SMTP_HOST" "MailFrom=$MAIL_FROM" "FrontendBaseUrl=$FRONTEND_BASE_URL" DesiredCount=1
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
       - name: Show backend deployment failure reasons
         if: ${{ failure() && steps.backend.outcome == 'failure' }}

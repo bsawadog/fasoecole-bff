@@ -14,6 +14,38 @@ Budget indicatif : 80–100 USD/mois avec peu de trafic, hors taxes, crédits,
 sauvegardes supplémentaires et éventuels crédits CPU RDS. Un déploiement roulant
 peut exécuter temporairement deux tâches. Ce dimensionnement doit être mesuré.
 
+## Domaine du frontend
+
+Le domaine personnalise se configure dans `platform.json`, pas dans le workflow
+de publication des fichiers Angular. Pour le dev, choisir par exemple
+`app.dev.fasoecole.com` pour garder le domaine principal disponible pour la prod.
+
+1. Dans ACM **us-east-1**, obtenir un certificat au statut **Issued** couvrant
+   exactement le nom choisi. `*.fasoecole.com` ne couvre pas
+   `app.dev.fasoecole.com` : ce nom demande un certificat explicite ou
+   `*.dev.fasoecole.com`.
+2. Dans le depot backend, GitHub > Settings > Environments > dev > Variables,
+   definir `FRONTEND_DOMAIN` et `FRONTEND_CERTIFICATE_ARN`. Le workflow
+   `infra-dev.yml` accepte aussi ces valeurs comme inputs manuels. Conserver
+   les variables pour les prochains deploiements.
+3. Lancer `Deploy infrastructure dev` depuis `develop`. CloudFront associe le
+   domaine et le certificat a la distribution existante.
+4. Dans la zone publique Route 53 `fasoecole.com`, creer un enregistrement
+   **A Alias** vers cette distribution CloudFront, puis un **AAAA Alias**
+   vers la meme distribution (IPv6 active). Le nom doit correspondre au
+   domaine choisi. Pour `fasoecole.com`, laisser le nom d'enregistrement vide.
+5. Une fois le DNS configure, definir `FRONTEND_BASE_URL` dans les variables
+   GitHub du backend, par exemple `https://app.dev.fasoecole.com`, sans slash
+   final. Relancer le deploiement backend pour utiliser cette adresse dans
+   les liens de reinitialisation et la configuration CORS.
+
+La sortie `FrontendAccessUrl` indique l'adresse personnalisee ;
+`CloudFrontDomainName` indique la cible DNS. L'export historique `FrontendUrl`
+garde l'adresse AWS pour permettre la mise a jour de la plateforme pendant
+que le backend l'importe. Les appels du frontend dev restent relatifs a `/api`.
+Ces changements concernent la plateforme dev ; la plateforme prod doit etre
+configuree separement avec son propre domaine.
+
 ## Fichiers et ordre
 
 1. bootstrap.json : identité OIDC GitHub + rôles de déploiement.
