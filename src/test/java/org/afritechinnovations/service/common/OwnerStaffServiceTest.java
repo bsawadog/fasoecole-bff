@@ -163,6 +163,19 @@ class OwnerStaffServiceTest {
         assertEquals(List.of("DASHBOARD", "STUDENTS"), access.get(1).modules());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    void createsStaffWithoutEmailOrPhone(String email) {
+        var request = new OwnerStaffDto.StaffRequest("Awa", "Diallo", email, null, "Gardien", Set.of());
+        var result = service.create(1L, request, OWNER_ID, false);
+        assertNull(result.staff().email());
+        assertNull(result.staff().phone());
+        assertFalse(result.emailSent());
+        verify(userRepository, never()).findByEmailIgnoreCase(any());
+        verify(invitations, never()).sendInvitation(any());
+        verifyNoInteractions(emailService);
+    }
+
     @Test
     void managedStaffResetSendsALinkWithoutChangingThePasswordOrExposingCredentials() {
         User account = User.builder().id(40L).email("awa@ecole.bf").passwordHash("chosen").emailVerified(true).build();

@@ -382,6 +382,25 @@ class TeacherWorkServiceTest {
                 && new BigDecimal("95000.00").equals(r.getAmount()) && SEPT.equals(r.getEffectiveFrom())));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    void createsTeacherWithoutEmailOrPhone(String email) {
+        var schools = mock(org.afritechinnovations.repository.common.SchoolRepository.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "schoolRepository", schools);
+        when(schools.findById(school.getId())).thenReturn(Optional.of(school));
+        when(roles.findByName("TEACHER")).thenReturn(Optional.of(org.afritechinnovations.model.common.Role.builder().name("TEACHER").build()));
+        when(encoder.encode(anyString())).thenReturn("random-hash");
+        when(users.save(any())).thenAnswer(i -> { User u = i.getArgument(0); u.setId(42L); return u; });
+        when(teacherRepository.save(any())).thenAnswer(i -> { Teacher t = i.getArgument(0); t.setId(9L); return t; });
+        var request = new org.afritechinnovations.dto.people.CreateTeacherRequest();
+        request.setFirstName("Awa"); request.setLastName("Diallo"); request.setEmail(email);
+        service.createSchoolTeacher(school.getId(), request, OWNER_ID, false);
+        verify(users).save(argThat(user -> user.getEmail() == null && user.getPhone() == null));
+        verify(users, never()).findByEmailIgnoreCase(any());
+        verify(users, never()).existsByEmailIgnoreCase(any());
+        verify(invitations, never()).sendInvitation(any());
+    }
+
     private static TeacherSessionRequest sessionRequest(LocalDate date, String status) {
         TeacherSessionRequest request = new TeacherSessionRequest();
         request.setSlotId(7L);

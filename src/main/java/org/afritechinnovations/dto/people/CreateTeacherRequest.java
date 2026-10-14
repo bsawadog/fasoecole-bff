@@ -21,7 +21,6 @@ public class CreateTeacherRequest {
     @Size(max = 100)
     private String lastName;
 
-    @NotBlank(message = "Le courriel est obligatoire")
     @Email(message = "Courriel invalide")
     @Size(max = 150)
     private String email;

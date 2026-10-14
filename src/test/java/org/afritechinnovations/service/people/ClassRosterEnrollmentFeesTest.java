@@ -127,6 +127,20 @@ class ClassRosterEnrollmentFeesTest {
         verify(paymentRepository, times(2)).save(any(Payment.class));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    void enrollsStudentWithoutEmailOrPhone(String email) {
+        var request = request(null);
+        request.setEmail(email);
+        request.setPhone(null);
+        service.enrollNewStudentWithFees(cp1a, request);
+        verify(userRepository).save(argThat(user -> user.getEmail() == null && user.getPhone() == null));
+        verify(userRepository, never()).findByEmailIgnoreCase(any());
+        verify(userRepository, never()).existsByEmailIgnoreCase(any());
+        verify(invitations, never()).sendInvitation(any());
+        verify(studentEnrollmentRepository).save(any());
+    }
+
     @Test
     void billsWithoutPaymentWhenNothingIsPaid() {
         var result = service.enrollNewStudentWithFees(cp1a, request(null,

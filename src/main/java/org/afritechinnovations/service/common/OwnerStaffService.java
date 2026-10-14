@@ -90,7 +90,7 @@ public class OwnerStaffService {
                                              Long ownerId, boolean systemAdmin) {
         School school = requireOwnedSchool(schoolId, ownerId, systemAdmin);
         String email = normalizeEmail(request.email());
-        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        User user = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
         boolean existingAccount = user != null;
         String temporaryPassword = null;
 
@@ -124,9 +124,9 @@ public class OwnerStaffService {
                 .createdBy(userRepository.getReferenceById(ownerId))
                 .build());
 
-        boolean emailSent = existingAccount && Boolean.TRUE.equals(user.getPasswordSet()) && Boolean.TRUE.equals(user.getEmailVerified())
+        boolean emailSent = email != null && (existingAccount && Boolean.TRUE.equals(user.getPasswordSet()) && Boolean.TRUE.equals(user.getEmailVerified())
                 ? sendQuietly(email, "Nouvel accès FasoÉcole – " + school.getName(), accessGrantedText(staff))
-                : invitations.sendInvitation(user);
+                : invitations.sendInvitation(user));
         return new OwnerStaffDto.StaffCreated(toRow(staff), temporaryPassword, existingAccount, emailSent);
     }
 
@@ -259,7 +259,7 @@ public class OwnerStaffService {
 
     private static String normalizeEmail(String email) {
         if (email == null || email.isBlank()) {
-            throw new IllegalArgumentException("L'adresse e-mail est obligatoire");
+            return null;
         }
         return email.trim().toLowerCase(Locale.ROOT);
     }

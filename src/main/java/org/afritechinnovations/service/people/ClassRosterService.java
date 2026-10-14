@@ -121,8 +121,10 @@ public class ClassRosterService {
                 .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
-        String studentEmail = request.getEmail().trim().toLowerCase();
-        boolean emailChanged = !studentEmail.equalsIgnoreCase(String.valueOf(user.getEmail()));
+        String studentEmail = request.getEmail() == null || request.getEmail().isBlank()
+                ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
+        boolean emailChanged = !java.util.Objects.equals(studentEmail,
+                user.getEmail() == null ? null : user.getEmail().toLowerCase(java.util.Locale.ROOT));
         if (emailChanged) {
             user.setEmailVerified(false);
             user.revokeSessions();
@@ -131,7 +133,7 @@ public class ClassRosterService {
         user.setPhone(request.getPhone());
         userRepository.save(user);
 
-        if (emailChanged) invitations.sendInvitation(user);
+        if (emailChanged && studentEmail != null) invitations.sendInvitation(user);
 
         student.setRegistrationNumber(request.getRegistrationNumber().trim());
         student.setBirthDate(request.getBirthDate());
@@ -418,9 +420,10 @@ public class ClassRosterService {
                 .findBySchoolClassIdAndStatus(schoolClass.getId(), EnrollmentStatus.ACTIVE).size() >= schoolClass.getCapacity()) {
             throw new IllegalArgumentException("Cette classe est complète");
         }
-        String email = request.getEmail().trim().toLowerCase();
-        User pending = userRepository.findByEmailIgnoreCase(email).orElse(null);
-        if ((pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
+        String email = request.getEmail() == null || request.getEmail().isBlank()
+                ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
+        User pending = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (email != null && (pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
                 || !Boolean.TRUE.equals(pending.getActive()) || pending.getRequestedRole() != org.afritechinnovations.model.common.RoleName.STUDENT
                 || !schoolClass.getSchool().getId().equals(pending.getRequestedSchoolId()))) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
@@ -473,7 +476,7 @@ public class ClassRosterService {
                 .enrollmentDate(LocalDate.now())
                 .build());
 
-        invitations.sendInvitation(user);
+        if (email != null) invitations.sendInvitation(user);
 
         return student;
     }

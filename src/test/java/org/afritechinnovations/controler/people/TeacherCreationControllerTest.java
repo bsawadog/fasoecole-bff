@@ -40,10 +40,29 @@ class TeacherCreationControllerTest {
         assertEquals("EMP-001", request.getValue().getEmployeeNumber());
     }
 
-    @Test void emailAndSubjectRemainMandatoryEvenThoughPasswordIsNotRequired() throws Exception {
+    @Test void subjectRemainsMandatory() throws Exception {
         mvc.perform(post("/api/teacher-work/classes/3/teachers").principal(owner).contentType("application/json")
                 .content("""
                   {"firstName":"Awa","lastName":"Diallo","email":""}
+                  """)).andExpect(status().isBadRequest());
+        verifyNoInteractions(service);
+    }
+
+    @Test void teacherCanBeCreatedWithoutEmailOrPhone() throws Exception {
+        mvc.perform(post("/api/teacher-work/classes/3/teachers").principal(owner).contentType("application/json")
+                .content("""
+                  {"firstName":"Awa","lastName":"Diallo","subjectId":8}
+                  """)).andExpect(status().isCreated());
+        var request = org.mockito.ArgumentCaptor.forClass(CreateClassTeacherRequest.class);
+        verify(service).createClassTeacher(eq(3L), request.capture(), eq(10L), eq(false));
+        assertNull(request.getValue().getEmail());
+        assertNull(request.getValue().getPhone());
+    }
+
+    @Test void suppliedEmailMustStillBeValid() throws Exception {
+        mvc.perform(post("/api/teacher-work/classes/3/teachers").principal(owner).contentType("application/json")
+                .content("""
+                  {"firstName":"Awa","lastName":"Diallo","email":"invalid","subjectId":8}
                   """)).andExpect(status().isBadRequest());
         verifyNoInteractions(service);
     }

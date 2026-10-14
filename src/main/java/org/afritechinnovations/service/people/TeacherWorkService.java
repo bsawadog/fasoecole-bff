@@ -272,7 +272,7 @@ public class TeacherWorkService {
                 .subject(subject)
                 .teacher(teacher)
                 .build());
-        invitations.sendInvitation(user);
+        if (user.getEmail() != null) invitations.sendInvitation(user);
         return toTeacherInfo(teacher, List.of(subject.getName()), true, 1);
     }
 
@@ -281,7 +281,7 @@ public class TeacherWorkService {
         if (!systemAdmin && (school.getOwner()==null || !school.getOwner().getId().equals(userId)))
             throw new AccessDeniedException("Création réservée au propriétaire.");
         Teacher teacher = createTeacherProfile(school, request);
-        invitations.sendInvitation(teacher.getUser());
+        if (teacher.getUser().getEmail() != null) invitations.sendInvitation(teacher.getUser());
         return toTeacherInfo(teacher, List.of(), null, 0);
     }
 
@@ -290,9 +290,10 @@ public class TeacherWorkService {
         if (employeeNumber != null && teacherRepository.findBySchoolIdAndEmployeeNumber(school.getId(), employeeNumber).isPresent()) {
             throw new IllegalArgumentException("Ce numéro d’employé existe déjà dans cet établissement");
         }
-        String email = request.getEmail().trim().toLowerCase();
-        User pending = userRepository.findByEmailIgnoreCase(email).orElse(null);
-        if ((pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
+        String email = blankToNull(request.getEmail());
+        if (email != null) email = email.toLowerCase(java.util.Locale.ROOT);
+        User pending = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (email != null && (pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
                 || !Boolean.TRUE.equals(pending.getActive()) || pending.getRequestedRole() != org.afritechinnovations.model.common.RoleName.TEACHER
                 || !school.getId().equals(pending.getRequestedSchoolId()))) {
             throw new IllegalArgumentException("Un utilisateur existe déjà avec ce courriel : " + email);
