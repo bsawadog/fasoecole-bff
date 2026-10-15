@@ -5,18 +5,22 @@ on:
       frontend_domain:
         description: Optional frontend DNS name (for example app.dev.fasoecole.com)
         required: false
+        default: app.dev.fasoecole.com
         type: string
       frontend_certificate_arn:
         description: Issued ACM certificate ARN in us-east-1 covering the frontend domain
         required: false
+        default: arn:aws:acm:us-east-1:836533914034:certificate/23617871-f2d4-4fb6-9c2c-af4701aceddc
         type: string
       api_domain:
         description: Optional API DNS name; leave empty for dev without a domain
         required: false
+        default: api.dev.fasoecole.com
         type: string
       api_certificate_arn:
         description: Optional ACM certificate ARN in eu-west-3; leave empty with API DNS name
         required: false
+        default: arn:aws:acm:eu-west-3:836533914034:certificate/3e221953-ce73-41dc-8744-70f395622731
         type: string
 permissions:
   contents: read
