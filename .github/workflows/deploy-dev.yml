@@ -106,7 +106,7 @@ jobs:
           CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
-          FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
+          FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL || (inputs.environment == 'dev' && 'https://app.dev.fasoecole.com' || '') }}
         run: |
           set -euo pipefail
           aws cloudformation deploy --stack-name "$BACKEND_STACK" \
