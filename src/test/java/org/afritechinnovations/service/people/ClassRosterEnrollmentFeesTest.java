@@ -143,10 +143,12 @@ class ClassRosterEnrollmentFeesTest {
 
     @Test
     void billsWithoutPaymentWhenNothingIsPaid() {
+        when(feeTypeRepository.findBySchoolId(1L)).thenReturn(List.of(registration, tuition));
         var result = service.enrollNewStudentWithFees(cp1a, request(null,
                 new OwnerEnrollmentDto.FeeLine(31L, BigDecimal.ZERO)));
 
-        assertEquals(1, result.invoices().size());
+        assertEquals(2, result.invoices().size());
+        assertEquals(0, new BigDecimal("50000").compareTo(result.invoices().get(1).balance()));
         assertTrue(result.invoices().get(0).payments().isEmpty());
         verify(paymentRepository, never()).save(any());
     }

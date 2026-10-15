@@ -332,12 +332,20 @@ public class ClassRosterService {
     }
 
     /**
-     * Inscrit un nouvel élève, lui facture les frais choisis pour l'année de la classe et encaisse
+     * Inscrit un nouvel élève, lui facture tous les frais applicables pour l'année de la classe et encaisse
      * immédiatement les montants versés (une référence de reçu par paiement). Droits vérifiés par l'appelant.
      */
     public OwnerEnrollmentDto.RegistrationResult enrollNewStudentWithFees(SchoolClass schoolClass,
                                                                          NewStudentEnrollmentRequest request) {
-        List<OwnerEnrollmentDto.FeeLine> lines = request.getFees() == null ? List.of() : request.getFees();
+        List<OwnerEnrollmentDto.FeeLine> lines = new ArrayList<>(request.getFees() == null ? List.of() : request.getFees());
+        Set<Long> submittedFees = lines.stream().map(OwnerEnrollmentDto.FeeLine::feeTypeId)
+                .collect(java.util.stream.Collectors.toSet());
+        feeTypeRepository.findBySchoolId(schoolClass.getSchool().getId()).stream()
+                .filter(FeeType::isActive)
+                .filter(fee -> fee.getLevel() == null || (schoolClass.getLevel() != null
+                        && fee.getLevel().getId().equals(schoolClass.getLevel().getId())))
+                .filter(fee -> !submittedFees.contains(fee.getId()))
+                .forEach(fee -> lines.add(new OwnerEnrollmentDto.FeeLine(fee.getId(), BigDecimal.ZERO)));
         List<FeeType> feeTypes = validateEnrollmentFees(schoolClass, lines, request.getPaymentMethod());
 
         Student student = createEnrolledStudent(schoolClass, request);
