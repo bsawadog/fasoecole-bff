@@ -119,6 +119,12 @@ public class ClassRosterService {
 
         User user = userRepository.findById(student.getUser().getId())
                 .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+        String normalizedEmail = request.getEmail() == null || request.getEmail().isBlank()
+                ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
+        if (isSharedIdentity(user, "STUDENT", student.getSchool().getId())
+                && identityChanged(user, request.getFirstName(), request.getLastName(), normalizedEmail, request.getPhone())) {
+            throw new IllegalArgumentException("Ce compte possède plusieurs rôles. Son titulaire peut modifier son identité depuis Mon profil.");
+        }
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
         String studentEmail = request.getEmail() == null || request.getEmail().isBlank()
@@ -155,9 +161,6 @@ public class ClassRosterService {
         if (!inClass || !student.getSchool().getId().equals(schoolClass.getSchool().getId())) {
             throw new AccessDeniedException("Cet élève n'appartient pas à cette classe");
         }
-        if (!parentStudentRepository.findByStudentIdWithParentUser(studentId).isEmpty()) {
-            throw new IllegalArgumentException("Un parent est déjà associé à cet élève. Actualisez la liste.");
-        }
         attachGuardians(student, List.of(new OwnerEnrollmentDto.Guardian(null, request.getFirstName(),
                 request.getLastName(), request.getEmail(), request.getPhone(), request.getRelationship())));
         return toRow(student, teacherNamesForClass(classId));
@@ -171,6 +174,7 @@ public class ClassRosterService {
 
         Student studentInClass = parentStudentRepository.findByParentId(parentId).stream()
                 .map(ParentStudent::getStudent)
+                .filter(student -> request.getStudentId() == null || request.getStudentId().equals(student.getId()))
                 .filter(student -> studentEnrollmentRepository.findByStudentId(student.getId()).stream()
                         .anyMatch(enrollment -> enrollment.getStatus() == EnrollmentStatus.ACTIVE
                                 && enrollment.getSchoolClass().getId().equals(classId)))
@@ -186,9 +190,33 @@ public class ClassRosterService {
                 .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
         String parentEmail = request.getEmail() == null || request.getEmail().isBlank()
                 ? null : request.getEmail().trim().toLowerCase();
-        if (parentEmail != null && !parentEmail.equalsIgnoreCase(user.getEmail())
-                && userRepository.existsByEmailIgnoreCase(parentEmail)) {
-            throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + parentEmail);
+        if (parentEmail != null && !parentEmail.equalsIgnoreCase(user.getEmail())) {
+            User existing = userRepository.findByEmailIgnoreCase(parentEmail).orElse(null);
+            if (existing != null) {
+                if (request.getStudentId() == null) {
+                    throw new IllegalArgumentException("Précisez l’élève pour rattacher ce compte existant comme parent.");
+                }
+                if (!Boolean.TRUE.equals(existing.getActive())) throw new IllegalArgumentException("Ce compte est inactif.");
+                if (existing.getId().equals(studentInClass.getUser().getId())) {
+                    throw new IllegalArgumentException("Un élève ne peut pas être son propre parent");
+                }
+                Parent replacement = parentRepository.findByUserId(existing.getId())
+                        .orElseGet(() -> parentRepository.save(Parent.builder().user(existing).build()));
+                ParentStudent previous = parentStudentRepository.findByParentId(parentId).stream()
+                        .filter(link -> studentInClass.getId().equals(link.getStudent().getId())).findFirst().orElseThrow();
+                Role parentRole = roleRepository.findByName("PARENT")
+                        .orElseThrow(() -> new IllegalStateException("Rôle non configuré: PARENT"));
+                linkGuardian(studentInClass, replacement, previous.getRelationship(), parentRole, new HashSet<>());
+                parentStudentRepository.delete(previous);
+                return toRow(studentInClass, teacherNamesForClass(classId));
+            }
+        }
+        boolean sharedAccount = isSharedIdentity(user, "PARENT", studentInClass.getSchool().getId());
+        if (sharedAccount) {
+            if (identityChanged(user, request.getFirstName(), request.getLastName(), parentEmail, request.getPhone())) {
+                throw new IllegalArgumentException("Ce compte possède plusieurs rôles. Son titulaire peut modifier son identité depuis Mon profil.");
+            }
+            return toRow(studentInClass, teacherNamesForClass(classId));
         }
         user.setFirstName(request.getFirstName().trim());
         user.setLastName(request.getLastName().trim());
@@ -218,9 +246,16 @@ public class ClassRosterService {
         if (!systemAdmin && !student.getSchool().getId().equals(schoolClass.getSchool().getId())) {
             throw new AccessDeniedException("Vous ne pouvez supprimer que les élèves de votre établissement");
         }
-        // Supprime le compte utilisateur de l'élève : la suppression est répercutée en cascade
-        // (students, student_enrollments, parent_student, grades, attendances, report_cards, invoices).
-        userRepository.deleteById(student.getUser().getId());
+        // Retire le dossier scolaire, jamais le compte partagé avec d'autres rôles ou écoles.
+        Long userId = student.getUser().getId();
+        boolean otherDossier = studentRepository.findAllByUserId(userId).stream()
+                .anyMatch(other -> !studentId.equals(other.getId()) && student.getSchool().getId().equals(other.getSchool().getId()));
+        if (!otherDossier) {
+            schoolUserRepository.findByUserId(userId).stream()
+                    .filter(link -> student.getSchool().getId().equals(link.getSchool().getId()) && "STUDENT".equals(link.getRole().getName()))
+                    .forEach(schoolUserRepository::delete);
+        }
+        studentRepository.delete(student);
     }
 
     /**
@@ -431,10 +466,8 @@ public class ClassRosterService {
         String email = request.getEmail() == null || request.getEmail().isBlank()
                 ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
         User pending = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
-        if (email != null && (pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
-                || !Boolean.TRUE.equals(pending.getActive()) || pending.getRequestedRole() != org.afritechinnovations.model.common.RoleName.STUDENT
-                || !schoolClass.getSchool().getId().equals(pending.getRequestedSchoolId()))) {
-            throw new IllegalArgumentException("Un utilisateur existe déjà avec cet email: " + email);
+        if (pending != null && !Boolean.TRUE.equals(pending.getActive())) {
+            throw new IllegalArgumentException("Ce compte est inactif. Contactez l’administration de la plateforme.");
         }
         if (pending != null && studentRepository.findAllByUserId(pending.getId()).stream().anyMatch(t -> t.getSchool().getId().equals(schoolClass.getSchool().getId()))) {
             throw new IllegalArgumentException("Ce compte possède déjà un dossier élève dans cet établissement");
@@ -457,15 +490,20 @@ public class ClassRosterService {
                 .active(true)
                 .approved(true)
                 .build();
+        user.setApproved(true);
         user = userRepository.save(user);
 
-        Role studentRole = roleRepository.findByName("STUDENT")
-                .orElseThrow(() -> new IllegalStateException("Rôle non configuré: STUDENT"));
-        schoolUserRepository.save(SchoolUser.builder()
-                .user(user)
-                .school(schoolClass.getSchool())
-                .role(studentRole)
-                .build());
+        boolean member = schoolUserRepository.findByUserId(user.getId()).stream()
+                .anyMatch(link -> schoolClass.getSchool().getId().equals(link.getSchool().getId()) && "STUDENT".equals(link.getRole().getName()));
+        if (!member) {
+            Role studentRole = roleRepository.findByName("STUDENT")
+                    .orElseThrow(() -> new IllegalStateException("Rôle non configuré: STUDENT"));
+            schoolUserRepository.save(SchoolUser.builder()
+                    .user(user)
+                    .school(schoolClass.getSchool())
+                    .role(studentRole)
+                    .build());
+        }
 
         Student student = Student.builder()
                 .user(user)
@@ -484,7 +522,7 @@ public class ClassRosterService {
                 .enrollmentDate(LocalDate.now())
                 .build());
 
-        if (email != null) invitations.sendInvitation(user);
+        if (email != null) invitations.sendAccessAssigned(user, schoolClass.getSchool(), "Élève / étudiant");
 
         return student;
     }
@@ -534,8 +572,11 @@ public class ClassRosterService {
             String phone = guardian.phone() == null || guardian.phone().isBlank() ? null : guardian.phone().trim();
 
             User user = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
-            if (user != null && studentRepository.findByUserId(user.getId()).isPresent()) {
-                throw new IllegalArgumentException("Le courriel " + email + " appartient déjà à un élève");
+            if (user != null && !Boolean.TRUE.equals(user.getActive())) {
+                throw new IllegalArgumentException("Ce compte est inactif. Contactez l’administration de la plateforme.");
+            }
+            if (user != null && student.getUser() != null && user.getId().equals(student.getUser().getId())) {
+                throw new IllegalArgumentException("Un élève ne peut pas être son propre parent");
             }
             if (user == null) {
                 user = userRepository.save(User.builder()
@@ -548,8 +589,9 @@ public class ClassRosterService {
                         .active(true)
                         .approved(true)
                         .build());
-            } else if (user.getPhone() == null && phone != null) {
-                user.setPhone(phone);
+            }
+            if (!Boolean.TRUE.equals(user.getApproved())) {
+                user.setApproved(true);
                 userRepository.save(user);
             }
 
@@ -557,7 +599,6 @@ public class ClassRosterService {
             Parent parent = parentRepository.findByUserId(parentUser.getId())
                     .orElseGet(() -> parentRepository.save(Parent.builder().user(parentUser).build()));
             linkGuardian(student, parent, guardian.relationship(), parentRole, linked);
-            if (email != null && !Boolean.TRUE.equals(parentUser.getEmailVerified())) invitations.sendInvitation(parentUser);
         }
     }
 
@@ -566,6 +607,13 @@ public class ClassRosterService {
             return;
         }
         User parentUser = parent.getUser();
+        if (!Boolean.TRUE.equals(parentUser.getActive())) throw new IllegalArgumentException("Ce compte est inactif.");
+        if (!Boolean.TRUE.equals(parentUser.getApproved())) {
+            parentUser.setApproved(true);
+            userRepository.save(parentUser);
+        }
+        if (parentStudentRepository.findByStudentIdWithParentUser(student.getId()).stream()
+                .anyMatch(link -> link.getParent().getId().equals(parent.getId()))) return;
         boolean inSchool = schoolUserRepository.findByUserId(parentUser.getId()).stream()
                 .anyMatch(su -> su.getSchool().getId().equals(student.getSchool().getId())
                         && "PARENT".equals(su.getRole().getName()));
@@ -578,6 +626,7 @@ public class ClassRosterService {
                 .student(student)
                 .relationship(relationship == null || relationship.isBlank() ? null : relationship.trim())
                 .build());
+        invitations.sendAccessAssigned(parentUser, student.getSchool(), "Parent");
     }
 
     public StudentDetailDto getStudentDetail(Long studentId, Long ownerId, boolean systemAdmin) {
@@ -961,6 +1010,19 @@ public class ClassRosterService {
             throw new AccessDeniedException("Vous ne pouvez consulter que les classes de votre établissement");
         }
         return schoolClass;
+    }
+
+    private boolean isSharedIdentity(User user, String role, Long schoolId) {
+        return user.isOwnerAccount() || !user.getPlatformRoles().isEmpty()
+                || schoolUserRepository.findByUserId(user.getId()).stream()
+                .anyMatch(link -> !role.equals(link.getRole().getName()) || !schoolId.equals(link.getSchool().getId()));
+    }
+
+    private boolean identityChanged(User user, String firstName, String lastName, String email, String phone) {
+        return !java.util.Objects.equals(email, user.getEmail() == null ? null : user.getEmail().toLowerCase(java.util.Locale.ROOT))
+                || !java.util.Objects.equals(firstName.trim(), user.getFirstName())
+                || !java.util.Objects.equals(lastName.trim(), user.getLastName())
+                || !java.util.Objects.equals(phone, user.getPhone());
     }
 
     private List<String> teacherNamesForClass(Long classId) {

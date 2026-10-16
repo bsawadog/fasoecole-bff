@@ -38,7 +38,7 @@ public class CashBookService {
     private void authorize(Long schoolId, Long actor, boolean admin) {
         var school = schools.findById(schoolId).orElseThrow(() -> new IllegalArgumentException("Établissement introuvable"));
         if (!admin && (school.getOwner()==null || !school.getOwner().getId().equals(actor))
-                && !permissions.staffAllows(schoolId,actor,StaffModule.EXPENSES))
+                && !permissions.staffAllows(schoolId,actor,StaffModule.CASH_BOOK))
             throw new AccessDeniedException("Accès à la caisse de cet établissement refusé");
     }
 

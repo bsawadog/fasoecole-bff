@@ -44,5 +44,18 @@ public class CreateTeacherRequest {
     @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private java.math.BigDecimal monthlySalary;
 
+    @jakarta.validation.constraints.Pattern(regexp = "FIXED_MONTHLY|HOURLY")
+    private String rateType;
+
+    @jakarta.validation.constraints.DecimalMin("0.01")
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
+    private java.math.BigDecimal hourlyRate;
+
+    private LocalDate rateEffectiveFrom;
+
+    @jakarta.validation.Valid
+    @Size(max = 100)
+    private java.util.List<InitialTeacherSlotRequest> initialSlots = new java.util.ArrayList<>();
+
 
 }

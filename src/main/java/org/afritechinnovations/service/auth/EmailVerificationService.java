@@ -114,6 +114,33 @@ public class EmailVerificationService {
                 : sendActivation(user, null, null);
     }
 
+    /** Une affectation directe ne redemande pas l'activation d'un compte déjà confirmé. */
+    @Transactional
+    public boolean sendAccessAssigned(User user, org.afritechinnovations.model.common.School school, String roleLabel) {
+        if (!Boolean.TRUE.equals(user.getActive()) || user.getEmail() == null || user.getEmail().isBlank()) return false;
+        if (!Boolean.TRUE.equals(user.getPasswordSet()) || !Boolean.TRUE.equals(user.getEmailVerified())) {
+            return sendInvitation(user);
+        }
+        try {
+            emailService.sendText(user.getEmail(), "Nouvel accès FasoÉcole – " + school.getName(), """
+                    Bonjour %s,
+
+                    L'établissement %s vous a attribué l'accès %s sur FasoÉcole.
+                    Connectez-vous avec votre compte habituel, puis ouvrez le menu de votre profil
+                    et choisissez « Changer d’espace ».
+
+                    %s/login
+
+                    Aucune nouvelle inscription ni approbation n'est nécessaire.
+                    Si cette affectation ne vous concerne pas, contactez l'établissement.
+                    """.formatted(user.getFirstName(), school.getName(), roleLabel, frontendBaseUrl.replaceAll("/+$", "")));
+            return true;
+        } catch (MailException ex) {
+            log.error("Access assignment email failed: userId={}, {}", user.getId(), ex.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     /**
      * Consomme le jeton : l'adresse est vérifiée, le mot de passe est défini (activation) et l'accès
      * automatique aux établissements des enfants est accordé.

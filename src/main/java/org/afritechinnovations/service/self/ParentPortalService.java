@@ -44,13 +44,26 @@ public class ParentPortalService {
     }
 
     public List<Post> schoolPosts(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         return jdbc.query(POST_SELECT + "WHERE p.school_id=? ORDER BY p.created_at DESC, p.id DESC", this::post, schoolId);
+    }
+
+    public List<StudentTarget> schoolStudents(Long schoolId, Long classId) {
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
+        guard.requireSame(schoolId, guard.schoolOfClass(classId), "classe");
+        return jdbc.query("""
+                SELECT DISTINCT s.id, u.first_name, u.last_name, s.registration_number
+                FROM students s JOIN users u ON u.id=s.user_id
+                JOIN student_enrollments e ON e.student_id=s.id
+                WHERE s.school_id=? AND e.class_id=? AND e.status IN ('ACTIVE','COMPLETED')
+                ORDER BY u.last_name, u.first_name, s.id
+                """, (rs, n) -> new StudentTarget(rs.getLong("id"), rs.getString("first_name"),
+                rs.getString("last_name"), rs.getString("registration_number")), schoolId, classId);
     }
 
     @Transactional
     public Post publish(Long schoolId, PostRequest request, List<MultipartFile> files) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         return storePost(schoolId,request,files);
     }
 
@@ -115,7 +128,7 @@ public class ParentPortalService {
 
     @Transactional
     public void deletePost(Long schoolId, Long postId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         if (jdbc.update("DELETE FROM parent_portal_posts WHERE id=? AND school_id=?", postId, schoolId) == 0) throw new IllegalArgumentException("Publication introuvable");
     }
 
@@ -126,7 +139,7 @@ public class ParentPortalService {
     }
 
     public Download schoolDownload(Long schoolId, Long postId, Long fileId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         return download("p.school_id=?", postId, fileId, schoolId);
     }
 
@@ -159,7 +172,7 @@ public class ParentPortalService {
     }
 
     public List<Appointment> schoolAppointments(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         return jdbc.query(APPOINTMENT_SELECT + " WHERE a.school_id=? ORDER BY a.proposed_at DESC", this::appointment, schoolId);
     }
 
@@ -183,7 +196,7 @@ public class ParentPortalService {
 
     @Transactional
     public void decideAppointment(Long schoolId, Long id, AppointmentDecision request) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         int updated = jdbc.update("UPDATE parent_appointments SET status=?,response=? WHERE id=? AND school_id=? AND status='PENDING' AND (?='REJECTED' OR proposed_at> ?)",
                 request.status().name(),request.response().trim(),id,schoolId,request.status().name(),LocalDateTime.now());
         if (updated == 0) throw new IllegalArgumentException("La demande a déjà été traitée ou sa date est passée");

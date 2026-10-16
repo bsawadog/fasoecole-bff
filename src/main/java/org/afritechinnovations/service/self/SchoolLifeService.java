@@ -22,8 +22,8 @@ public class SchoolLifeService {
     private final TeacherSpaceService teacher;
 
     private record Scope(Long schoolId, Long classId, Long studentId, boolean owner, boolean teacher) { }
-    private Scope owner(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+    private Scope owner(Long schoolId, StaffModule module) {
+        guard.requireSchoolModule(schoolId, module);
         guard.requireApprovedSchool(schoolId);
         return new Scope(schoolId, null, null, true, false);
     }
@@ -40,7 +40,14 @@ public class SchoolLifeService {
     public Overview ownerOverview(Long schoolId) { return ownerOverview(schoolId,null); }
     public Overview teacherOverview(Long classId) { return teacherOverview(classId,null); }
     public Overview studentOverview(Long studentId) { return studentOverview(studentId,null); }
-    public Overview ownerOverview(Long schoolId, LifeModule module) { return overview(owner(schoolId),module); }
+    public Overview ownerOverview(Long schoolId, LifeModule module) {
+        if (module == null) {
+            for (LifeModule candidate : LifeModule.values()) owner(schoolId, permission(candidate));
+            return overview(new Scope(schoolId, null, null, true, false), null);
+        }
+        return overview(owner(schoolId, permission(module)), module);
+    }
+    private StaffModule permission(LifeModule module) { return StaffModule.valueOf(module.name()); }
     public Overview teacherOverview(Long classId, LifeModule module) { return overview(teacher(classId),module); }
     public Overview studentOverview(Long studentId, LifeModule module) { return overview(student(studentId),module); }
 
@@ -112,7 +119,7 @@ public class SchoolLifeService {
 
     @Transactional
     public void createEvent(Long schoolId, EventRequest request) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.CALENDAR);
         if (request.endsOn().isBefore(request.startsOn())) throw new IllegalArgumentException("La fin précède le début");
         if (request.classId()!=null) guard.requireSame(schoolId,guard.schoolOfClass(request.classId()),"classe");
         jdbc.update("INSERT INTO school_calendar_events(school_id,class_id,title,description,kind,starts_on,ends_on,created_by) VALUES(?,?,?,?,?,?,?,?)",
@@ -120,11 +127,11 @@ public class SchoolLifeService {
     }
     @Transactional
     public void deleteEvent(Long schoolId, Long id) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.CALENDAR);
         changed(jdbc.update("DELETE FROM school_calendar_events WHERE id=? AND school_id=?",id,schoolId));
     }
     @Transactional
-    public void ownerObservation(Long schoolId, ObservationRequest request) { createObservation(owner(schoolId),request); }
+    public void ownerObservation(Long schoolId, ObservationRequest request) { createObservation(owner(schoolId, StaffModule.DISCIPLINE),request); }
     @Transactional
     public void teacherObservation(Long classId, ObservationRequest request) { createObservation(teacher(classId),request); }
     private void createObservation(Scope scope, ObservationRequest request) {
@@ -135,7 +142,7 @@ public class SchoolLifeService {
     }
     @Transactional
     public void resolveObservation(Long schoolId, Long id, ObservationDecision request) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.DISCIPLINE);
         changed(jdbc.update("UPDATE student_observations SET action=?,shared_with_family=?,resolved=? WHERE id=? AND school_id=?",
                 request.action().trim(),request.sharedWithFamily(),request.resolved(),id,schoolId));
     }
@@ -156,7 +163,7 @@ public class SchoolLifeService {
     }
     @Transactional
     public void decideDocument(Long schoolId, Long id, DocumentDecision request) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.REQUESTS);
         changed(jdbc.update("UPDATE school_document_requests SET status=?,response=?,handled_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND school_id=? AND status IN ('PENDING','IN_PROGRESS')",
                 request.status().name(),request.response().trim(),guard.currentUserId(),id,schoolId));
     }
@@ -168,13 +175,13 @@ public class SchoolLifeService {
     }
     @Transactional
     public void createBook(Long schoolId, BookRequest request) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.LIBRARY);
         jdbc.update("INSERT INTO library_books(school_id,title,author,reference,copies,created_by) VALUES(?,?,?,?,?,?)",
                 schoolId,request.title().trim(),request.author().trim(),request.reference().trim(),request.copies(),guard.currentUserId());
     }
     @Transactional
     public void lend(Long schoolId, LoanRequest request) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.LIBRARY);
         guard.requireSame(schoolId,guard.schoolOfStudent(request.studentId()),"élève");
         if (request.dueOn().isBefore(LocalDate.now())) throw new IllegalArgumentException("La date de retour est passée");
         // Serialize issuance on the book row so simultaneous requests cannot exceed the stock.
@@ -187,12 +194,12 @@ public class SchoolLifeService {
     }
     @Transactional
     public void returnBook(Long schoolId, Long loanId) {
-        owner(schoolId);
+        owner(schoolId, StaffModule.LIBRARY);
         changed(jdbc.update("UPDATE library_loans SET returned_on=CURRENT_DATE,returned_by=? WHERE id=? AND school_id=? AND returned_on IS NULL",guard.currentUserId(),loanId,schoolId));
     }
     @Transactional
     public void ownerHomework(Long schoolId, Long postId, Long studentId, HomeworkDecision request) {
-        updateHomework(owner(schoolId),postId,studentId,request);
+        updateHomework(owner(schoolId, StaffModule.HOMEWORK),postId,studentId,request);
     }
     @Transactional
     public void teacherHomework(Long classId, Long postId, Long studentId, HomeworkDecision request) {

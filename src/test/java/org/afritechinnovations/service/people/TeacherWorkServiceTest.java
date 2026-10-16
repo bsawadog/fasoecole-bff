@@ -373,7 +373,7 @@ class TeacherWorkServiceTest {
         assertFalse(account.getValue().getPasswordSet()); assertFalse(account.getValue().getEmailVerified());
         assertEquals("awa@test.bf", account.getValue().getEmail());
         verify(encoder, never()).encode("AdminChosenPassword");
-        verify(invitations).sendInvitation(account.getValue());
+        verify(invitations).sendAccessAssigned(account.getValue(), school, "Enseignant");
         verify(schoolUsers).save(argThat(link -> "TEACHER".equals(link.getRole().getName()) && link.getSchool() == school));
         verify(classSubjectTeacherRepository).save(argThat(a -> a.getSchoolClass() == schoolClass && a.getSubject() == subject));
         assertFalse(result.emailVerified()); assertEquals("FAILED", result.invitationDeliveryStatus());
@@ -409,6 +409,26 @@ class TeacherWorkServiceTest {
         return request;
     }
 
+    @Test
+    void existingOwnerAccountCanAlsoTeachWithoutReplacingItsIdentityOrOtherRoles() {
+        var subject = org.afritechinnovations.model.academic.Subject.builder().id(8L).school(school).name("Maths").build();
+        when(subjects.findById(8L)).thenReturn(Optional.of(subject));
+        User owner = User.builder().id(OWNER_ID).email("admin@test.bf").firstName("Original").lastName("Owner")
+                .passwordHash("chosen").emailVerified(true).ownerAccount(true).build();
+        when(users.findByEmailIgnoreCase(owner.getEmail())).thenReturn(Optional.of(owner));
+        when(roles.findByName("TEACHER")).thenReturn(Optional.of(org.afritechinnovations.model.common.Role.builder().name("TEACHER").build()));
+        when(teacherRepository.save(any())).thenAnswer(call -> { Teacher profile = call.getArgument(0); profile.setId(9L); return profile; });
+        var request = new org.afritechinnovations.dto.people.CreateClassTeacherRequest();
+        request.setFirstName("Changed"); request.setLastName("Name"); request.setEmail(" ADMIN@TEST.BF "); request.setSubjectId(8L);
+        service.createClassTeacher(3L, request, OWNER_ID, false);
+        assertEquals("Original", owner.getFirstName()); assertEquals("chosen", owner.getPasswordHash());
+        assertTrue(owner.isOwnerAccount()); verifyNoInteractions(encoder);
+        verify(users, never()).save(any());
+        verify(schoolUsers).save(argThat(link -> link.getUser() == owner && "TEACHER".equals(link.getRole().getName())));
+        verify(schoolUsers, never()).delete(any());
+        verify(invitations).sendAccessAssigned(owner, school, "Enseignant");
+    }
+
     @Test void employeeNumberIsUniqueWithinSchoolAndPendingAccountCanReceiveItsDossier() {
         var subject = org.afritechinnovations.model.academic.Subject.builder().id(8L).school(school).name("Mathématiques").build();
         when(subjects.findById(8L)).thenReturn(Optional.of(subject));
@@ -425,8 +445,8 @@ class TeacherWorkServiceTest {
         when(roles.findByName("TEACHER")).thenReturn(Optional.of(org.afritechinnovations.model.common.Role.builder().name("TEACHER").build()));
         when(teacherRepository.save(any())).thenAnswer(i -> { Teacher t = i.getArgument(0); t.setId(9L); return t; });
         assertEquals("EMP-001", service.createClassTeacher(3L, request, OWNER_ID, false).employeeNumber());
-        assertFalse(pending.getApproved()); assertEquals("chosen", pending.getPasswordHash());
-        verify(users, never()).save(any()); verifyNoInteractions(encoder);
+        assertTrue(pending.getApproved()); assertEquals("chosen", pending.getPasswordHash());
+        verify(users).save(pending); verifyNoInteractions(encoder);
     }
 
 }

@@ -10,6 +10,10 @@ import lombok.Setter;
 @Setter
 public class UpdateParentProfileRequest {
 
+    /** Élève concerné lorsque le parent est remplacé par un compte existant. */
+    @jakarta.validation.constraints.Positive
+    private Long studentId;
+
     @NotBlank
     @Size(max = 100)
     private String firstName;

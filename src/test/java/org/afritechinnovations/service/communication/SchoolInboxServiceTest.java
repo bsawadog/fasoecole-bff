@@ -49,6 +49,16 @@ class SchoolInboxServiceTest {
     @Mock UserRepository users;
     @InjectMocks SchoolInboxService service;
 
+    @Test
+    void messagesPermissionDoesNotExposeAbsenceReportsInTheInboxSummary() {
+        when(guard.allowsSchoolModule(1L, StaffModule.MESSAGES)).thenReturn(true);
+        when(messages.countUnreadBySchool(1L)).thenReturn(3L);
+        var summary = service.summary(1L);
+        assertEquals(3, summary.unreadMessages());
+        assertEquals(0, summary.pendingAbsenceReports());
+        verifyNoInteractions(reports);
+    }
+
     private final School school = School.builder().id(1L).name("École A").build();
     private final User staff = User.builder().id(30L).firstName("Ali").lastName("Zongo").build();
     private final Student child = Student.builder().id(11L).school(school).registrationNumber("MAT-11")

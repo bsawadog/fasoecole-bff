@@ -136,7 +136,7 @@ class CashBookIntegrationTest {
     }
     @Test void schoolIsolationAndDelegatedPermissionsAreEnforced() {
         assertThrows(AccessDeniedException.class,()->service.overview(SCHOOL,"2026-07",999L,false));
-        when(permissions.staffAllows(SCHOOL,999L,StaffModule.EXPENSES)).thenReturn(true);
+        when(permissions.staffAllows(SCHOOL,999L,StaffModule.CASH_BOOK)).thenReturn(true);
         assertDoesNotThrow(()->service.overview(SCHOOL,"2026-07",999L,false));
         assertThrows(AccessDeniedException.class,()->service.overview(OTHER,"2026-07",999L,false));
     }

@@ -41,6 +41,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -194,7 +195,7 @@ class ClassRosterEnrollmentFeesTest {
         User guardian = users.getAllValues().stream().filter(u -> "Issa".equals(u.getFirstName())).findFirst().orElseThrow();
         assertNull(guardian.getEmail());
         assertNull(guardian.getPhone());
-        assertEquals("70000000", existing.getPhone());
+        assertNull(existing.getPhone(), "Reusing a shared account must not change its identity");
         var links = org.mockito.ArgumentCaptor.forClass(org.afritechinnovations.model.people.ParentStudent.class);
         verify(parentStudentRepository, times(2)).save(links.capture());
         assertEquals("Père", links.getAllValues().get(0).getRelationship());
@@ -254,11 +255,11 @@ class ClassRosterEnrollmentFeesTest {
         var accounts = org.mockito.ArgumentCaptor.forClass(User.class);
         verify(userRepository, times(2)).save(accounts.capture());
         assertTrue(accounts.getAllValues().stream().allMatch(u -> !u.getPasswordSet() && !u.getEmailVerified()));
-        verify(invitations, times(2)).sendInvitation(any());
+        verify(invitations, times(2)).sendAccessAssigned(any(), eq(school), anyString());
         verify(passwordEncoder, never()).encode("AdminChosenPassword");
     }
 
-    @Test void schoolCanCreateDossierForPendingStudentWithoutChangingChosenPasswordOrApprovingAccount() {
+    @Test void directAssignmentApprovesPendingStudentWithoutChangingChosenPassword() {
         User pending = User.builder().id(7L).email("sali@ecole.bf").firstName("Sali").lastName("Diallo")
                 .approved(false).requestedRole(org.afritechinnovations.model.common.RoleName.STUDENT).requestedSchoolId(1L)
                 .passwordHash("chosen").emailVerified(true).build();
@@ -266,7 +267,7 @@ class ClassRosterEnrollmentFeesTest {
         when(userRepository.existsByEmailIgnoreCase("sali@ecole.bf")).thenReturn(true);
         service.enrollNewStudentWithFees(cp1a, request(PaymentMethod.CASH));
         verify(studentRepository).save(org.mockito.ArgumentMatchers.argThat(s -> s.getUser() == pending && s.getRegistrationNumber().equals("M-300")));
-        assertFalse(pending.getApproved()); assertEquals("chosen", pending.getPasswordHash());
+        assertTrue(pending.getApproved()); assertEquals("chosen", pending.getPasswordHash());
         verify(passwordEncoder, never()).encode(anyString());
     }
 

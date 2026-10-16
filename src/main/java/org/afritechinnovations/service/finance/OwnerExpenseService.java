@@ -213,7 +213,7 @@ public class OwnerExpenseService {
     // ---------------------------------------------------------------- bilan & budget
 
     public OwnerExpenseDto.Summary summary(Long schoolId, Long academicYearId, Long ownerId, boolean systemAdmin) {
-        School school = requireOwnedSchool(schoolId, ownerId, systemAdmin);
+        School school = requireSchool(schoolId, ownerId, systemAdmin, StaffModule.EXPENSES, StaffModule.FINANCIAL_STATEMENTS);
         List<ExpenseCategory> categories = categoriesOf(school);
         List<AcademicYear> years = academicYearRepository.findBySchoolId(schoolId).stream()
                 .sorted(Comparator.comparing(AcademicYear::getStartDate).reversed())
@@ -429,10 +429,14 @@ public class OwnerExpenseService {
     }
 
     private School requireOwnedSchool(Long schoolId, Long ownerId, boolean systemAdmin) {
+        return requireSchool(schoolId, ownerId, systemAdmin, StaffModule.EXPENSES);
+    }
+
+    private School requireSchool(Long schoolId, Long ownerId, boolean systemAdmin, StaffModule... modules) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
         if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))
-                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.EXPENSES)) {
+                && java.util.Arrays.stream(modules).noneMatch(module -> permissions.staffAllows(school.getId(), ownerId, module))) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les dépenses de vos établissements");
         }
         return school;

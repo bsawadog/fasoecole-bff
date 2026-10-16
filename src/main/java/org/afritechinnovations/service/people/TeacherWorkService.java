@@ -263,6 +263,9 @@ public class TeacherWorkService {
 
     public TeacherWorkDto.TeacherInfo createClassTeacher(Long classId, CreateClassTeacherRequest request,
                                                          Long ownerId, boolean systemAdmin) {
+        if (request.getInitialSlots() != null && !request.getInitialSlots().isEmpty()) {
+            throw new IllegalArgumentException("Utilisez Créer un employé pour définir le planning initial de l’enseignant.");
+        }
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         Subject subject = requireSchoolSubject(request.getSubjectId(), schoolClass);
         Teacher teacher = createTeacherProfile(schoolClass.getSchool(), request);
@@ -272,7 +275,7 @@ public class TeacherWorkService {
                 .subject(subject)
                 .teacher(teacher)
                 .build());
-        if (user.getEmail() != null) invitations.sendInvitation(user);
+        if (user.getEmail() != null) invitations.sendAccessAssigned(user, schoolClass.getSchool(), "Enseignant");
         return toTeacherInfo(teacher, List.of(subject.getName()), true, 1);
     }
 
@@ -280,12 +283,86 @@ public class TeacherWorkService {
         School school = schoolRepository.findById(schoolId).orElseThrow(() -> new IllegalArgumentException("Établissement introuvable."));
         if (!systemAdmin && (school.getOwner()==null || !school.getOwner().getId().equals(userId)))
             throw new AccessDeniedException("Création réservée au propriétaire.");
+        var slots = validateInitialSchedule(school, request);
         Teacher teacher = createTeacherProfile(school, request);
-        if (teacher.getUser().getEmail() != null) invitations.sendInvitation(teacher.getUser());
-        return toTeacherInfo(teacher, List.of(), null, 0);
+        java.util.Set<String> assigned = new java.util.HashSet<>();
+        for (InitialSlot slot : slots) {
+            if (assigned.add(slot.schoolClass().getId() + ":" + slot.subject().getId())) {
+                classSubjectTeacherRepository.save(ClassSubjectTeacher.builder().schoolClass(slot.schoolClass())
+                        .subject(slot.subject()).teacher(teacher).build());
+            }
+            slotRepository.save(TeacherScheduleSlot.builder().teacher(teacher).schoolClass(slot.schoolClass())
+                    .dayOfWeek(slot.request().getDayOfWeek()).startTime(slot.start()).endTime(slot.end())
+                    .effectiveFrom(slot.request().getEffectiveFrom()).build());
+        }
+        if (teacher.getUser().getEmail() != null) invitations.sendAccessAssigned(teacher.getUser(), school, "Enseignant");
+        return toTeacherInfo(teacher, slots.stream().map(slot -> slot.subject().getName()).distinct().toList(), null,
+                slots.stream().map(slot -> slot.schoolClass().getId()).distinct().count());
+    }
+
+    private record InitialSlot(org.afritechinnovations.dto.people.InitialTeacherSlotRequest request,
+                               SchoolClass schoolClass, Subject subject, LocalTime start, LocalTime end) { }
+
+    private List<InitialSlot> validateInitialSchedule(School school, org.afritechinnovations.dto.people.CreateTeacherRequest request) {
+        var requests = request.getInitialSlots() == null ? List.<org.afritechinnovations.dto.people.InitialTeacherSlotRequest>of() : request.getInitialSlots();
+        if ("HOURLY".equals(request.getRateType()) && requests.isEmpty()) {
+            throw new IllegalArgumentException("Ajoutez au moins un créneau pour une rémunération horaire.");
+        }
+        if (requests.size() > 100) throw new IllegalArgumentException("Le planning est limité à 100 créneaux.");
+        List<InitialSlot> slots = new java.util.ArrayList<>();
+        for (var slot : requests) {
+            if (slot == null || slot.getClassId() == null || slot.getSubjectId() == null
+                    || slot.getDayOfWeek() == null || slot.getDayOfWeek() < 1 || slot.getDayOfWeek() > 7) {
+                throw new IllegalArgumentException("Complétez la classe, la matière et le jour de chaque créneau.");
+            }
+            SchoolClass schoolClass = schoolClassRepository.findById(slot.getClassId())
+                    .orElseThrow(() -> new IllegalArgumentException("Classe introuvable"));
+            if (!school.getId().equals(schoolClass.getSchool().getId())) throw new AccessDeniedException("Cette classe appartient à un autre établissement.");
+            Subject subject = requireSchoolSubject(slot.getSubjectId(), schoolClass);
+            LocalTime start = parseTime(slot.getStartTime(), "L’heure de début");
+            LocalTime end = parseTime(slot.getEndTime(), "L’heure de fin");
+            if (!end.isAfter(start)) throw new IllegalArgumentException("L’heure de fin doit être postérieure au début.");
+            LocalDate from = requireDate(slot.getEffectiveFrom(), "La date du créneau");
+            LocalDate rateFrom = request.getRateEffectiveFrom() != null ? request.getRateEffectiveFrom()
+                    : request.getHireDate() != null ? request.getHireDate() : LocalDate.now(clock);
+            if ("HOURLY".equals(request.getRateType()) && from.isBefore(rateFrom.withDayOfMonth(1))) {
+                throw new IllegalArgumentException("Un créneau horaire ne peut pas précéder le mois d’effet du tarif.");
+            }
+            AcademicYear year = schoolClass.getAcademicYear();
+            if (year == null || year.isClosed() || from.isBefore(year.getStartDate()) || from.isAfter(year.getEndDate())) {
+                throw new IllegalArgumentException("La date du créneau doit appartenir à l’année scolaire ouverte de la classe.");
+            }
+            for (InitialSlot other : slots) {
+                if (slot.getDayOfWeek().equals(other.request().getDayOfWeek())
+                        && !from.isAfter(other.schoolClass().getAcademicYear().getEndDate())
+                        && !other.request().getEffectiveFrom().isAfter(year.getEndDate())
+                        && start.isBefore(other.end()) && other.start().isBefore(end)) {
+                    throw new IllegalArgumentException("Deux créneaux de l’enseignant se chevauchent.");
+                }
+            }
+            slots.add(new InitialSlot(slot, schoolClass, subject, start, end));
+        }
+        return slots;
     }
 
     private Teacher createTeacherProfile(School school, org.afritechinnovations.dto.people.CreateTeacherRequest request) {
+        TeacherRateType initialRateType = null;
+        BigDecimal initialRate = null;
+        if ("HOURLY".equals(request.getRateType())) {
+            requirePositiveAmount(request.getHourlyRate());
+            if (request.getMonthlySalary() != null) throw new IllegalArgumentException("Choisissez un salaire mensuel ou un taux horaire.");
+            initialRateType = TeacherRateType.HOURLY;
+            initialRate = request.getHourlyRate();
+        } else {
+            if (request.getRateType() != null && !"FIXED_MONTHLY".equals(request.getRateType())) throw new IllegalArgumentException("Mode de rémunération invalide.");
+            if (request.getHourlyRate() != null) throw new IllegalArgumentException("Choisissez le mode horaire pour saisir un taux horaire.");
+            if ("FIXED_MONTHLY".equals(request.getRateType())) requirePositiveAmount(request.getMonthlySalary());
+            if (request.getMonthlySalary() != null && request.getMonthlySalary().signum() > 0) {
+                initialRateType = TeacherRateType.FIXED_MONTHLY;
+                initialRate = request.getMonthlySalary();
+            }
+        }
+        if (initialRate != null) initialRate = initialRate.setScale(2, RoundingMode.UNNECESSARY);
         String employeeNumber = blankToNull(request.getEmployeeNumber());
         if (employeeNumber != null && teacherRepository.findBySchoolIdAndEmployeeNumber(school.getId(), employeeNumber).isPresent()) {
             throw new IllegalArgumentException("Ce numéro d’employé existe déjà dans cet établissement");
@@ -293,10 +370,8 @@ public class TeacherWorkService {
         String email = blankToNull(request.getEmail());
         if (email != null) email = email.toLowerCase(java.util.Locale.ROOT);
         User pending = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
-        if (email != null && (pending != null || userRepository.existsByEmailIgnoreCase(email)) && (pending == null || Boolean.TRUE.equals(pending.getApproved())
-                || !Boolean.TRUE.equals(pending.getActive()) || pending.getRequestedRole() != org.afritechinnovations.model.common.RoleName.TEACHER
-                || !school.getId().equals(pending.getRequestedSchoolId()))) {
-            throw new IllegalArgumentException("Un utilisateur existe déjà avec ce courriel : " + email);
+        if (pending != null && !Boolean.TRUE.equals(pending.getActive())) {
+            throw new IllegalArgumentException("Ce compte est inactif. Contactez l’administration de la plateforme.");
         }
         if (pending != null && teacherRepository.findByUserId(pending.getId()).stream().anyMatch(t -> t.getSchool().getId().equals(school.getId()))) {
             throw new IllegalArgumentException("Ce compte possède déjà un dossier enseignant dans cet établissement");
@@ -311,13 +386,21 @@ public class TeacherWorkService {
                 .active(true)
                 .approved(true)
                 .build());
-        Role teacherRole = roleRepository.findByName("TEACHER")
-                .orElseThrow(() -> new IllegalStateException("Rôle non configuré : TEACHER"));
-        schoolUserRepository.save(SchoolUser.builder()
-                .user(user)
-                .school(school)
-                .role(teacherRole)
-                .build());
+        if (!Boolean.TRUE.equals(user.getApproved())) {
+            user.setApproved(true);
+            userRepository.save(user);
+        }
+        boolean member = schoolUserRepository.findByUserId(user.getId()).stream()
+                .anyMatch(link -> school.getId().equals(link.getSchool().getId()) && "TEACHER".equals(link.getRole().getName()));
+        if (!member) {
+            Role teacherRole = roleRepository.findByName("TEACHER")
+                    .orElseThrow(() -> new IllegalStateException("Rôle non configuré : TEACHER"));
+            schoolUserRepository.save(SchoolUser.builder()
+                    .user(user)
+                    .school(school)
+                    .role(teacherRole)
+                    .build());
+        }
         Teacher teacher = teacherRepository.save(Teacher.builder()
                 .user(user)
                 .school(school)
@@ -326,10 +409,11 @@ public class TeacherWorkService {
                 .hireDate(request.getHireDate())
                 .monthlySalary(request.getMonthlySalary())
                 .build());
-        if (request.getMonthlySalary() != null && request.getMonthlySalary().signum() > 0) {
-            teacherRateRepository.save(TeacherRate.builder().teacher(teacher).rateType(TeacherRateType.FIXED_MONTHLY)
-                    .amount(request.getMonthlySalary()).effectiveFrom(java.time.YearMonth.from(
-                            request.getHireDate() == null ? LocalDate.now(clock) : request.getHireDate()).atDay(1)).build());
+        if (initialRateType != null) {
+            LocalDate effectiveFrom = request.getRateEffectiveFrom() != null ? request.getRateEffectiveFrom()
+                    : request.getHireDate() == null ? LocalDate.now(clock) : request.getHireDate();
+            teacherRateRepository.save(TeacherRate.builder().teacher(teacher).rateType(initialRateType)
+                    .amount(initialRate).effectiveFrom(effectiveFrom.withDayOfMonth(1)).build());
         }
         return teacher;
     }

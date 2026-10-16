@@ -16,7 +16,7 @@ class SchoolLifeServiceTest {
     final SchoolLifeService service=new SchoolLifeService(jdbc,guard,family,teacher);
 
     @Test void schoolOverviewRequiresDelegatedModuleBeforeReadingData() {
-        doThrow(new AccessDeniedException("Forbidden")).when(guard).requireSchoolModule(1L,StaffModule.STUDENTS);
+        doThrow(new AccessDeniedException("Forbidden")).when(guard).requireSchoolModule(1L,StaffModule.CALENDAR);
         assertThrows(AccessDeniedException.class,()->service.ownerOverview(1L));
         verifyNoInteractions(jdbc);
     }
@@ -35,6 +35,15 @@ class SchoolLifeServiceTest {
     @Test void suspendedSchoolCannotUseNewModules() {
         doThrow(new AccessDeniedException("Suspended")).when(guard).requireApprovedSchool(1L);
         assertThrows(AccessDeniedException.class,()->service.ownerOverview(1L));
+        verifyNoInteractions(jdbc);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(org.afritechinnovations.dto.self.SchoolLifeDto.LifeModule.class)
+    void eachOverviewChecksItsOwnPermission(org.afritechinnovations.dto.self.SchoolLifeDto.LifeModule module) {
+        var permission = StaffModule.valueOf(module.name());
+        doThrow(new AccessDeniedException("Forbidden")).when(guard).requireSchoolModule(1L, permission);
+        assertThrows(AccessDeniedException.class, () -> service.ownerOverview(1L, module));
         verifyNoInteractions(jdbc);
     }
 }

@@ -9,7 +9,16 @@ public enum StaffModule {
     FINANCE("Frais & paiements"),
     EXPENSES("Dépenses & budget"),
     GRADES("Notes & bulletins"),
-    ENROLLMENT("Inscriptions & passage");
+    ENROLLMENT("Inscriptions & passage"),
+    CALENDAR("Calendrier scolaire"),
+    DISCIPLINE("Discipline et vie scolaire"),
+    LIBRARY("Bibliothèque"),
+    HOMEWORK("Suivi des devoirs"),
+    REQUESTS("Demandes administratives"),
+    PARENT_PORTAL("Portail parents"),
+    MESSAGES("Messages"),
+    CASH_BOOK("Brouillard de caisse"),
+    FINANCIAL_STATEMENTS("États financiers");
 
     private final String label;
 

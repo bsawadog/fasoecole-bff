@@ -71,6 +71,36 @@ class EmailVerificationServiceTest {
     }
 
     @Test
+    void existingVerifiedAccountGetsOneNotificationWithoutActivationOrPasswordChange() {
+        parent.setPasswordSet(true);
+        parent.setEmailVerified(true);
+        var school = org.afritechinnovations.model.common.School.builder().id(1L).name("École ABC").build();
+        assertTrue(service.sendAccessAssigned(parent, school, "Enseignant"));
+        verify(email, times(1)).sendText(eq(parent.getEmail()), anyString(), org.mockito.ArgumentMatchers.contains("Changer d’espace"));
+        verifyNoInteractions(tokens, users, encoder, autoAccess);
+        assertEquals("random", parent.getPasswordHash());
+    }
+
+    @Test
+    void newAccountGetsOneActivationEmailForDirectAssignment() {
+        var school = org.afritechinnovations.model.common.School.builder().id(1L).name("École ABC").build();
+        assertTrue(service.sendAccessAssigned(parent, school, "Parent"));
+        sentToken("activate");
+        verify(email, times(1)).sendText(eq(parent.getEmail()), anyString(), anyString());
+        assertFalse(parent.getEmailVerified());
+        assertTrue(parent.getApproved());
+    }
+
+    @Test
+    void assignmentEmailFailureDoesNotUndoTheAssignedAccess() {
+        parent.setPasswordSet(true); parent.setEmailVerified(true);
+        doThrow(new org.springframework.mail.MailSendException("unavailable")).when(email).sendText(anyString(), anyString(), anyString());
+        assertFalse(service.sendAccessAssigned(parent, org.afritechinnovations.model.common.School.builder().name("École").build(), "Parent"));
+        assertTrue(parent.getApproved());
+        verifyNoInteractions(users, tokens);
+    }
+
+    @Test
     void activationLinkLeavesTheAccountUntouchedUntilItIsOpened() {
         service.sendActivation(parent, 2L, RoleName.PARENT);
 
