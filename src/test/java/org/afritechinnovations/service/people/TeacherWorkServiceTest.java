@@ -80,6 +80,7 @@ class TeacherWorkServiceTest {
     @Mock org.afritechinnovations.repository.academic.SubjectRepository subjects;
     @Mock org.springframework.security.crypto.password.PasswordEncoder encoder;
     @InjectMocks TeacherWorkService service;
+    @Mock org.afritechinnovations.repository.finance.PayrollTaxRepository payrollTaxes;
 
     private School school;
     private Teacher teacher;

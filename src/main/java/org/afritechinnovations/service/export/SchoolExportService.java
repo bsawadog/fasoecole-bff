@@ -113,6 +113,7 @@ public class SchoolExportService {
         excel.row("Cohérence","Les feuilles proviennent d’un même instantané de la base. Les paiements ultérieurs ne modifieront pas ce fichier.");
         excel.row("Finances","Montants tels qu’enregistrés, sans conversion de devise. Les factures annulées ont un reste à payer de zéro. Les impayés reportés référencent les factures originales : ne pas additionner deux fois ces dettes.");
         excel.row("Notes","Les notes et bulletins enregistrés sont conservés. Les feuilles Évaluations, Affectations enseignants et Matières fournissent les barèmes, poids et coefficients.");
+        excel.row("Patrimoine et stocks","Les biens, articles et historiques couvrent toutes les années. Les valeurs unitaires sont celles renseignées, sans amortissement. Les soldes de stock suivent l’ordre d’enregistrement des mouvements, y compris les inventaires physiques.");
         excel.row("Textes longs","Si un texte dépasse la limite d’une cellule Excel, son contenu intégral est réparti dans Textes longs. Reconstituer les parties dans leur ordre.");
         excel.row("Fichiers joints",attachments?"Inclus dans les dossiers documents du ZIP. Les chemins sont indiqués dans les feuilles du classeur.":"Le classeur contient leur inventaire. Choisissez l’archive ZIP pour récupérer aussi les fichiers joints.");
         excel.row("Liens externes","Références documents conserve les liens externes, sans télécharger leur contenu. Ils peuvent dépendre d’un autre service.");
@@ -130,7 +131,11 @@ public class SchoolExportService {
             {"HOURLY","Taux horaire"},{"MONTHLY","Mensuel"},{"ONE_TIME","Une fois"},{"TERM","Par période"},{"YEARLY","Annuel"},
             {"CASH","Espèces / caisse"},{"BANK","Banque"},{"BANK_TRANSFER","Virement bancaire"},{"MOBILE_MONEY","Paiement mobile"},{"CARD","Carte"},
             {"TEACHER","Enseignant"},{"STUDENT","Élève / étudiant"},{"PARENT","Parent"},{"SCHOOL_ADMIN","Propriétaire"},{"STAFF","Personnel"},
-            {"ANNOUNCEMENT","Annonce"},{"HOMEWORK","Devoir"},{"DOCUMENT","Document"},{"CREATE","Création"},{"UPDATE","Modification"},{"DELETE","Suppression"}
+            {"ANNOUNCEMENT","Annonce"},{"HOMEWORK","Devoir"},{"DOCUMENT","Document"},{"CREATE","Création"},{"UPDATE","Modification"},{"DELETE","Suppression"},
+            {"IN","Entrée de stock"},{"OUT","Sortie de stock"},{"COUNT","Inventaire physique"},
+            {"OWNED","Propriété"},{"RENTED","Location"},{"BORROWED","Mis à disposition"},
+            {"GOOD","Bon état"},{"FAIR","État moyen"},{"DAMAGED","À réparer"},{"UNUSABLE","Inutilisable"},
+            {"IN_USE","En service"},{"STORED","En réserve"},{"MAINTENANCE","En maintenance"},{"RETIRED","Sorti du patrimoine"}
         };
         for(String[] code:codes) excel.row((Object[])code);
     }

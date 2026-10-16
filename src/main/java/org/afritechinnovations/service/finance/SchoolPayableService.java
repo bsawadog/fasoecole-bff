@@ -88,6 +88,15 @@ public class SchoolPayableService {
     /** A school lock and the unique source/period key make repeated preparations safe. */
     public void prepare(Long schoolId, String month, Long actor, boolean admin) {
         requireSchool(schoolId, actor, admin);
+        prepareMonth(schoolId, month, actor, admin, true);
+    }
+
+    /** The caller has checked PAYROLL and the exact school. No fixed charges are prepared here. */
+    void prepareSalaries(Long schoolId, String month, Long actor) {
+        prepareMonth(schoolId, month, actor, true, false);
+    }
+
+    private void prepareMonth(Long schoolId, String month, Long actor, boolean admin, boolean includeFixedCharges) {
         YearMonth period = month(month);
         jdbc.queryForObject("SELECT id FROM schools WHERE id=? FOR UPDATE", Long.class, schoolId);
         var categoryList = categories(schoolId, actor, admin);
@@ -117,12 +126,30 @@ public class SchoolPayableService {
             insert(schoolId,teacherCategory,"TEACHER_SALARY","teacher:"+teacher.getId(),period,period.atEndOfMonth(),
                     amount,"Salaire · "+name,name,"Montant calculé selon la rémunération de l’enseignant.",teacher.getId(),actor);
         }
-        jdbc.query("SELECT * FROM fixed_school_charges WHERE school_id=? AND active AND start_month<=?", (rs,n) -> {
+        if (includeFixedCharges) jdbc.query("SELECT * FROM fixed_school_charges WHERE school_id=? AND active AND start_month<=?", (rs,n) -> {
             insert(schoolId,rs.getLong("category_id"),"FIXED","fixed:"+rs.getLong("id"),period,
                     period.atDay(Math.min(rs.getInt("due_day"),period.lengthOfMonth())),rs.getBigDecimal("amount"),
                     rs.getString("label"),rs.getString("supplier"),null,null,actor);
             return rs.getLong("id");
         },schoolId,period.atDay(1));
+    }
+
+    /** Internal salary-only bridge, after the payroll module has authorized the school. */
+    PayableDto.Row taxObligation(Long schoolId,Long id) {
+        var row=find(schoolId,id,false);
+        if (!row.source().equals("TAX")) throw new AccessDeniedException("Cette dépense n’est pas un impôt.");
+        return row;
+    }
+
+    PayableDto.Row salary(Long schoolId, Long id) {
+        var row = find(schoolId, id, false);
+        if (!row.source().endsWith("SALARY")) throw new AccessDeniedException("Cette dépense n’est pas un salaire.");
+        return row;
+    }
+
+    PayableDto.Row paySalary(Long schoolId, Long id, PayableDto.Pay request, Long actor) {
+        salary(schoolId, id);
+        return pay(schoolId, id, request, actor, true);
     }
 
     public void create(Long schoolId, PayableDto.Create request, Long actor, boolean admin) {
@@ -204,6 +231,7 @@ public class SchoolPayableService {
 
     public void cancel(Long schoolId, Long id, Long actor, boolean admin) {
         requireSchool(schoolId,actor,admin); var row=find(schoolId,id,true);
+        if (row.source().equals("TAX")) throw new IllegalArgumentException("Gérez l’annulation depuis le module Impôts et taxes.");
         if (row.paid().signum()>0 || row.source().endsWith("SALARY"))
             throw new IllegalArgumentException("Une dépense déjà payée ou un salaire ne peut pas être annulé");
         jdbc.update("UPDATE school_payables SET cancelled=TRUE WHERE id=?",id);
@@ -229,6 +257,8 @@ public class SchoolPayableService {
         Long teacher=(Long)rs.getObject("teacher_id");
         String period=rs.getDate("period").toLocalDate().toString().substring(0,7);
         if (teacher!=null) amount=teacherWork.getTeacherDetail(teacher,period,0L,true).month().amountDue();
+        // Salary obligations represent the net owed to the employee. TPA is employer-side.
+        if (rs.getString("source").endsWith("SALARY")) amount=amount.subtract(rs.getBigDecimal("payroll_iuts")).max(BigDecimal.ZERO);
         boolean cancelled=rs.getBoolean("cancelled");
         BigDecimal remaining=amount.subtract(paid).max(BigDecimal.ZERO);
         LocalDate due=rs.getDate("due_date").toLocalDate();

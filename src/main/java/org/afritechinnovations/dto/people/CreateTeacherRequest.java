@@ -53,6 +53,12 @@ public class CreateTeacherRequest {
 
     private LocalDate rateEffectiveFrom;
 
+    /** Classe facultative ; les matières restent enregistrées sans affectation. */
+    private Long classId;
+
+    @Size(max = 100)
+    private java.util.List<@NotNull Long> subjectIds = new java.util.ArrayList<>();
+
     @jakarta.validation.Valid
     @Size(max = 100)
     private java.util.List<InitialTeacherSlotRequest> initialSlots = new java.util.ArrayList<>();

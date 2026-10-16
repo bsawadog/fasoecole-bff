@@ -3,7 +3,7 @@ package org.afritechinnovations.model.common;
 /** Modules de l'espace propriétaire qui peuvent être délégués à un membre du personnel. */
 public enum StaffModule {
     DASHBOARD("Tableau de bord"),
-    MANAGEMENT("Gestion de l'école"),
+    MANAGEMENT("Configuration de l’école"),
     STUDENTS("Élèves & dossiers"),
     TEACHERS("Enseignants & paie"),
     FINANCE("Frais & paiements"),
@@ -18,7 +18,11 @@ public enum StaffModule {
     PARENT_PORTAL("Portail parents"),
     MESSAGES("Messages"),
     CASH_BOOK("Brouillard de caisse"),
-    FINANCIAL_STATEMENTS("États financiers");
+    FINANCIAL_STATEMENTS("États financiers"),
+    ASSETS("Patrimoine et mobilier"),
+    INVENTORY("Stocks et fournitures"),
+    PAYROLL("Salaires"),
+    TAXES("Impôts et taxes");
 
     private final String label;
 

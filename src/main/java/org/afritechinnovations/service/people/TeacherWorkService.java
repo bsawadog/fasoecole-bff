@@ -104,6 +104,7 @@ public class TeacherWorkService {
     private final EmailService emailService;
     private final TeacherProfileService teacherProfileService;
     private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
+    private final org.afritechinnovations.repository.finance.PayrollTaxRepository payrollTaxes;
 
     private Clock clock = Clock.systemDefaultZone();
 
@@ -267,16 +268,18 @@ public class TeacherWorkService {
             throw new IllegalArgumentException("Utilisez Créer un employé pour définir le planning initial de l’enseignant.");
         }
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
-        Subject subject = requireSchoolSubject(request.getSubjectId(), schoolClass);
+        var teachingSubjects = resolveSubjects(schoolClass.getSchool(), request.getSubjectIds(), request.getSubjectId());
+        if (teachingSubjects.isEmpty()) throw new IllegalArgumentException("Choisissez au moins une matière.");
+        schoolClass.getAcademicYear().requireOpen();
         Teacher teacher = createTeacherProfile(schoolClass.getSchool(), request);
+        teacher.getTeachingSubjects().addAll(teachingSubjects);
         User user = teacher.getUser();
-        classSubjectTeacherRepository.save(ClassSubjectTeacher.builder()
-                .schoolClass(schoolClass)
-                .subject(subject)
-                .teacher(teacher)
-                .build());
+        for (Subject subject : teachingSubjects) {
+            classSubjectTeacherRepository.save(ClassSubjectTeacher.builder()
+                    .schoolClass(schoolClass).subject(subject).teacher(teacher).build());
+        }
         if (user.getEmail() != null) invitations.sendAccessAssigned(user, schoolClass.getSchool(), "Enseignant");
-        return toTeacherInfo(teacher, List.of(subject.getName()), true, 1);
+        return toTeacherInfo(teacher, teachingSubjects.stream().map(Subject::getName).toList(), true, 1);
     }
 
     public TeacherWorkDto.TeacherInfo createSchoolTeacher(Long schoolId, org.afritechinnovations.dto.people.CreateTeacherRequest request, Long userId, boolean systemAdmin) {
@@ -284,9 +287,30 @@ public class TeacherWorkService {
         if (!systemAdmin && (school.getOwner()==null || !school.getOwner().getId().equals(userId)))
             throw new AccessDeniedException("Création réservée au propriétaire.");
         var slots = validateInitialSchedule(school, request);
+        var teachingSubjects = resolveSubjects(school, request.getSubjectIds(), null);
+        SchoolClass initialClass = null;
+        if (request.getClassId() != null) {
+            initialClass = schoolClassRepository.findById(request.getClassId())
+                    .orElseThrow(() -> new IllegalArgumentException("Classe introuvable."));
+            if (!school.getId().equals(initialClass.getSchool().getId())) throw new AccessDeniedException("Cette classe appartient à un autre établissement.");
+            initialClass.getAcademicYear().requireOpen();
+            if (teachingSubjects.isEmpty()) throw new IllegalArgumentException("Choisissez les matières à enseigner dans la classe.");
+        }
         Teacher teacher = createTeacherProfile(school, request);
+        teacher.getTeachingSubjects().addAll(teachingSubjects);
         java.util.Set<String> assigned = new java.util.HashSet<>();
+        java.util.Set<Long> assignedClasses = new java.util.HashSet<>();
+        if (initialClass != null) {
+            assignedClasses.add(initialClass.getId());
+            for (Subject subject : teachingSubjects) {
+                assigned.add(initialClass.getId() + ":" + subject.getId());
+                classSubjectTeacherRepository.save(ClassSubjectTeacher.builder().schoolClass(initialClass)
+                        .subject(subject).teacher(teacher).build());
+            }
+        }
         for (InitialSlot slot : slots) {
+            teacher.getTeachingSubjects().add(slot.subject());
+            assignedClasses.add(slot.schoolClass().getId());
             if (assigned.add(slot.schoolClass().getId() + ":" + slot.subject().getId())) {
                 classSubjectTeacherRepository.save(ClassSubjectTeacher.builder().schoolClass(slot.schoolClass())
                         .subject(slot.subject()).teacher(teacher).build());
@@ -296,8 +320,8 @@ public class TeacherWorkService {
                     .effectiveFrom(slot.request().getEffectiveFrom()).build());
         }
         if (teacher.getUser().getEmail() != null) invitations.sendAccessAssigned(teacher.getUser(), school, "Enseignant");
-        return toTeacherInfo(teacher, slots.stream().map(slot -> slot.subject().getName()).distinct().toList(), null,
-                slots.stream().map(slot -> slot.schoolClass().getId()).distinct().count());
+        return toTeacherInfo(teacher, teacher.getTeachingSubjects().stream().map(Subject::getName).sorted().toList(), null,
+                assignedClasses.size());
     }
 
     private record InitialSlot(org.afritechinnovations.dto.people.InitialTeacherSlotRequest request,
@@ -305,9 +329,6 @@ public class TeacherWorkService {
 
     private List<InitialSlot> validateInitialSchedule(School school, org.afritechinnovations.dto.people.CreateTeacherRequest request) {
         var requests = request.getInitialSlots() == null ? List.<org.afritechinnovations.dto.people.InitialTeacherSlotRequest>of() : request.getInitialSlots();
-        if ("HOURLY".equals(request.getRateType()) && requests.isEmpty()) {
-            throw new IllegalArgumentException("Ajoutez au moins un créneau pour une rémunération horaire.");
-        }
         if (requests.size() > 100) throw new IllegalArgumentException("Le planning est limité à 100 créneaux.");
         List<InitialSlot> slots = new java.util.ArrayList<>();
         for (var slot : requests) {
@@ -421,7 +442,9 @@ public class TeacherWorkService {
     public TeacherWorkDto.TeacherInfo assignClassTeacher(Long classId, AssignClassTeacherRequest request,
                                                          Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
-        Subject subject = requireSchoolSubject(request.getSubjectId(), schoolClass);
+        var selectedSubjects = resolveSubjects(schoolClass.getSchool(), request.getSubjectIds(), request.getSubjectId());
+        if (selectedSubjects.isEmpty()) throw new IllegalArgumentException("Choisissez au moins une matière.");
+        schoolClass.getAcademicYear().requireOpen();
         Teacher teacher = teacherRepository.findById(request.getTeacherId())
                 .orElseThrow(() -> new IllegalArgumentException("Enseignant introuvable : " + request.getTeacherId()));
         if (!teacher.getSchool().getId().equals(schoolClass.getSchool().getId())) {
@@ -449,23 +472,41 @@ public class TeacherWorkService {
                         .school(schoolClass.getSchool()).role(teacherRole).build());
             }
         }
-        Optional<ClassSubjectTeacher> existing = classSubjectTeacherRepository
-                .findBySchoolClassIdAndSubjectIdAndTeacherId(classId, subject.getId(), teacher.getId());
-        if (existing.isPresent() && existing.get().isActive()) {
-            throw new IllegalArgumentException("Cet enseignant enseigne déjà cette matière dans cette classe");
-        }
-        if (existing.isPresent()) {
-            existing.get().setActive(true);
-            existing.get().setDeactivatedAt(null);
-            classSubjectTeacherRepository.save(existing.get());
-        } else {
-            classSubjectTeacherRepository.save(ClassSubjectTeacher.builder()
-                    .schoolClass(schoolClass)
-                    .subject(subject)
-                    .teacher(teacher)
-                    .build());
+        for (Subject subject : selectedSubjects) {
+            Optional<ClassSubjectTeacher> existing = classSubjectTeacherRepository
+                    .findBySchoolClassIdAndSubjectIdAndTeacherId(classId, subject.getId(), teacher.getId());
+            if (existing.isPresent() && existing.get().isActive()) {
+                if (request.getSubjectIds() == null || request.getSubjectIds().isEmpty())
+                    throw new IllegalArgumentException("Cet enseignant enseigne déjà cette matière dans cette classe");
+                teacher.getTeachingSubjects().add(subject);
+                continue;
+            }
+            if (existing.isPresent()) {
+                existing.get().setActive(true);
+                existing.get().setDeactivatedAt(null);
+                classSubjectTeacherRepository.save(existing.get());
+            } else {
+                classSubjectTeacherRepository.save(ClassSubjectTeacher.builder()
+                        .schoolClass(schoolClass)
+                        .subject(subject)
+                        .teacher(teacher)
+                        .build());
+            }
+            teacher.getTeachingSubjects().add(subject);
         }
         return toTeacherInfo(teacher, subjectsOf(teacher.getId()), true, activeClassCount(teacher));
+    }
+
+    private List<Subject> resolveSubjects(School school, List<Long> ids, Long legacyId) {
+        java.util.Set<Long> unique = new java.util.LinkedHashSet<>();
+        if (ids != null) unique.addAll(ids);
+        if (legacyId != null) unique.add(legacyId);
+        if (unique.size() > 100 || unique.contains(null)) throw new IllegalArgumentException("Sélection de matières invalide.");
+        return unique.stream().map(id -> {
+            Subject subject = subjectRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Matière introuvable : " + id));
+            if (!school.getId().equals(subject.getSchool().getId())) throw new AccessDeniedException("Cette matière appartient à un autre établissement.");
+            return subject;
+        }).toList();
     }
 
     private SchoolClass requireOwnedClass(Long classId, Long ownerId, boolean systemAdmin) {
@@ -919,7 +960,7 @@ public class TeacherWorkService {
 
         TeacherWorkDto.MonthSummary summary = new TeacherWorkDto.MonthSummary(
                 hoursOf(planned), hoursOf(worked), hoursOf(absent), extraHours,
-                amountDue, paid, amountDue.subtract(paid),
+                amountDue, paid, amountDue.subtract(paid).subtract(payrollTaxes.teacherIuts(teacher.getSchool().getId(),teacher.getId(),first).orElse(BigDecimal.ZERO)),
                 perClass.values().stream()
                         .sorted(Comparator.comparing(acc -> nullSafe(acc.className)))
                         .map(ClassAccumulator::toDto)
@@ -951,10 +992,10 @@ public class TeacherWorkService {
 
     /** Refuse toute modification qui ferait passer un mois déjà payé en sur-paiement. */
     private void assertPaymentsCovered(Teacher teacher, YearMonth fromMonth) {
-        List<LocalDate> paidMonths = teacherPaymentRepository
+        List<LocalDate> paidMonths = java.util.stream.Stream.concat(teacherPaymentRepository
                 .findByTeacherIdAndPayMonthGreaterThanEqual(teacher.getId(), fromMonth.atDay(1))
                 .stream()
-                .map(TeacherPayment::getPayMonth)
+                .map(TeacherPayment::getPayMonth),payrollTaxes.teacherTaxMonths(teacher.getSchool().getId(),teacher.getId(),fromMonth.atDay(1)).stream())
                 .distinct()
                 .sorted()
                 .toList();
@@ -964,10 +1005,10 @@ public class TeacherWorkService {
         List<TeacherScheduleSlot> slots = slotRepository.findAllWithClassByTeacherId(teacher.getId());
         for (LocalDate paidMonth : paidMonths) {
             TeacherWorkDto.MonthSummary summary = computeMonth(teacher, YearMonth.from(paidMonth), slots).summary();
-            if (summary.paid().compareTo(summary.amountDue()) > 0) {
+            if (summary.remaining().signum() < 0) {
                 throw new IllegalArgumentException("Modification refusée : le montant dû pour " + YearMonth.from(paidMonth)
                         + " (" + summary.amountDue().toPlainString() + ") deviendrait inférieur au total déjà versé ("
-                        + summary.paid().toPlainString() + "). Supprimez ou ajustez d'abord les paiements de ce mois.");
+                        + summary.paid().toPlainString() + ") et à l’IUTS retenu. Vérifiez les versements et retenues de ce mois.");
             }
         }
     }
@@ -1110,7 +1151,9 @@ public class TeacherWorkService {
         User user = teacher.getUser();
         return new TeacherWorkDto.TeacherInfo(teacher.getId(), teacher.getSchool().getId(), user.getFirstName(), user.getLastName(),
                 user.getEmail(), user.getPhone(), teacher.getSpecialty(), subjects, activeInClass, classCount,
-                user.getId(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()), teacher.getEmployeeNumber());
+                user.getId(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()), teacher.getEmployeeNumber(),
+                teacher.getTeachingSubjects().stream().sorted(Comparator.comparing(Subject::getName))
+                        .map(subject -> new TeacherWorkDto.TeachingSubject(subject.getId(), subject.getName())).toList());
     }
 
     private TeacherWorkDto.SlotInfo toSlotInfo(TeacherScheduleSlot slot) {

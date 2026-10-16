@@ -13,6 +13,52 @@ final class SchoolExportCatalog {
     static final String PORTAL_PATH="'documents/portail/' || f.id || '_' || regexp_replace(f.filename,'[^a-zA-Z0-9._-]','_','g')";
     static final String MESSAGE_PATH="'documents/messages/' || f.id || '_' || regexp_replace(f.filename,'[^a-zA-Z0-9._-]','_','g')";
     static final List<DataSheet> SHEETS=List.of(
+        new DataSheet("Impôts et taxes", """
+            SELECT p.id "ID obligation",t.code "Type",p.label "Libellé",t.period_start "Début période",t.period_end "Fin période",
+            p.due_date "Échéance",p.supplier "Organisme",t.declaration_reference "Référence déclaration",t.origin "Origine",
+            p.amount "Montant dû",COALESCE((SELECT sum(x.amount) FROM school_payable_payments x WHERE x.payable_id=p.id),0) "Réglé",
+            p.cancelled "Annulé",p.notes "Observations" FROM school_tax_obligations t JOIN school_payables p ON p.id=t.payable_id AND p.school_id=t.school_id WHERE t.school_id=? ORDER BY t.period_start,p.id
+            """),
+        new DataSheet("Historique fiscal", """
+            SELECT e.payable_id "ID obligation",e.action "Action",e.amount "Montant dû",e.due_date "Échéance",
+            e.snapshot::text "Fiche conservée",e.reason "Motif",concat(u.first_name,' ',u.last_name) "Auteur",e.created_at "Saisie"
+            FROM school_tax_events e LEFT JOIN users u ON u.id=e.created_by WHERE e.school_id=? ORDER BY e.id
+            """),
+        new DataSheet("Saisie fiscale salaires", """
+            SELECT p.label "Rémunération",p.period "Mois",e.iuts "IUTS retenu",e.tpa "TPA patronale",e.version "Version",
+            e.reason "Motif",concat(u.first_name,' ',u.last_name) "Auteur",e.created_at "Saisie"
+            FROM school_payroll_tax_events e JOIN school_payables p ON p.id=e.payable_id AND p.school_id=e.school_id
+            LEFT JOIN users u ON u.id=e.created_by WHERE e.school_id=? ORDER BY e.id
+            """),
+        new DataSheet("Documents de paie", """
+            SELECT d.id "ID document",d.kind "Type",d.period "Mois",d.snapshot::text "Document conservé",
+            concat(u.first_name,' ',u.last_name) "Édité par",d.created_at "Édition"
+            FROM school_payroll_documents d LEFT JOIN users u ON u.id=d.created_by WHERE d.school_id=? ORDER BY d.id
+            """),
+        new DataSheet("Patrimoine et mobilier", """
+            SELECT id "ID bien",code "Référence",name "Désignation",category "Catégorie",location "Emplacement",
+            custodian "Responsable",ownership "Détention",condition "État",status "Statut",quantity "Quantité",
+            unit_value "Valeur unitaire",acquired_on "Acquisition",maintenance_on "Entretien prévu",notes "Observations"
+            FROM school_assets WHERE school_id=? ORDER BY id
+            """),
+        new DataSheet("Historique patrimoine", """
+            SELECT a.code "Référence bien",a.name "Bien",e.event_type "Opération",e.reason "Motif",
+            e.snapshot::text "Fiche au moment de la saisie",concat(u.first_name,' ',u.last_name) "Auteur",e.created_at "Saisie"
+            FROM school_asset_events e JOIN school_assets a ON a.id=e.asset_id AND a.school_id=e.school_id
+            JOIN users u ON u.id=e.created_by WHERE e.school_id=? ORDER BY e.id
+            """),
+        new DataSheet("Articles de stock", """
+            SELECT id "ID article",code "Référence",name "Article",category "Catégorie",unit "Unité",location "Emplacement",
+            minimum_quantity "Seuil minimum",quantity "Disponible",unit_cost "Coût unitaire de référence",active "Actif",notes "Observations"
+            FROM school_stock_items WHERE school_id=? ORDER BY id
+            """),
+        new DataSheet("Mouvements stock", """
+            SELECT i.code "Référence article",i.name "Article",i.unit "Unité",m.kind "Opération",m.movement_date "Date",
+            m.requested_quantity "Quantité saisie",m.quantity_change "Variation",m.balance_after "Stock après saisie",
+            m.reason "Motif",m.recipient "Destinataire ou provenance",m.reference "Pièce",concat(u.first_name,' ',u.last_name) "Auteur",m.created_at "Saisie"
+            FROM school_stock_movements m JOIN school_stock_items i ON i.id=m.item_id AND i.school_id=m.school_id
+            JOIN users u ON u.id=m.created_by WHERE m.school_id=? ORDER BY m.id
+            """),
         new DataSheet("Calendrier scolaire", """
             SELECT e.title "Titre",e.kind "Type",c.name "Classe",e.starts_on "Début",e.ends_on "Fin",e.description "Informations"
             FROM school_calendar_events e LEFT JOIN classes c ON c.id=e.class_id WHERE e.school_id=? ORDER BY e.starts_on,e.id

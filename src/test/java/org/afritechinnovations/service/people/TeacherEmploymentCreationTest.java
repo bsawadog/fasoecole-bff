@@ -40,6 +40,7 @@ class TeacherEmploymentCreationTest {
     @Mock ClassSubjectTeacherRepository assignments;
     @Mock EmailVerificationService invitations;
     @InjectMocks TeacherWorkService service;
+    @Mock org.afritechinnovations.repository.finance.PayrollTaxRepository payrollTaxes;
 
     final School school = School.builder().id(1L).owner(User.builder().id(10L).build()).build();
     final AcademicYear year = AcademicYear.builder().id(2L).startDate(LocalDate.of(2026, 9, 1))
@@ -116,14 +117,59 @@ class TeacherEmploymentCreationTest {
         verifyNoInteractions(users, teachers, invitations);
     }
 
-    @Test void refusesHourlyCreationWithoutSlotsOrWithBothSalaryModes() {
+    @Test void refusesBothSalaryModes() {
         var request = request("HOURLY");
-        request.setInitialSlots(List.of());
-        assertThrows(IllegalArgumentException.class, () -> service.createSchoolTeacher(1L, request, 10L, false));
-        request.setInitialSlots(List.of(slot(1, "08:00", "10:00")));
         request.setMonthlySalary(new BigDecimal("90000"));
         assertThrows(IllegalArgumentException.class, () -> service.createSchoolTeacher(1L, request, 10L, false));
         verifyNoInteractions(users, teachers, invitations);
+    }
+
+    @Test void canRecordSeveralTeachingSubjectsWithoutClassOrSlotsEvenForHourlyPay() {
+        var request = request("HOURLY");
+        request.setInitialSlots(List.of());
+        Subject french = Subject.builder().id(9L).name("Français").school(school).build();
+        when(subjects.findById(9L)).thenReturn(Optional.of(french));
+        request.setSubjectIds(List.of(8L, 9L, 8L));
+        var result = service.createSchoolTeacher(1L, request, 10L, false);
+        assertEquals(0, result.classCount());
+        assertEquals(2, result.teachingSubjects().size());
+        verifyNoInteractions(slots, assignments);
+        verify(invitations, times(1)).sendAccessAssigned(any(), eq(school), eq("Enseignant"));
+    }
+
+    @Test void createsTwoSubjectsInOneClassWithoutDuplicatingAnAssignmentFromTheSchedule() {
+        var request = request("HOURLY");
+        Subject french = Subject.builder().id(9L).name("Français").school(school).build();
+        when(subjects.findById(9L)).thenReturn(Optional.of(french));
+        request.setClassId(11L); request.setSubjectIds(List.of(8L, 9L));
+        var result = service.createSchoolTeacher(1L, request, 10L, false);
+        verify(assignments, times(2)).save(any());
+        verify(slots, times(1)).save(any());
+        assertEquals(1, result.classCount());
+    }
+
+    @Test void rejectsAnInvalidSubjectBeforeCreatingAnAccountOrAnyAssignment() {
+        var request = request("FIXED_MONTHLY");
+        Subject foreign = Subject.builder().id(9L).name("Français").school(School.builder().id(99L).build()).build();
+        when(subjects.findById(9L)).thenReturn(Optional.of(foreign));
+        request.setClassId(11L); request.setSubjectIds(List.of(8L, 9L));
+        assertThrows(AccessDeniedException.class, () -> service.createSchoolTeacher(1L, request, 10L, false));
+        verifyNoInteractions(users, teachers, assignments, slots, invitations);
+    }
+
+    @Test void assignsSeveralSubjectsToAnExistingTeacherAtomicallyAndKeepsExistingSubjects() {
+        Subject french = Subject.builder().id(9L).name("Français").school(school).build();
+        when(subjects.findById(9L)).thenReturn(Optional.of(french));
+        Teacher teacher = Teacher.builder().id(9L).school(school).user(User.builder().id(7L).build()).build();
+        when(teachers.findById(9L)).thenReturn(Optional.of(teacher));
+        var existing = ClassSubjectTeacher.builder().teacher(teacher).schoolClass(schoolClass).subject(subject).build();
+        when(assignments.findBySchoolClassIdAndSubjectIdAndTeacherId(11L, 8L, 9L)).thenReturn(Optional.of(existing));
+        var request = new org.afritechinnovations.dto.people.AssignClassTeacherRequest();
+        request.setTeacherId(9L); request.setSubjectIds(List.of(8L, 9L, 9L));
+        service.assignClassTeacher(11L, request, 10L, false);
+        verify(assignments, times(1)).save(argThat(item -> item.getSubject() == french));
+        assertEquals(2, teacher.getTeachingSubjects().size());
+        verify(invitations, never()).sendAccessAssigned(any(), any(), any());
     }
 
     @Test void refusesSlotsOutsideTheAcademicYearOrBeforeTheRateTakesEffect() {

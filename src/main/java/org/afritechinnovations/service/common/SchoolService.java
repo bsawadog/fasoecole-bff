@@ -21,6 +21,7 @@ public class SchoolService {
     private final org.afritechinnovations.repository.common.UserRepository userRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final org.afritechinnovations.security.AccessGuard guard;
+    private final org.afritechinnovations.service.academic.SchoolAcademicDefaults academicDefaults;
 
     public List<SchoolDto> findByStatus(SchoolStatus status) {
         return schoolRepository.findByStatus(status)
@@ -66,7 +67,9 @@ public class SchoolService {
                 .owner(owner)
                 .status(guard.isSuperAdmin() ? (dto.getStatus() != null ? dto.getStatus() : SchoolStatus.DRAFT) : SchoolStatus.DRAFT)
                 .build();
-        return toDto(schoolRepository.save(school));
+        School saved = schoolRepository.save(school);
+        academicDefaults.initialize(saved);
+        return toDto(saved);
     }
 
     public SchoolDto update(Long id, SchoolDto dto) {
