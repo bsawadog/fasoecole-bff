@@ -16,7 +16,8 @@ public record ClassRosterRowDto(
         List<ParentInfo> parents,
         List<String> teacherNames,
         Boolean emailVerified,
-        String invitationDeliveryStatus
+        String invitationDeliveryStatus,
+        StudentDetailDto.BillingSummary billingSummary
 ) {
     public record ParentInfo(
             Long parentId,
@@ -25,7 +26,9 @@ public record ClassRosterRowDto(
             String lastName,
             String email,
             String phone,
-            String relationship
+            String relationship,
+            Boolean emailVerified,
+            Boolean passwordSet
     ) {
     }
 }

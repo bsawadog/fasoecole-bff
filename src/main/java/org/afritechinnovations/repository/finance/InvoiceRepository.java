@@ -10,6 +10,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
+    @Query(value="SELECT id FROM invoices WHERE student_id=:studentId ORDER BY id FOR UPDATE", nativeQuery=true)
+    List<Long> lockStudentInvoices(@Param("studentId") Long studentId);
+
+    @Query(value="SELECT id FROM invoices WHERE id=:id FOR UPDATE", nativeQuery=true)
+    java.util.Optional<Long> lockForPayment(@Param("id") Long id);
 
     List<Invoice> findByStudentId(Long studentId);
 

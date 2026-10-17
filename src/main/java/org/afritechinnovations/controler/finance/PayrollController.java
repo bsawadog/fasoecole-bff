@@ -15,6 +15,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/owner/payroll/schools/{schoolId}")
 public class PayrollController {
     private final PayrollService service;
+    @PostMapping("/teachers/{teacherId}/import")
+    public void importTeacherSalary(@PathVariable Long schoolId, @PathVariable Long teacherId,
+            @Valid @RequestBody org.afritechinnovations.dto.finance.ImportTeacherSalaryRequest request, Authentication auth) {
+        var p = principal(auth); service.importTeacherSalary(schoolId, teacherId, request, p.getId(), admin(p));
+    }
     @GetMapping public Overview overview(@PathVariable Long schoolId,@RequestParam String month,Authentication auth) {
         var p = principal(auth); return service.overview(schoolId,month,p.getId(),admin(p));
     }

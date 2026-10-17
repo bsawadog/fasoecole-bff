@@ -1,5 +1,52 @@
 # FasoEcole
 
+## Import des élèves, frais et salaires
+
+Le bouton de choix du fichier est bleu. La colonne **Résultat** affiche en vert les lignes « À importer » et « Enregistré », et en rouge les erreurs. Après traitement, une boîte de dialogue confirme la réussite complète ou signale l’échec, y compris un import partiel, avec les détails par ligne. Le bouton **OK** actualise les listes (élèves, enseignants et salaires), tout en conservant les lignes échouées pour reprise. Les fichiers illisibles et les erreurs de validation ouvrent aussi une boîte d’erreur, sans actualiser les listes puisqu’aucune donnée n’a été enregistrée.
+
+Le **courriel est facultatif pour les élèves et les enseignants**, aussi bien dans Excel que dans CSV : la colonne `courriel` peut être absente ou ses cellules vides. Le matricule (élève) et le numéro d’employé (enseignant) restent obligatoires et servent à distinguer les personnes, y compris pour plusieurs affectations d’un enseignant. Un courriel renseigné doit être valide. Omettre le courriel d’un dossier existant conserve son adresse ; aucune invitation ne peut être envoyée pour un nouveau dossier sans courriel.
+
+Champs disponibles dans le modèle élèves :
+
+| Informations | Colonnes | Conditions |
+| --- | --- | --- |
+| Identité et inscription | `prénom`, `nom`, `matricule`, `classe` | Obligatoires ; classe existante de l’année sélectionnée |
+| Coordonnées et état civil | `courriel`, `téléphone`, `date_naissance`, `sexe` | Facultatifs ; dates `AAAA-MM-JJ` |
+| Parent ou tuteur | `parent_prénom`, `parent_nom`, `parent_courriel`, `parent_téléphone`, `lien_parenté` | Prénom et nom obligatoires uniquement si un parent est renseigné ; courriel et téléphone facultatifs |
+| Frais et versements | `type_frais`, `frais`, `échéance`, `paiement`, `date_paiement`, `mode_paiement` | Voir les règles de reprise ci-dessous |
+
+**Correction de l’import des parents :** l’ancienne version exigeait le courriel du parent et déclenchait son ajout uniquement lorsque `parent_courriel` était rempli. Désormais, un parent sans courriel est importé avec son nom, son téléphone éventuel et son lien de parenté (`Père`, `Mère`, `Tuteur`…). Un parent par ligne est pris en charge ; les autres parents se rattachent depuis la fiche élève. L’aperçu affiche ces informations avant confirmation. Un dossier sans parent affiche explicitement « Non renseigné ».
+
+Dans la colonne **Parents**, les actions utilisent des icônes avec infobulles : enveloppe pour le courriel, téléphone pour appeler, envoi pour transmettre le lien d’activation d’un compte non activé, ou clé pour demander la réinitialisation du mot de passe d’un compte déjà activé. L’activation dépend de la confirmation du courriel et du choix d’un mot de passe. Sans courriel, seules les actions compatibles avec les coordonnées disponibles sont proposées. Le résultat d’une demande de réinitialisation conserve le message générique du service, sans promettre la livraison du courriel.
+
+Pour compléter des élèves déjà importés, reprendre leurs mêmes matricules, noms et classes et ajouter les colonnes parent. Laisser les colonnes financières vides pour ne pas reprendre les frais. Une relance retrouve le parent déjà lié par son courriel ou, sans courriel, par son nom sur cet élève ; elle ne le crée pas à nouveau. Les identités et coordonnées des comptes existants sont conservées et se modifient depuis leur fiche. Sans courriel, les parents de deux élèves différents ne sont pas fusionnés sur la seule base d’un nom ou d’un téléphone. Les champs personnels d’un élève ou enseignant existant restent conservés : l’import complète les rattachements et les montants, pas leur profil. Il ne reconstitue pas les notes, présences, documents, emplois du temps ou historiques détaillés de versements.
+
+Exemple d’un élève avec son parent sans courriel (adapter la classe et le matricule) :
+
+```csv
+prénom;nom;matricule;classe;date_naissance;sexe;parent_prénom;parent_nom;parent_téléphone;lien_parenté
+Awa;Traoré;M001;CP1;2014-03-02;F;Mamadou;Traoré;+22670000000;Père
+```
+
+Dans **Élèves par classe**, le modèle CSV/Excel accepte les colonnes facultatives `type_frais`, `frais`, `échéance`, `paiement`, `date_paiement` et `mode_paiement`. Téléchargez le nouveau modèle depuis l’écran. Le type de frais doit déjà être configuré pour l’établissement et le niveau. Les montants sont exprimés en FCFA ; les dates suivent le format `AAAA-MM-JJ`.
+
+Le matricule retrouve un élève déjà inscrit dans la classe de l’année sélectionnée, après vérification de son nom et de son courriel. Une ligne peut créer ou mettre à jour un frais, identifié par **élève + année + type de frais + échéance**. Pour plusieurs types de frais, utilisez des imports successifs. Les colonnes financières vides n’ajoutent aucun frais. Les colonnes de la liste affichent les frais nets actifs, les paiements reçus et le reste à payer selon la même logique que la fiche élève, y compris les reports et les paiements de frais annulés.
+
+**`paiement` représente le total déjà payé pour ce frais**, et non un nouveau versement. Exemple : frais de 50 000 FCFA, déjà payé 20 000 FCFA, puis fichier indiquant 30 000 FCFA payés : seul un complément de 10 000 FCFA est enregistré avec un reçu. Réimporter le même total n’ajoute pas de paiement. Une cellule `paiement` vide conserve les versements existants ; `0` n’est accepté que si rien n’a déjà été payé. L’import ne supprime aucun versement et ne modifie pas les frais annulés ou bénéficiant d’une réduction : utiliser la fiche élève pour ces corrections. Un complément exige sa date réelle et son mode (`CASH`, `MOBILE_MONEY`, `BANK_TRANSFER` ou `CARD`). Ne regroupez que des versements dont la saisie à cette date et avec ce mode est justifiée ; sinon, saisissez l’historique détaillé dans la fiche.
+
+Exemple de colonnes à ajouter au fichier élèves :
+
+```csv
+type_frais;frais;échéance;paiement;date_paiement;mode_paiement
+Scolarité;50000;2026-10-01;20000;2026-09-15;CASH
+```
+
+Dans **Enseignants par classe**, les colonnes `salaire` et `mois_salaire` (`AAAA-MM`) reprennent un salaire mensuel fixe. Les colonnes `paiement`, `date_paiement` et `mode_paiement` reprennent le total versé pour ce mois. Le numéro d’employé, le nom et le courriel identifient un enseignant existant. Pour plusieurs affectations, répéter les mêmes informations financières. Les rémunérations horaires ou selon présence restent gérées dans la fiche enseignant. Les taux déjà protégés par des paiements ultérieurs ne sont pas remplacés.
+
+La reprise de salaire prépare uniquement le salaire de l’enseignant concerné et utilise le circuit **Salaires → Dépenses à payer → versement**, avec contrôle du net après retenues et sans doubler les paiements. La liste affiche le net, les versements et le solde pour le mois choisi, toutes classes confondues dans cet établissement.
+
+Les imports restent traités ligne par ligne : les lignes réussies sont conservées et les erreurs sont affichées pour reprise. L’élève, ses montants et le rattachement de son parent sont enregistrés dans une même transaction : une erreur empêche l’enregistrement de toute cette ligne. Le frontend vérifie aussi que la réponse du serveur confirme le parent demandé. Pour les enseignants, la création/affectation précède la transaction de reprise du salaire : si cette dernière échoue, le profil reste disponible pour une nouvelle tentative. Les montants nécessitent les droits **Frais et paiements** ou **Salaires** en plus des accès aux listes. Redémarrer le backend et recharger le frontend après mise à jour ; aucune migration de base n’est nécessaire.
+
 Plateforme de gestion scolaire (Spring Boot 3.4.1 / Java 21 / PostgreSQL / Flyway).
 
 ## Prérequis

@@ -24,6 +24,15 @@ public class ClassRosterController {
 
     private final ClassRosterService classRosterService;
 
+    @PostMapping("/import")
+    public ClassRosterRowDto importStudent(@PathVariable Long classId,
+            @Valid @RequestBody org.afritechinnovations.dto.people.ImportRosterStudentRequest request,
+            Authentication authentication) {
+        var principal = requireOwner(authentication);
+        return classRosterService.importStudent(classId, request, principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
     @GetMapping
     public List<ClassRosterRowDto> getRoster(@PathVariable Long classId, Authentication authentication) {
         UserPrincipal principal = requireOwner(authentication);

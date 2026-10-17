@@ -37,6 +37,40 @@ public class PayrollService {
     void setClock(Clock value) { clock = value; }
     private static final BigDecimal ZERO = BigDecimal.ZERO;
 
+    public void importTeacherSalary(Long schoolId, Long teacherId,
+            org.afritechinnovations.dto.finance.ImportTeacherSalaryRequest request, Long actor, boolean admin) {
+        authorize(schoolId, actor, admin, true);
+        YearMonth selected = month(request.month());
+        if (selected.isAfter(YearMonth.now(clock))) throw new IllegalArgumentException("Impossible d’importer un mois futur.");
+        jdbc.queryForObject("SELECT id FROM schools WHERE id=? FOR UPDATE", Long.class, schoolId);
+        var teacher = teachers.findByIdForUpdate(teacherId).orElseThrow(() -> new IllegalArgumentException("Enseignant introuvable."));
+        if (!schoolId.equals(teacher.getSchool().getId())) throw new AccessDeniedException("Cet enseignant appartient à un autre établissement.");
+        if (Boolean.FALSE.equals(teacher.getUser().getActive()) || teacher.getHireDate() != null && teacher.getHireDate().isAfter(selected.atEndOfMonth()))
+            throw new IllegalArgumentException("Cet enseignant n’est pas éligible à la paie de ce mois.");
+        var before = teacherWork.getTeacherDetail(teacherId, selected.toString(), actor, true);
+        // Importing a fixed monthly salary must never silently convert an hourly/attendance contract.
+        if (before.rateType() != null && !"FIXED_MONTHLY".equals(before.rateType()))
+            throw new IllegalArgumentException("La rémunération horaire ou selon présence se gère dans la fiche enseignant.");
+        if (before.rate() == null || before.rate().compareTo(request.salary()) != 0) {
+            var rate = new org.afritechinnovations.dto.people.TeacherRateRequest();
+            rate.setType("FIXED_MONTHLY"); rate.setAmount(request.salary()); rate.setEffectiveFrom(selected.atDay(1));
+            teacherWork.addRate(teacherId, rate, actor, true);
+        }
+        Long payableId = payables.prepareImportedTeacher(schoolId, teacherId, selected.toString(), actor);
+        var payable = payables.salary(schoolId, payableId);
+        if (request.paid() != null) {
+            BigDecimal delta = request.paid().subtract(payable.paid());
+            if (delta.signum() < 0) throw new IllegalArgumentException("L’import ne peut pas diminuer les salaires déjà versés.");
+            if (delta.compareTo(payable.remaining()) > 0) throw new IllegalArgumentException("Le versement dépasse le salaire net restant après retenues.");
+            if (delta.signum() > 0) {
+                if (request.paymentDate() == null || request.paymentMethod() == null || request.paymentDate().isAfter(LocalDate.now(clock)))
+                    throw new IllegalArgumentException("Renseignez la date et le mode de paiement.");
+                UUID key = UUID.nameUUIDFromBytes(("salary-import:" + schoolId + ":" + teacherId + ":" + selected + ":" + request.paid().stripTrailingZeros().toPlainString()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                payables.paySalary(schoolId, payableId, new PayableDto.Pay(key, delta, request.paymentDate(), request.paymentMethod(), "Reprise par import"), actor);
+            }
+        }
+    }
+
     private School authorize(Long schoolId, Long actor, boolean admin, boolean write) {
         School school = schools.findById(schoolId).orElseThrow(() -> new IllegalArgumentException("Établissement introuvable."));
         if (!admin && (school.getOwner() == null || !school.getOwner().getId().equals(actor))

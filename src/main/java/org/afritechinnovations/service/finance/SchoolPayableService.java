@@ -96,6 +96,19 @@ public class SchoolPayableService {
         prepareMonth(schoolId, month, actor, true, false);
     }
 
+    /** Prepare only the teacher in the imported row, through the usual expense/payroll bridge. */
+    Long prepareImportedTeacher(Long schoolId, Long teacherId, String month, Long actor) {
+        YearMonth period = month(month);
+        Long category = categories(schoolId, actor, true).stream().filter(c -> "PAYROLL".equals(c.systemCode()))
+                .map(c -> c.id()).findFirst().orElseThrow();
+        var detail = teacherWork.getTeacherDetail(teacherId, month, actor, true);
+        String name = detail.teacher().firstName() + " " + detail.teacher().lastName();
+        insert(schoolId, category, "TEACHER_SALARY", "teacher:" + teacherId, period, period.atEndOfMonth(),
+                detail.month().amountDue(), "Salaire · " + name, name, "Reprise par import", teacherId, actor);
+        return jdbc.queryForObject("SELECT id FROM school_payables WHERE school_id=? AND source_key=? AND period=?",
+                Long.class, schoolId, "teacher:" + teacherId, period.atDay(1));
+    }
+
     private void prepareMonth(Long schoolId, String month, Long actor, boolean admin, boolean includeFixedCharges) {
         YearMonth period = month(month);
         jdbc.queryForObject("SELECT id FROM schools WHERE id=? FOR UPDATE", Long.class, schoolId);

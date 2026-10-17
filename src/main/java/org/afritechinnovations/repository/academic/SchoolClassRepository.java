@@ -8,6 +8,9 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface SchoolClassRepository extends JpaRepository<SchoolClass, Long> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT c FROM SchoolClass c WHERE c.id = :id")
+    java.util.Optional<SchoolClass> lockForRosterImport(@org.springframework.data.repository.query.Param("id") Long id);
 
     List<SchoolClass> findBySchoolId(Long schoolId);
 

@@ -101,7 +101,7 @@ public class ClassRosterService {
                 .stream()
                 .map(StudentEnrollment::getStudent)
                 .filter(student -> student.getSchool().getId().equals(schoolClass.getSchool().getId()))
-                .map(student -> toRow(student, teacherNames))
+                .map(student -> toRow(student, teacherNames, true))
                 .toList();
     }
 
@@ -321,6 +321,112 @@ public class ClassRosterService {
     public ClassRosterRowDto createStudent(Long classId, CreateRosterStudentRequest request,
                                             Long ownerId, boolean systemAdmin) {
         return enrollNewStudent(requireOwnedClass(classId, ownerId, systemAdmin), request);
+    }
+
+    /** Cumulative paid amount: a retry adds only the missing payment, never the whole amount twice. */
+    public ClassRosterRowDto importStudent(Long classId,
+            org.afritechinnovations.dto.people.ImportRosterStudentRequest request, Long actor, boolean admin) {
+        SchoolClass schoolClass = requireOwnedClass(classId, actor, admin);
+        schoolClass.getAcademicYear().requireOpen();
+        if (request.getRegistrationNumber() == null || request.getRegistrationNumber().isBlank())
+            throw new IllegalArgumentException("Le matricule est obligatoire pour retrouver un élève importé.");
+        boolean financial = request.getFees() != null || request.getPaid() != null;
+        if (financial && !admin && !schoolClass.getSchool().getOwner().getId().equals(actor)
+                && !permissions.staffAllows(schoolClass.getSchool().getId(), actor, StaffModule.FINANCE))
+            throw new AccessDeniedException("L’accès aux frais et paiements est requis pour cet import.");
+        // Lock the class for concurrent imports, then the student for concurrent imports across classes.
+        schoolClassRepository.lockForRosterImport(classId);
+        Student student = studentRepository.findBySchoolIdAndRegistrationNumberForUpdate(
+                schoolClass.getSchool().getId(), request.getRegistrationNumber().trim()).orElse(null);
+        if (student != null) {
+            Student found = student;
+            boolean enrolled = studentEnrollmentRepository.findByStudentIdAndAcademicYearId(student.getId(), schoolClass.getAcademicYear().getId())
+                    .stream().anyMatch(e -> classId.equals(e.getSchoolClass().getId())
+                            && (e.getStatus() == EnrollmentStatus.ACTIVE || e.getStatus() == EnrollmentStatus.COMPLETED));
+            if (!enrolled || !found.getUser().getFirstName().equalsIgnoreCase(request.getFirstName().trim())
+                    || !found.getUser().getLastName().equalsIgnoreCase(request.getLastName().trim())
+                    || importEmail(request.getEmail()) != null && !java.util.Objects.equals(importEmail(found.getUser().getEmail()), importEmail(request.getEmail())))
+                throw new IllegalArgumentException("Le matricule existe avec une autre identité ou dans une autre classe. Vérifiez le dossier.");
+        } else student = createEnrolledStudent(schoolClass, request);
+        if (financial) importStudentBilling(student, schoolClass, request, actor, admin);
+        if (request.getParent() != null) importStudentParent(student, request.getParent());
+        return toRow(student, teacherNamesForClass(classId), true);
+    }
+
+    private void importStudentParent(Student student, CreateRosterParentRequest request) {
+        if (request.getFirstName() == null || request.getFirstName().isBlank()
+                || request.getLastName() == null || request.getLastName().isBlank())
+            throw new IllegalArgumentException("Parent : prénom et nom obligatoires.");
+        String email = importEmail(request.getEmail());
+        var existing = parentStudentRepository.findByStudentIdWithParentUser(student.getId()).stream()
+                .filter(link -> {
+                    User user = link.getParent().getUser();
+                    return email != null ? email.equals(importEmail(user.getEmail()))
+                            : user.getFirstName().equalsIgnoreCase(request.getFirstName().trim())
+                            && user.getLastName().equalsIgnoreCase(request.getLastName().trim());
+                }).toList();
+        if (existing.size() > 1) throw new IllegalArgumentException("Plusieurs parents correspondent à ce nom. Précisez le courriel ou vérifiez la fiche élève.");
+        if (existing.size() == 1) {
+            // Reimporting the same student must not create another parent without an email.
+            var link = existing.getFirst();
+            if (request.getRelationship() != null && !request.getRelationship().isBlank()) {
+                link.setRelationship(request.getRelationship().trim());
+                parentStudentRepository.save(link);
+            }
+            return;
+        }
+        attachGuardians(student, List.of(new OwnerEnrollmentDto.Guardian(null, request.getFirstName(),
+                request.getLastName(), email, request.getPhone(), request.getRelationship())));
+    }
+
+    private void importStudentBilling(Student student, SchoolClass schoolClass,
+            org.afritechinnovations.dto.people.ImportRosterStudentRequest request, Long actor, boolean admin) {
+        if (request.getFees() == null || request.getFeeTypeName() == null || request.getDueDate() == null)
+            throw new IllegalArgumentException("Renseignez frais, type_frais et échéance ensemble.");
+        BigDecimal fees = importMoney(request.getFees());
+        BigDecimal targetPaid = request.getPaid() == null ? null : importMoney(request.getPaid());
+        if (targetPaid != null && targetPaid.compareTo(fees) > 0)
+            throw new IllegalArgumentException("Le paiement cumulé dépasse les frais.");
+        var types = feeTypeRepository.findBySchoolId(schoolClass.getSchool().getId()).stream()
+                .filter(f -> f.getName().equalsIgnoreCase(request.getFeeTypeName().trim()) && f.isActive())
+                .filter(f -> f.getLevel() == null || schoolClass.getLevel() != null && f.getLevel().getId().equals(schoolClass.getLevel().getId())).toList();
+        if (types.size() != 1) throw new IllegalArgumentException("Type de frais introuvable, inadapté au niveau ou ambigu. Configurez-le dans Frais et paiements.");
+        invoiceRepository.lockStudentInvoices(student.getId());
+        var matching = invoiceRepository.findByStudentId(student.getId()).stream()
+                .filter(i -> i.getAcademicYear().getId().equals(schoolClass.getAcademicYear().getId())
+                        && i.getFeeType().getId().equals(types.getFirst().getId()) && i.getDueDate().equals(request.getDueDate())).toList();
+        if (matching.size() > 1) throw new IllegalArgumentException("Plusieurs frais correspondent à cette échéance. Corrigez-les dans la fiche élève.");
+        Invoice invoice = matching.isEmpty() ? Invoice.builder().student(student).feeType(types.getFirst())
+                .academicYear(schoolClass.getAcademicYear()).dueDate(request.getDueDate()).amountDue(fees).build() : matching.getFirst();
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED)
+            throw new IllegalArgumentException("Ce frais est annulé. Vérifiez la fiche élève.");
+        if (invoice.getDiscountAmount() != null && invoice.getDiscountAmount().signum() > 0)
+            throw new IllegalArgumentException("Ce frais bénéficie d’une réduction : utilisez la fiche élève pour le modifier.");
+        var payments = invoice.getId() == null ? List.<Payment>of() : paymentRepository.findByInvoiceId(invoice.getId());
+        BigDecimal alreadyPaid = payments.stream().map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (fees.compareTo(alreadyPaid) < 0 || targetPaid != null && targetPaid.compareTo(alreadyPaid) < 0)
+            throw new IllegalArgumentException("L’import ne peut pas diminuer les paiements déjà enregistrés. Corrigez les versements dans la fiche élève.");
+        invoice.setAmountDue(fees);
+        invoice = invoiceRepository.save(invoice);
+        if (targetPaid != null && targetPaid.compareTo(alreadyPaid) > 0) {
+            if (request.getPaymentDate() == null || request.getPaymentMethod() == null || request.getPaymentDate().isAfter(LocalDate.now()))
+                throw new IllegalArgumentException("Renseignez une date de paiement non future et un mode de paiement.");
+            CreateStudentPaymentRequest payment = new CreateStudentPaymentRequest();
+            payment.setAmount(targetPaid.subtract(alreadyPaid));
+            payment.setPaymentDate(request.getPaymentDate()); payment.setMethod(request.getPaymentMethod());
+            addPayment(student.getId(), invoice.getId(), payment, actor, admin);
+        } else updateInvoicePaymentStatus(invoice, payments);
+    }
+
+    private static BigDecimal importMoney(BigDecimal value) {
+        if (value.signum() < 0 || value.precision() - value.scale() > 10)
+            throw new IllegalArgumentException("Montant invalide.");
+        try { return value.setScale(2, java.math.RoundingMode.UNNECESSARY); }
+        catch (ArithmeticException e) { throw new IllegalArgumentException("Deux décimales maximum."); }
+    }
+
+    private static String importEmail(String value) {
+        return value == null || value.isBlank() ? null : value.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     /** Inscrit le compte public existant, sans créer un second compte ni modifier son mot de passe. */
@@ -658,7 +764,9 @@ public class ClassRosterService {
                             parentUser.getLastName(),
                             parentUser.getEmail(),
                             parentUser.getPhone(),
-                            ps.getRelationship()
+                            ps.getRelationship(),
+                            parentUser.getEmailVerified(),
+                            parentUser.getPasswordSet()
                     );
                 })
                 .toList();
@@ -872,6 +980,7 @@ public class ClassRosterService {
 
     private Invoice requireOwnedInvoice(Long studentId, Long invoiceId, Long ownerId, boolean systemAdmin) {
         requireOwnedStudent(studentId, ownerId, systemAdmin);
+        invoiceRepository.lockForPayment(invoiceId);
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new IllegalArgumentException("Facture introuvable: " + invoiceId));
         if (!invoice.getStudent().getId().equals(studentId)) {
@@ -1036,6 +1145,10 @@ public class ClassRosterService {
     }
 
     private ClassRosterRowDto toRow(Student student, List<String> teacherNames) {
+        return toRow(student, teacherNames, false);
+    }
+
+    private ClassRosterRowDto toRow(Student student, List<String> teacherNames, boolean withBilling) {
         User user = student.getUser();
         List<ClassRosterRowDto.ParentInfo> parents = parentStudentRepository
                 .findByStudentIdWithParentUser(student.getId())
@@ -1050,7 +1163,9 @@ public class ClassRosterService {
                             parentUser.getLastName(),
                             parentUser.getEmail(),
                             parentUser.getPhone(),
-                            ps.getRelationship()
+                            ps.getRelationship(),
+                            parentUser.getEmailVerified(),
+                            parentUser.getPasswordSet()
                     );
                 })
                 .toList();
@@ -1068,7 +1183,8 @@ public class ClassRosterService {
                 parents,
                 teacherNames,
                 user.getEmailVerified(),
-                invitations.deliveryStatus(user.getId())
+                invitations.deliveryStatus(user.getId()),
+                withBilling ? buildBillingSummary(buildInvoiceInfos(student.getId())) : null
         );
     }
 }
