@@ -54,6 +54,7 @@ class SchoolLifeIntegrationTest {
         when(teacher.requireTaughtClass(1102L,1003L)).thenReturn(cls);
         var child=Student.builder().id(1005L).school(school).build();
         when(family.requireGuardedChild(1102L,1005L)).thenReturn(child);
+        when(family.requireReadableStudent(1102L,1005L)).thenReturn(child);
         var detail=mock(SelfServiceDto.StudentOverview.class);
         when(detail.classId()).thenReturn(1003L);
         when(family.student(1102L,1005L)).thenReturn(detail);

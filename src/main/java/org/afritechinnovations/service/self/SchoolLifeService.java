@@ -49,7 +49,14 @@ public class SchoolLifeService {
     }
     private StaffModule permission(LifeModule module) { return StaffModule.valueOf(module.name()); }
     public Overview teacherOverview(Long classId, LifeModule module) { return overview(teacher(classId),module); }
-    public Overview studentOverview(Long studentId, LifeModule module) { return overview(student(studentId),module); }
+    public Overview studentOverview(Long studentId, LifeModule module) {
+        if (module == LifeModule.HOMEWORK) {
+            var child = family.requireReadableStudent(guard.currentUserId(), studentId);
+            var detail = family.student(guard.currentUserId(), studentId);
+            return overview(new Scope(child.getSchool().getId(), detail.classId(), studentId, false, false), module);
+        }
+        return overview(student(studentId), module);
+    }
 
     private Overview overview(Scope scope, LifeModule module) {
         Long schoolId = scope.schoolId(), classId = scope.classId(), studentId = scope.studentId();

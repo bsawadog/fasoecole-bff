@@ -12,8 +12,19 @@ import static org.mockito.Mockito.*;
 class ParentPortalPermissionsTest {
     final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     final AccessGuard guard = mock(AccessGuard.class);
-    final ParentPortalService service = new ParentPortalService(jdbc, guard, mock(FamilySpaceService.class),
+    final FamilySpaceService family = mock(FamilySpaceService.class);
+    final ParentPortalService service = new ParentPortalService(jdbc, guard, family,
             mock(ConversationMessagingService.class), mock(TeacherSpaceService.class));
+
+    @Test void publicationsAndFilesRejectUnauthorizedStudentBeforeQuerying() {
+        when(guard.currentUserId()).thenReturn(7L);
+        when(family.requireReadableStudent(7L, 99L)).thenThrow(new AccessDeniedException("Forbidden"));
+        assertThrows(AccessDeniedException.class, () -> service.studentPosts(99L, org.afritechinnovations.dto.self.ParentPortalDto.Kind.HOMEWORK));
+        assertThrows(AccessDeniedException.class, () -> service.studentPosts(99L, org.afritechinnovations.dto.self.ParentPortalDto.Kind.DOCUMENT));
+        assertThrows(AccessDeniedException.class, () -> service.studentDownload(99L, 1L, 2L));
+        verifyNoInteractions(jdbc);
+        verify(family, never()).requireGuardedChild(anyLong(), anyLong());
+    }
 
     @Test void studentTargetsRequirePortalPermissionBeforeReadingAnything() {
         doThrow(new AccessDeniedException("Forbidden")).when(guard).requireSchoolModule(1L, StaffModule.PARENT_PORTAL);

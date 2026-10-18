@@ -121,6 +121,18 @@ class FamilySpaceServiceTest {
         assertEquals(List.of("École A"), service.parentSchools(7L).stream().map(s -> s.name()).toList());
     }
 
+    @Test
+    void learningResourcesAllowOwnStudentAndLinkedParentButDenyOtherOrRevokedAccess() {
+        when(students.findAllByUserId(20L)).thenReturn(List.of(childA));
+        assertEquals(childA, service.requireReadableStudent(20L, 11L));
+        assertEquals(childA, service.requireReadableStudent(7L, 11L));
+        assertThrows(AccessDeniedException.class, () -> service.requireReadableStudent(20L, 12L));
+        assertThrows(AccessDeniedException.class, () -> service.requireReadableStudent(7L, 12L));
+        assertThrows(AccessDeniedException.class, () -> service.requireGuardedChild(20L, 11L));
+        schoolA.setStatus(org.afritechinnovations.model.common.SchoolStatus.SUSPENDED);
+        assertThrows(AccessDeniedException.class, () -> service.requireReadableStudent(20L, 11L));
+    }
+
     private static Student student(Long id, String firstName, School school) {
         return Student.builder().id(id).school(school).registrationNumber("MAT-" + id)
                 .user(User.builder().id(id + 100).firstName(firstName).lastName("Kaboré").build()).build();

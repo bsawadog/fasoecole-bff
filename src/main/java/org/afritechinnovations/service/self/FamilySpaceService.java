@@ -128,7 +128,12 @@ public class FamilySpaceService {
                 user == null ? null : user.getPhone(), guardians, teachers, schoolContact(school));
     }
 
-    /** Enfant dont l'utilisateur est le parent / tuteur (un élève ne peut pas agir pour lui-même ici). */
+    /** Lecture par un élève de sa propre fiche ou par un parent autorisé. */
+    public Student requireReadableStudent(Long userId, Long studentId) {
+        return requireAccess(userId, studentId).student();
+    }
+
+    /** Action réservée au parent ou tuteur autorisé. */
     public Student requireGuardedChild(Long userId, Long studentId) {
         Accessible a = requireAccess(userId, studentId);
         boolean linkedParent = parentRepository.findByUserId(userId)

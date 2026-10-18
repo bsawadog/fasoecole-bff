@@ -631,9 +631,20 @@ public class TeacherWorkService {
     }
 
     @Transactional(readOnly = true)
-    public TeacherWorkDto.TeacherDetail getTeacherDetail(Long teacherId, String month, Long ownerId,
-                                                         boolean systemAdmin) {
-        Teacher teacher = requireOwnedTeacher(teacherId, ownerId, systemAdmin, false);
+    public TeacherWorkDto.TeacherDetail getTeacherDetail(Long teacherId, String month, Long ownerId, boolean systemAdmin) {
+        return buildTeacherDetail(requireOwnedTeacher(teacherId, ownerId, systemAdmin, false), month);
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherWorkDto.TeacherDetail getOwnTeacherDetail(Long teacherId, String month, Long userId) {
+        Teacher teacher = teacherRepository.findById(teacherId)
+                .filter(t -> t.getUser().getId().equals(userId))
+                .orElseThrow(() -> new AccessDeniedException("Vous ne pouvez consulter que votre propre fiche employé."));
+        return buildTeacherDetail(teacher, month);
+    }
+
+    private TeacherWorkDto.TeacherDetail buildTeacherDetail(Teacher teacher, String month) {
+        Long teacherId = teacher.getId();
         YearMonth yearMonth = month == null || month.isBlank() ? YearMonth.now(clock) : parseMonth(month);
 
         List<String> subjects = classSubjectTeacherRepository.findAllWithSubjectAndClassByTeacherId(teacherId)

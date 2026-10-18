@@ -570,3 +570,53 @@ Dans **Vie scolaire et familles → Emplois du temps des classes**, choisir l’
 Le résumé de la boîte établissement et l’accueil utilisent la même requête de comptage que la visibilité de la messagerie : conversations personnelles du compte dans l’établissement et boîte partagée accessible. Le participant personnel est prioritaire lorsqu’une conversation possède aussi un participant établissement. Chaque message est compté une seule fois, les messages envoyés par le compte sont exclus et les conversations privées des autres comptes ne sont pas incluses. Le compteur de l’accueil n’inclut plus l’ancienne table messages, absente de la messagerie actuelle.
 
 Les badges enseignant, parent et élève continuent d’utiliser leur participation personnelle. Les indicateurs sont actualisés après lecture/envoi réussi, au retour sur la fenêtre et toutes les vingt secondes. Les mêmes règles s’appliquent au personnel disposant du module MESSAGES ; en intervention administrateur dans un établissement, le badge utilise ce contexte. Une erreur réseau conserve le dernier compteur connu jusqu’à la prochaine actualisation.
+
+
+Les cartes de l’emploi du temps utilisent une couleur de fond stable selon le libellé de la matière (ou du groupe de matières associé au créneau), avec une légende et un texte sombre contrasté. Les matières non renseignées restent grises. La version imprimée conserve le fond des cartes. Dans « Créer un employé », les actions de préparation ont un fond bleu, le retrait un fond rouge et la validation un fond vert, avec un contour visible au clavier.
+
+
+### Espace enseignant et appel de classe
+
+Les quatorze modules métier sont accessibles depuis la navigation et l’accueil enseignant, y compris Messages, Calendrier scolaire, Discipline, Bibliothèque et Devoirs de maison. Le module de présence est nommé « Présences et retards ». Pour la classe et la date choisies, les lignes sans présence enregistrée sont préremplies à Présent ; les statuts existants et les modifications en cours sont conservés. Rien n’est écrit à l’ouverture de la liste. Corriger les exceptions puis utiliser « Enregistrer l’appel de la classe » ; la recherche ne limite pas les élèves enregistrés. Le bouton de chaque ligne reste disponible.
+
+`PUT /api/me/teacher/classes/{classId}/attendance` reçoit la date et les lignes nouvelles ou modifiées. Le serveur vérifie l’affectation enseignant, les inscriptions, les doublons, les dates et les statuts attendus avant toute écriture. Une erreur annule la transaction ; une présence déjà modifiée depuis le chargement demande une actualisation. Les appels non validés restent absents des statistiques.
+
+Graphiques proposés : évolution hebdomadaire des présences/absences/retards des classes affectées, répartition des notes par évaluation et suivi des devoirs remis/corrigés. Les semaines sans appel et les notes non saisies doivent rester distinctes des absences et des zéros.
+
+
+### Graphiques de l’accueil enseignant
+
+Le module est renommé **Présences et retards**, juste après **Mes classes** dans le menu Enseignement et en tête de l’accueil. Les graphiques de `GET /api/me/teacher/dashboard` suivent la classe choisie et le contexte établissement/année sélectionné. Présences : huit semaines au maximum, bornées par l’année et aujourd’hui, dernier statut par élève/jour ; une semaine vide reste sans saisie. Notes : évaluations des seules matières affectées à l’enseignant, barèmes ramenés sur 20, notes absentes et invalides exclues, vrais zéros comptés. Devoirs : uniquement ses publications, couples élève/devoir sur inscriptions actives, ciblage individuel respecté, statuts À faire/Remis/Corrigés et échéances dépassées. Les contrôles d’accès précèdent les calculs. Actualisation manuelle et toutes les trente secondes ; détails hebdomadaires accessibles au clavier et affichage mobile.
+
+
+### Ma fiche employé — enseignant
+
+Le module **Ma fiche employé** est accessible dans le menu Enseignement et à l’accueil enseignant. Il présente en lecture seule les données de la fiche administrative : identité professionnelle, matricule, date d’embauche, spécialité, matières, tarif du mois, heures prévues/travaillées/absentes/supplémentaires, montants calculés, retenues prises en compte, versements et créneaux datés. Le choix de l’établissement et du mois est un filtre de consultation. Les calculs utilisent le même service que la fiche administrative, sans simuler des droits d’administration.
+
+Les nouvelles routes `GET /api/me/teacher/employee-files` et `GET .../{teacherId}?month=YYYY-MM` utilisent le compte authentifié et refusent tout dossier d’un autre compte, même dans la même école. Aucune route de modification de contrat, de tarif, de planning ou de paiement n’est ajoutée.
+
+Le formulaire « Demander une action à l’administration » utilise `POST .../{teacherId}/requests` pour créer une conversation privée avec le propriétaire responsable de l’établissement. Le destinataire est fixé côté serveur et la demande ne modifie pas le dossier ; les réponses se consultent dans Messages. Un enseignant sans classe affectée peut consulter sa fiche et écrire à son responsable. L’envoi est désactivé si aucun responsable actif et approuvé distinct du demandeur n’est disponible, ou si l’établissement est inactif.
+
+### Évaluations, devoirs de maison et ressources de cours
+
+- Enseignant : « Notes » devient « Évaluations et notes ». La route existante reste inchangée.
+- « Devoirs de maison » réunit publication (consignes, fichiers, date de remise) et suivi par élève (À faire, Remis, Corrigé, retour du professeur). Le professeur ne modifie que le suivi de ses propres devoirs, sur une année ouverte. Les parents et élèves consultent ce suivi sans le modifier.
+- « Cours et ressources » réutilise les documents partagés par classe : supports, exercices libres et corrigés sans date de remise. Le titre permet de préciser la matière et le chapitre. Un exercice à remettre se publie dans Devoirs de maison.
+- Ces deux pages sont accessibles dans les espaces enseignant, parent et élève. Les anciennes routes personnelles `suivi-devoirs` redirigent vers `devoirs`. Le suivi administratif reste disponible côté établissement.
+- Les PDF disposent d’un aperçu en boîte de dialogue et du téléchargement. La lecture passe par l’API authentifiée et ses contrôles d’accès ; aucun document public n’est créé. Si le navigateur mobile ne sait pas afficher le PDF, le téléchargement reste disponible.
+- Les lectures de publications et fichiers sous `/api/me/parent-portal/students/{studentId}` et du suivi `/api/school-life/students/{studentId}?module=HOMEWORK` acceptent l’élève pour sa propre fiche ou un parent autorisé. Les actions réservées aux parents restent protégées par `requireGuardedChild`.
+- Aucune migration de données : publications et suivis existants conservés. La réception signifie la consultation dans l’espace personnel ; aucun envoi automatique par courriel ou WhatsApp n’est ajouté.
+
+### Outils quotidiens de l’enseignant
+
+La migration V54 ajoute le cahier de textes, les notes privées, l’accompagnement et l’historique des demandes d’indisponibilité. Au démarrage du backend, Flyway l’applique automatiquement.
+
+- **Aujourd’hui**, à l’accueil : cours effectifs à la date du jour dans le contexte sélectionné, devoirs échus restant à vérifier/corriger, évaluations passées avec des notes à saisir et rappels personnels arrivés à échéance. Un zéro réel est une note saisie ; une note manquante ne devient pas un zéro. Actualisation manuelle.
+- **Cahier de textes**, volet dépliable dans Cours et ressources : matière affectée au professeur, séance réalisée, contenu, objectifs et prochaine séance. Privé par défaut ; partage volontaire de toute la séance avec la classe. Les PDF et exercices restent dans le formulaire de ressources existant.
+- **Élèves à accompagner**, volet de Mes classes : repères indicatifs (trois absences hors absences excusées sur les trente derniers jours, devoirs personnels non remis après échéance ou moyenne indicative sous 10/20 dans ses propres évaluations). Moyenne simple normalisée sur 20, distincte de la moyenne officielle pondérée du bulletin. Le professeur peut également choisir un autre élève de sa classe, noter une action privée, prévoir un bilan et terminer le suivi. Le message destiné à la famille est un champ séparé et n’est publié que sur choix explicite ; la note privée n’est jamais incluse dans la réponse familiale.
+- **Carnet personnel** : accessible depuis Aujourd’hui, sans nouvelle rubrique principale du menu. Notes modifiables, supprimables après confirmation, rappels datés et état À faire/Terminé, strictement limités au compte enseignant.
+- **Disponibilités et absences**, volet de Mon emploi du temps : dates et heures, motif et demande éventuelle de remplacement, avec sélection de sa propre fiche employé. Le destinataire administratif est choisi par le serveur. La demande et la conversation sont enregistrées dans la même transaction. Le statut affiché est « Demande transmise » ; la réponse se consulte dans Messages. Aucun changement automatique des créneaux ni de la paie.
+
+Les séances et messages d’accompagnement partagés sont consultables dans Cours et ressources des espaces parent et élève via `GET /api/me/students/{studentId}/learning`. L’accès exige sa propre fiche ou un lien parent autorisé dans un établissement actif. Les familles ne disposent d’aucune route d’écriture sur ces outils.
+
+API enseignant : `/api/me/teacher/daily/today`, `/daily/notes`, `/daily/availability`, `/classes/{classId}/lessons` et `/classes/{classId}/support`. Les modifications de séances et d’accompagnement exigent une classe affectée et une année courante ouverte. Les notes sont liées au compte ; les demandes restent liées à sa propre fiche employé.

@@ -37,7 +37,7 @@ public class ParentPortalService {
         """;
 
     public List<Post> studentPosts(Long studentId, Kind kind) {
-        var child = family.requireGuardedChild(guard.currentUserId(), studentId);
+        var child = family.requireReadableStudent(guard.currentUserId(), studentId);
         var overview = family.student(guard.currentUserId(), studentId);
         return jdbc.query(POST_SELECT + "WHERE p.school_id=? AND p.kind=? AND (p.student_id=? OR (p.student_id IS NULL AND (p.class_id IS NULL OR p.class_id=?))) ORDER BY p.created_at DESC, p.id DESC",
                 this::post, child.getSchool().getId(), kind.name(), studentId, overview.classId());
@@ -133,7 +133,7 @@ public class ParentPortalService {
     }
 
     public Download studentDownload(Long studentId, Long postId, Long fileId) {
-        var child = family.requireGuardedChild(guard.currentUserId(), studentId);
+        var child = family.requireReadableStudent(guard.currentUserId(), studentId);
         var overview = family.student(guard.currentUserId(), studentId);
         return download("p.school_id=? AND (p.student_id=? OR (p.student_id IS NULL AND (p.class_id IS NULL OR p.class_id=?)))", postId, fileId, child.getSchool().getId(), studentId, overview.classId());
     }

@@ -130,6 +130,16 @@ class TeacherWorkServiceTest {
         when(slotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
+    @Test void teacherCanReadOwnEmploymentWithTheSamePayrollComputationAsAdministration() {
+        var own=service.getOwnTeacherDetail(5L,"2026-09",50L);
+        var admin=service.getTeacherDetail(5L,"2026-09",OWNER_ID,false);
+        assertEquals(admin.month(),own.month());assertEquals(admin.rate(),own.rate());assertEquals(50L,own.teacher().userId());
+        verify(teacherRepository,never()).save(any());
+    }
+    @Test void teacherCannotReadAnotherPersonsEmploymentByChangingTheTeacherId() {
+        assertThrows(AccessDeniedException.class,()->service.getOwnTeacherDetail(5L,"2026-09",51L));
+    }
+
     @Test
     void monthlyRateIsProratedOnAttendedAndExtraHoursOverPlannedHours() {
         monthlyRate("80000.00");

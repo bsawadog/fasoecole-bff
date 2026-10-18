@@ -91,6 +91,32 @@ public class TeacherSpaceService {
         attendanceRepository.save(attendance);
     }
 
+    /** Validate the complete call before writing; a failed row rolls back the entire call. */
+    public List<org.afritechinnovations.dto.self.TeacherAttendanceDto.Item> saveAttendanceBatch(Long userId,Long classId,org.afritechinnovations.dto.self.TeacherAttendanceDto.Batch request) {
+        SchoolClass cls=requireTaughtClass(userId,classId);
+        if(request.date()==null || request.date().isAfter(LocalDate.now()) || request.date().isBefore(cls.getAcademicYear().getStartDate()) || request.date().isAfter(cls.getAcademicYear().getEndDate()))
+            throw new IllegalArgumentException("Choisissez une date passée ou actuelle dans l’année scolaire de la classe.");
+        if(request.entries()==null || request.entries().isEmpty() || request.entries().size()>2000)throw new IllegalArgumentException("Appel vide ou trop volumineux.");
+        var students=roster(classId).stream().collect(Collectors.toMap(e->e.getStudent().getId(),e->e.getStudent()));
+        var recorded=attendanceRepository.findByClassBetween(classId,request.date(),request.date()).stream().collect(Collectors.toMap(a->a.getStudent().getId(),a->a,(a,b)->b));
+        var seen=new java.util.HashSet<Long>();
+        for(var entry:request.entries()) {
+            if(entry==null || entry.studentId()==null || !students.containsKey(entry.studentId()))throw new AccessDeniedException("Un élève n’est plus inscrit dans cette classe. Actualisez la liste.");
+            if(!seen.add(entry.studentId()) || entry.status()==null || entry.justification()!=null && entry.justification().length()>500)throw new IllegalArgumentException("Vérifiez les statuts et motifs de l’appel.");
+            var existing=recorded.get(entry.studentId());
+            if(!java.util.Objects.equals(existing==null?null:existing.getStatus(),entry.expectedStatus()))
+                throw new IllegalArgumentException("Une présence a été modifiée depuis le chargement. Actualisez l’appel avant de l’enregistrer.");
+        }
+        for(var entry:request.entries()) {
+            var attendance=recorded.get(entry.studentId());
+            if(attendance==null)attendance=Attendance.builder().student(students.get(entry.studentId())).schoolClass(cls).attendanceDate(request.date()).build();
+            attendance.setStatus(entry.status());
+            attendance.setJustification(entry.justification()==null || entry.justification().isBlank()?null:entry.justification().trim());
+            attendanceRepository.save(attendance);
+        }
+        return attendance(userId,classId,request.date());
+    }
+
     // ------------------------------------------------------------------ classes et élèves
 
     @Transactional(readOnly = true)
