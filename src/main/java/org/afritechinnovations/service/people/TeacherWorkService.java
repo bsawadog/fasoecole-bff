@@ -860,6 +860,7 @@ public class TeacherWorkService {
             throw new IllegalArgumentException("Aucune heure n'est planifiée sur " + month
                     + " : le prorata du salaire mensuel ne peut pas être calculé");
         }
+        payrollTaxes.assertCalculationCurrent(teacher.getSchool().getId(),teacherId,month.atDay(1),computation.summary().amountDue());
         BigDecimal remaining = computation.summary().remaining();
         if (request.getAmount().compareTo(remaining) > 0) {
             throw new IllegalArgumentException("Le montant (" + request.getAmount().toPlainString()
@@ -1005,7 +1006,8 @@ public class TeacherWorkService {
         List<TeacherScheduleSlot> slots = slotRepository.findAllWithClassByTeacherId(teacher.getId());
         for (LocalDate paidMonth : paidMonths) {
             TeacherWorkDto.MonthSummary summary = computeMonth(teacher, YearMonth.from(paidMonth), slots).summary();
-            if (summary.remaining().signum() < 0) {
+            if (summary.paid().signum()>0) payrollTaxes.assertCalculationCurrent(teacher.getSchool().getId(),teacher.getId(),paidMonth,summary.amountDue());
+            if (summary.remaining().signum() < 0 && !(summary.paid().signum()==0 && payrollTaxes.hasAutomaticCalculation(teacher.getSchool().getId(),teacher.getId(),paidMonth))) {
                 throw new IllegalArgumentException("Modification refusée : le montant dû pour " + YearMonth.from(paidMonth)
                         + " (" + summary.amountDue().toPlainString() + ") deviendrait inférieur au total déjà versé ("
                         + summary.paid().toPlainString() + ") et à l’IUTS retenu. Vérifiez les versements et retenues de ce mois.");

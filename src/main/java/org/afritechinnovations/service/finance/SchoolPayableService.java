@@ -165,6 +165,25 @@ public class SchoolPayableService {
         return pay(schoolId, id, request, actor, true);
     }
 
+    void assertSalaryCalculationCurrent(Long schoolId,Long id) {
+        var rows=jdbc.queryForList("""
+            SELECT p.teacher_id,p.period,p.amount,p.payroll_calculated_gross FROM school_payables p
+            WHERE p.school_id=? AND p.payroll_calculation IS NOT NULL AND p.period=(SELECT period FROM school_payables WHERE school_id=? AND id=?)
+            AND COALESCE((SELECT user_id FROM teachers WHERE id=p.teacher_id),
+                         (SELECT user_id FROM school_staff WHERE 'staff:'||id=p.source_key)) =
+                (SELECT COALESCE((SELECT user_id FROM teachers WHERE id=x.teacher_id),
+                                (SELECT user_id FROM school_staff WHERE 'staff:'||id=x.source_key))
+                 FROM school_payables x WHERE x.school_id=? AND x.id=?)
+            """,schoolId,schoolId,id,schoolId,id);
+        for(var row:rows) {
+            BigDecimal gross=(BigDecimal)row.get("amount"),calculated=(BigDecimal)row.get("payroll_calculated_gross");
+            if(row.get("teacher_id")!=null) gross=teacherWork.getTeacherDetail(((Number)row.get("teacher_id")).longValue(),
+                    YearMonth.from(((java.sql.Date)row.get("period")).toLocalDate()).toString(),0L,true).month().amountDue();
+            if(calculated!=null && calculated.compareTo(gross)!=0)
+                throw new IllegalArgumentException("Une rémunération a changé depuis le calcul fiscal. Recalculez et validez la paie de l’employé avant de continuer.");
+        }
+    }
+
     public void create(Long schoolId, PayableDto.Create request, Long actor, boolean admin) {
         requireSchool(schoolId,actor,admin); requireCategory(schoolId,request.categoryId());
         insert(schoolId,request.categoryId(),"MANUAL","manual:"+UUID.randomUUID(),YearMonth.from(request.dueDate()),
@@ -219,6 +238,7 @@ public class SchoolPayableService {
                 throw new IllegalArgumentException("Cette référence de requête a déjà été utilisée pour un autre paiement");
             return row;
         }
+        if(row.source().endsWith("SALARY")) assertSalaryCalculationCurrent(schoolId,id);
         if (request.date().isAfter(LocalDate.now(clock))) throw new IllegalArgumentException("La date de paiement ne peut pas être future");
         BigDecimal amount = money(request.amount());
         validatePayment(row,amount);
@@ -271,7 +291,7 @@ public class SchoolPayableService {
         String period=rs.getDate("period").toLocalDate().toString().substring(0,7);
         if (teacher!=null) amount=teacherWork.getTeacherDetail(teacher,period,0L,true).month().amountDue();
         // Salary obligations represent the net owed to the employee. TPA is employer-side.
-        if (rs.getString("source").endsWith("SALARY")) amount=amount.subtract(rs.getBigDecimal("payroll_iuts")).max(BigDecimal.ZERO);
+        if (rs.getString("source").endsWith("SALARY")) amount=amount.subtract(rs.getBigDecimal("payroll_iuts")).subtract(rs.getBigDecimal("payroll_deductions")).max(BigDecimal.ZERO);
         boolean cancelled=rs.getBoolean("cancelled");
         BigDecimal remaining=amount.subtract(paid).max(BigDecimal.ZERO);
         LocalDate due=rs.getDate("due_date").toLocalDate();

@@ -27,6 +27,15 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class OwnerDashboardServiceTest {
+    @Test void doesNotExposeTheMonthlyExpenseGraphToDashboardOnlyStaff() {
+        School school = School.builder().id(5L).owner(User.builder().id(10L).build()).build();
+        when(schoolRepository.findById(5L)).thenReturn(Optional.of(school));
+        when(permissions.staffAllows(5L,20L,org.afritechinnovations.model.common.StaffModule.DASHBOARD)).thenReturn(true);
+        org.junit.jupiter.api.Assertions.assertNull(dashboardService.getDashboard(5L,20L).monthlyFinance());
+        verifyNoInteractions(charts);
+        assertTrue(org.mockito.Mockito.mockingDetails(jdbcTemplate).getInvocations().stream()
+                .noneMatch(i -> i.getArgument(0) instanceof String sql && sql.contains("WITH selected_year")));
+    }
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -39,6 +48,7 @@ class OwnerDashboardServiceTest {
 
     @Mock
     SchoolPermissions permissions;
+    @Mock DashboardChartQueries charts;
 
     @InjectMocks
     private OwnerDashboardService dashboardService;

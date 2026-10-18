@@ -52,7 +52,7 @@ class SchoolInboxServiceTest {
     @Test
     void messagesPermissionDoesNotExposeAbsenceReportsInTheInboxSummary() {
         when(guard.allowsSchoolModule(1L, StaffModule.MESSAGES)).thenReturn(true);
-        when(messages.countUnreadBySchool(1L)).thenReturn(3L);
+        when(messages.countUnreadForSchoolUser(1L,guard.currentUserId())).thenReturn(3L);
         var summary = service.summary(1L);
         assertEquals(3, summary.unreadMessages());
         assertEquals(0, summary.pendingAbsenceReports());

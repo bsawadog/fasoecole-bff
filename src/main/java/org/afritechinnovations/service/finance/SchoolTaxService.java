@@ -97,13 +97,13 @@ public class SchoolTaxService {
         authorize(school,actor,admin,true);lock(school);
         var preview=payroll(school,input.month());YearMonth month=YearMonth.parse(preview.month());
         if(month.isAfter(YearMonth.now())) throw new IllegalArgumentException("La reprise d’un mois futur n’est pas disponible.");
-        for(Code code:List.of(Code.IUTS,Code.TPA)) {
-            BigDecimal amount=code==Code.IUTS?preview.iuts():preview.tpa();
+        for(Code code:List.of(Code.IUTS,Code.TPA,Code.OTHER)) {
+            BigDecimal amount=code==Code.IUTS?preview.iuts():code==Code.TPA?preview.tpa():preview.vacationWithholding();
             var existing=jdbc.queryForList("SELECT payable_id FROM school_tax_obligations WHERE school_id=? AND code=? AND period_start=? AND origin='PAYROLL'",Long.class,school,code.name(),month.atDay(1));
             if(existing.isEmpty()) {
                 if(amount.signum()==0) continue;
                 rejectOverlap(school,code,month.atDay(1),month.atEndOfMonth(),code.name());
-                Long id=insert(school,code,code.name()+" · salaires "+month,month.atDay(1),month.atEndOfMonth(),amount,input.dueDate(),input.creditor().trim(),clean(input.declarationReference()),"Montant repris des saisies manuelles IUTS / TPA des salaires ; à vérifier avant déclaration.","PAYROLL",UUID.randomUUID(),actor);
+                Long id=insert(school,code,(code==Code.OTHER?"Retenues sur vacations d’enseignement":code.name())+" · salaires "+month,month.atDay(1),month.atEndOfMonth(),amount,input.dueDate(),input.creditor().trim(),clean(input.declarationReference()),"Montant repris des calculs validés ou saisies de paie ; à vérifier avant déclaration.","PAYROLL",UUID.randomUUID(),actor);
                 event(school,id,"IMPORT",input.reason().trim(),actor);
             } else {
                 Long id=existing.getFirst();lockPayable(school,id);Row old=row(school,id,month.getYear());
@@ -118,8 +118,8 @@ public class SchoolTaxService {
     }
     private PayrollPreview payroll(Long school,String value) {
         YearMonth month;try{month=YearMonth.parse(value);checkYear(month.getYear());}catch(RuntimeException error){throw new IllegalArgumentException("Choisissez un mois valide.");}
-        return jdbc.queryForObject("SELECT COALESCE(sum(payroll_iuts),0) iuts,COALESCE(sum(payroll_tpa),0) tpa,count(*) count FROM school_payables WHERE school_id=? AND period=? AND source IN ('STAFF_SALARY','TEACHER_SALARY') AND NOT cancelled",
-                (rs,n)->new PayrollPreview(month.toString(),rs.getBigDecimal("iuts"),rs.getBigDecimal("tpa"),rs.getInt("count")),school,month.atDay(1));
+        return jdbc.queryForObject("SELECT COALESCE(sum(payroll_iuts),0) iuts,COALESCE(sum(payroll_tpa),0) tpa,COALESCE(sum(payroll_vacation_tax),0) vacation,count(*) count FROM school_payables WHERE school_id=? AND period=? AND source IN ('STAFF_SALARY','TEACHER_SALARY') AND NOT cancelled",
+                (rs,n)->new PayrollPreview(month.toString(),rs.getBigDecimal("iuts"),rs.getBigDecimal("tpa"),rs.getInt("count"),rs.getBigDecimal("vacation")),school,month.atDay(1));
     }
     private Row row(Long school,Long id,int year) {
         var rows=jdbc.query("SELECT * FROM school_tax_obligations WHERE school_id=? AND payable_id=?",(rs,n)->new Row(rs.getLong("payable_id"),Code.valueOf(rs.getString("code")),rs.getDate("period_start").toLocalDate(),rs.getDate("period_end").toLocalDate(),rs.getString("origin"),rs.getString("declaration_reference"),rs.getLong("version"),rs.getDate("period_end").toLocalDate().getYear()<year,payables.taxObligation(school,id)),school,id);

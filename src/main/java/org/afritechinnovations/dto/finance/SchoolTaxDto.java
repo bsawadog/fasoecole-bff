@@ -23,7 +23,7 @@ public final class SchoolTaxDto {
             @NotNull LocalDate dueDate,@NotBlank @Size(max=150) String creditor,
             @Size(max=100) String declarationReference,@Size(max=500) String notes,@NotBlank @Size(max=300) String reason) { }
     public record Cancel(@PositiveOrZero long version,@NotBlank @Size(max=300) String reason) { }
-    public record PayrollPreview(String month,BigDecimal iuts,BigDecimal tpa,int remunerations) { }
+    public record PayrollPreview(String month,BigDecimal iuts,BigDecimal tpa,int remunerations,BigDecimal vacationWithholding) { }
     public record ImportPayroll(@NotBlank String month,@NotNull LocalDate dueDate,@NotBlank @Size(max=150) String creditor,
             @Size(max=100) String declarationReference,@NotBlank @Size(max=300) String reason) { }
 }

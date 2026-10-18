@@ -15,7 +15,8 @@ public final class PayrollDto {
             LocalDate hireDate, String rateType, BigDecimal rate, boolean eligible, boolean prepared,
             Long payableId, BigDecimal due, BigDecimal paid, BigDecimal remaining,
             BigDecimal workedHours, BigDecimal extraHours, List<PayableDto.Payment> payments,
-            BigDecimal iuts, BigDecimal tpa, BigDecimal net, long taxVersion) { }
+            BigDecimal iuts, BigDecimal tpa, BigDecimal net, long taxVersion,
+            BigDecimal deductions, PayrollCalculationDto.Result calculation) { }
     public record TaxInput(@NotNull @DecimalMin("0") @Digits(integer=10,fraction=2) BigDecimal iuts,
             @NotNull @DecimalMin("0") @Digits(integer=10,fraction=2) BigDecimal tpa,
             @PositiveOrZero long version, @NotBlank @Size(max=300) String reason) { }

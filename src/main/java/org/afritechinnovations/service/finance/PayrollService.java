@@ -104,6 +104,96 @@ public class PayrollService {
         return payables.paySalary(schoolId,payableId,request,actor);
     }
 
+    @Transactional(readOnly=true)
+    public org.afritechinnovations.dto.finance.PayrollCalculationDto.Input calculationDefaults(Long schoolId, Long userId, String value, Long actor, boolean admin) {
+        School school=authorize(schoolId,actor,admin,false);
+        YearMonth selected=month(value); employee(school,userId,selected,false);
+        var rows=jdbc.queryForList("SELECT input::text FROM school_payroll_calculation_events WHERE school_id=? AND employee_user_id=? AND period<=? ORDER BY period DESC,id DESC LIMIT 1",String.class,schoolId,userId,selected.atDay(1));
+        if(rows.isEmpty()) return null;
+        try { return mapper.readValue(rows.getFirst(),org.afritechinnovations.dto.finance.PayrollCalculationDto.Input.class); }
+        catch(JsonProcessingException error) { throw new IllegalStateException("Paramètres de paie illisibles.",error); }
+    }
+
+    @Transactional(readOnly=true)
+    public org.afritechinnovations.dto.finance.PayrollCalculationDto.Preview previewCalculation(Long schoolId, Long userId, String value,
+            org.afritechinnovations.dto.finance.PayrollCalculationDto.Input input, Long actor, boolean admin) {
+        School school=authorize(schoolId,actor,admin,true);
+        YearMonth selected=month(value);
+        if(selected.isAfter(YearMonth.now(clock))) throw new IllegalArgumentException("La validation d’un mois futur n’est pas disponible.");
+        Employee person=employee(school,userId,selected,false);
+        var contracts=person.contracts().stream().filter(c->c.due().signum()>0).toList();
+        if(contracts.isEmpty() || contracts.stream().anyMatch(c->!c.prepared()))
+            throw new IllegalArgumentException("Préparez toutes les rémunérations de cet employé pour ce mois avant le calcul.");
+        if(person.contracts().stream().anyMatch(c->c.paid().signum()>0))
+            throw new IllegalArgumentException("Le calcul est verrouillé après le premier versement de l’employé pour ce mois.");
+        if(input.regime()==org.afritechinnovations.dto.finance.PayrollCalculationDto.Regime.TEACHING_VACATION && contracts.stream().anyMatch(c->!c.kind().equals("TEACHER")))
+            throw new IllegalArgumentException("Le régime des vacations d’enseignement est réservé aux rémunérations d’enseignant.");
+        Map<Long,Long> versions=new TreeMap<>(); Map<Long,BigDecimal> gross=new TreeMap<>();
+        contracts.forEach(c->{versions.put(c.payableId(),c.taxVersion());gross.put(c.payableId(),c.due());});
+        return new org.afritechinnovations.dto.finance.PayrollCalculationDto.Preview(
+                BurkinaPayrollCalculator.calculate(selected,total(contracts.stream().map(Contract::due).toList()),input),versions,gross);
+    }
+
+    public void applyCalculation(Long schoolId, Long userId, String value,
+            org.afritechinnovations.dto.finance.PayrollCalculationDto.Apply request, Long actor, boolean admin) {
+        authorize(schoolId,actor,admin,true); YearMonth selected=month(value);
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))","payroll-calculation:"+schoolId+":"+userId+":"+selected);
+        var repeated=jdbc.queryForList("SELECT employee_user_id,period,input::text FROM school_payroll_calculation_events WHERE school_id=? AND request_id=?",schoolId,request.requestId());
+        if(!repeated.isEmpty()) {
+            var row=repeated.getFirst();
+            try {
+                if(!userId.equals(((Number)row.get("employee_user_id")).longValue()) || !selected.atDay(1).equals(((java.sql.Date)row.get("period")).toLocalDate())
+                        || !mapper.readTree(row.get("input").toString()).equals(mapper.readTree(mapper.writeValueAsString(request.input()))))
+                    throw new IllegalArgumentException("Cette référence est déjà utilisée pour un autre calcul.");
+                return;
+            } catch(JsonProcessingException error) { throw new IllegalStateException(error); }
+        }
+        // Match the lock order of teacher payments; lock all remuneration rows before reading balances.
+        teachers.findBySchoolId(schoolId).stream().filter(t->t.getUser().getId().equals(userId)).sorted(Comparator.comparing(org.afritechinnovations.model.people.Teacher::getId))
+                .forEach(t->teachers.findByIdForUpdate(t.getId()).orElseThrow());
+        jdbc.queryForList("""
+            SELECT p.id FROM school_payables p WHERE p.school_id=? AND p.period=? AND p.source IN ('STAFF_SALARY','TEACHER_SALARY')
+            AND (p.source_key IN (SELECT 'staff:'||s.id FROM school_staff s WHERE s.school_id=? AND s.user_id=?)
+              OR p.teacher_id IN (SELECT t.id FROM teachers t WHERE t.school_id=? AND t.user_id=?)) ORDER BY p.id FOR UPDATE
+            """,Long.class,schoolId,selected.atDay(1),schoolId,userId,schoolId,userId);
+        var preview=previewCalculation(schoolId,userId,value,request.input(),actor,admin);
+        if(!preview.versions().equals(request.versions()) || !sameAmounts(preview.grossByPayable(),request.grossByPayable()))
+            throw new IllegalArgumentException("La rémunération ou les retenues ont changé. Recalculez l’aperçu avant de valider.");
+        var result=preview.result();
+        var iutsParts=allocate(result.iuts(),preview.grossByPayable());
+        Map<Long,BigDecimal> afterIuts=new TreeMap<>();
+        preview.grossByPayable().forEach((id,gross)->afterIuts.put(id,gross.subtract(iutsParts.get(id))));
+        var deductionParts=allocate(result.deductions(),afterIuts);
+        var vacationParts=allocate(result.vacationWithholding(),deductionParts);
+        var tpaParts=allocate(result.tpa(),preview.grossByPayable());
+        try {
+            String snapshot=mapper.writeValueAsString(result);
+            for(Long id:preview.versions().keySet()) {
+                jdbc.update("UPDATE school_payables SET payroll_iuts=?,payroll_tpa=?,payroll_deductions=?,payroll_vacation_tax=?,payroll_calculation=?::jsonb,payroll_calculated_gross=?,payroll_tax_version=payroll_tax_version+1 WHERE school_id=? AND id=?",
+                        iutsParts.get(id),tpaParts.get(id),deductionParts.get(id),vacationParts.get(id),snapshot,preview.grossByPayable().get(id),schoolId,id);
+                jdbc.update("INSERT INTO school_payroll_tax_events(school_id,payable_id,iuts,tpa,version,reason,created_by) VALUES(?,?,?,?,?,?,?)",
+                        schoolId,id,iutsParts.get(id),tpaParts.get(id),preview.versions().get(id)+1,request.input().reason().trim(),actor);
+            }
+            jdbc.update("INSERT INTO school_payroll_calculation_events(school_id,employee_user_id,period,request_id,input,preview,created_by) VALUES(?,?,?,?,?::jsonb,?::jsonb,?)",
+                    schoolId,userId,selected.atDay(1),request.requestId(),mapper.writeValueAsString(request.input()),mapper.writeValueAsString(preview),actor);
+        } catch(JsonProcessingException error) { throw new IllegalStateException("Impossible de conserver le calcul.",error); }
+    }
+
+    private static boolean sameAmounts(Map<Long,BigDecimal> expected,Map<Long,BigDecimal> actual) {
+        return actual!=null && expected.keySet().equals(actual.keySet()) && expected.entrySet().stream().allMatch(e->actual.get(e.getKey())!=null && e.getValue().compareTo(actual.get(e.getKey()))==0);
+    }
+    static Map<Long,BigDecimal> allocate(BigDecimal amount,Map<Long,BigDecimal> weights) {
+        Map<Long,BigDecimal> result=new TreeMap<>();
+        BigDecimal total=total(new ArrayList<>(weights.values())),remaining=amount;
+        var ids=new ArrayList<>(new TreeSet<>(weights.keySet()));
+        for(int index=0;index<ids.size();index++) {
+            Long id=ids.get(index);
+            BigDecimal part=index==ids.size()-1?remaining:total.signum()==0?ZERO:remaining.multiply(weights.get(id)).divide(total,2,java.math.RoundingMode.DOWN);
+            result.put(id,part); remaining=remaining.subtract(part);total=total.subtract(weights.get(id));
+        }
+        return result;
+    }
+
     /** Manual amounts only, per prepared remuneration/month; freeze once any money was paid. */
     public void taxes(Long schoolId, Long payableId, TaxInput input, Long actor, boolean admin) {
         authorize(schoolId,actor,admin,true);
@@ -111,9 +201,10 @@ public class PayrollService {
         if (ids.isEmpty()) throw new IllegalArgumentException("Salaire préparé introuvable.");
         Long teacherId = (Long) ids.getFirst().get("teacher_id");
         if (teacherId != null) teachers.findByIdForUpdate(teacherId).orElseThrow();
-        var rows = jdbc.queryForList("SELECT payroll_iuts,payroll_tpa,payroll_tax_version FROM school_payables WHERE school_id=? AND id=? FOR UPDATE",schoolId,payableId);
+        var rows = jdbc.queryForList("SELECT payroll_iuts,payroll_tpa,payroll_deductions,payroll_calculation,payroll_tax_version FROM school_payables WHERE school_id=? AND id=? FOR UPDATE",schoolId,payableId);
         if (rows.isEmpty()) throw new IllegalArgumentException("Salaire préparé introuvable.");
         var previous = rows.getFirst();
+        if (previous.get("payroll_calculation") != null) throw new IllegalArgumentException("Utilisez le calcul de paie de cet employé pour corriger une paie automatique.");
         BigDecimal iuts = taxAmount(input.iuts()), tpa = taxAmount(input.tpa());
         if (input.reason() == null || input.reason().isBlank() || input.reason().trim().length() > 300)
             throw new IllegalArgumentException("Renseignez le motif de cette saisie (300 caractères maximum).");
@@ -124,7 +215,7 @@ public class PayrollService {
         var salary = payables.salary(schoolId,payableId);
         if (salary.paid().signum() > 0)
             throw new IllegalArgumentException("Les retenues sont verrouillées après le premier versement de cette rémunération.");
-        BigDecimal gross = salary.amount().add((BigDecimal)previous.get("payroll_iuts"));
+        BigDecimal gross = salary.amount().add((BigDecimal)previous.get("payroll_iuts")).add((BigDecimal)previous.get("payroll_deductions"));
         if (iuts.compareTo(gross) > 0) throw new IllegalArgumentException("L’IUTS ne peut pas dépasser la rémunération du mois.");
         jdbc.update("UPDATE school_payables SET payroll_iuts=?,payroll_tpa=?,payroll_tax_version=payroll_tax_version+1 WHERE school_id=? AND id=?",iuts,tpa,schoolId,payableId);
         jdbc.update("INSERT INTO school_payroll_tax_events(school_id,payable_id,iuts,tpa,version,reason,created_by) VALUES(?,?,?,?,?,?,?)",
@@ -190,6 +281,8 @@ public class PayrollService {
                 """,Long.class,schoolId,period,schoolId,request.userId(),schoolId,request.userId());
         }
         Employee employee = employee(school,request.userId(),selected,true);
+        if(request.kind()==DocumentKind.PAYSLIP) employee.contracts().stream().filter(c->c.calculation()!=null && c.payableId()!=null)
+                .forEach(c->payables.assertSalaryCalculationCurrent(schoolId,c.payableId()));
         if (request.kind() == DocumentKind.PAYSLIP && employee.contracts().stream().noneMatch(c -> c.prepared() || c.paid().signum() > 0))
             throw new IllegalArgumentException("Préparez d’abord les salaires de ce mois avant d’éditer une fiche de paie.");
         if (request.kind() == DocumentKind.PAYSLIP && employee.contracts().stream().anyMatch(c -> c.eligible() && c.rate() != null && c.rate().signum() > 0
@@ -235,23 +328,24 @@ public class PayrollService {
         Long schoolId = school.getId();
         Map<String,Long> prepared = new HashMap<>();
         Map<Long,Map<String,Object>> taxes = new HashMap<>();
-        jdbc.queryForList("SELECT id,payroll_iuts,payroll_tpa,payroll_tax_version FROM school_payables WHERE school_id=? AND period=? AND source IN ('STAFF_SALARY','TEACHER_SALARY')",schoolId,selected.atDay(1))
+        jdbc.queryForList("SELECT id,payroll_iuts,payroll_tpa,payroll_deductions,payroll_calculation,payroll_tax_version FROM school_payables WHERE school_id=? AND period=? AND source IN ('STAFF_SALARY','TEACHER_SALARY')",schoolId,selected.atDay(1))
                 .forEach(row -> taxes.put(((Number)row.get("id")).longValue(),row));
         jdbc.query("SELECT source_key,id FROM school_payables WHERE school_id=? AND period=? AND source IN ('STAFF_SALARY','TEACHER_SALARY')",
                 (rs,n) -> { prepared.put(rs.getString(1),rs.getLong(2)); return rs.getLong(2); },schoolId,selected.atDay(1));
         Map<Long,Person> people = new LinkedHashMap<>();
         for (SchoolStaff member : staff.findBySchoolWithUser(schoolId)) {
+            if (member.isAccessOnly()) continue;
             User user = member.getUser(); if (onlyUser != null && !onlyUser.equals(user.getId())) continue;
             String key = "staff:" + member.getId(); Long payableId = prepared.get(key);
             PayableDto.Row row = payableId == null ? null : payables.salary(schoolId,payableId);
             boolean eligible = member.getCreatedAt() == null || !member.getCreatedAt().toLocalDate().isAfter(selected.atEndOfMonth());
-            BigDecimal iuts = tax(taxes,payableId,"payroll_iuts"), tpa = tax(taxes,payableId,"payroll_tpa");
-            BigDecimal due = row != null ? row.amount().add(iuts) : eligible && member.getMonthlySalary() != null ? member.getMonthlySalary() : ZERO;
+            BigDecimal iuts = tax(taxes,payableId,"payroll_iuts"), tpa = tax(taxes,payableId,"payroll_tpa"), deductions = tax(taxes,payableId,"payroll_deductions");
+            BigDecimal due = row != null ? row.amount().add(iuts).add(deductions) : eligible && member.getMonthlySalary() != null ? member.getMonthlySalary() : ZERO;
             BigDecimal paid = row == null ? ZERO : row.paid();
             Person person = people.computeIfAbsent(user.getId(),id -> new Person(user));
             person.contracts.add(new Contract(key,"STAFF",member.getJobTitle(),null,member.isActive() && !Boolean.FALSE.equals(user.getActive()),
-                    null,"FIXED_MONTHLY",row != null ? due : member.getMonthlySalary(),eligible,row != null,payableId,due,paid,due.subtract(iuts).subtract(paid).max(ZERO),ZERO,ZERO,
-                    includePayments && row != null ? payables.payments(schoolId,payableId,0L,true) : List.of(),iuts,tpa,due.subtract(iuts).max(ZERO),taxVersion(taxes,payableId)));
+                    null,"FIXED_MONTHLY",row != null ? due : member.getMonthlySalary(),eligible,row != null,payableId,due,paid,due.subtract(iuts).subtract(deductions).subtract(paid).max(ZERO),ZERO,ZERO,
+                    includePayments && row != null ? payables.payments(schoolId,payableId,0L,true) : List.of(),iuts,tpa,due.subtract(iuts).subtract(deductions).max(ZERO),taxVersion(taxes,payableId),deductions,calculation(taxes,payableId)));
         }
         for (var teacher : teachers.findBySchoolId(schoolId)) {
             User user = teacher.getUser(); if (onlyUser != null && !onlyUser.equals(user.getId())) continue;
@@ -259,7 +353,7 @@ public class PayrollService {
             var detail = teacherWork.getTeacherDetail(teacher.getId(),selected.toString(),0L,true);
             boolean eligible = teacher.getHireDate() == null || !teacher.getHireDate().isAfter(selected.atEndOfMonth());
             BigDecimal due = eligible ? detail.month().amountDue() : ZERO, paid = detail.month().paid();
-            BigDecimal iuts = tax(taxes,payableId,"payroll_iuts"), tpa = tax(taxes,payableId,"payroll_tpa");
+            BigDecimal iuts = tax(taxes,payableId,"payroll_iuts"), tpa = tax(taxes,payableId,"payroll_tpa"), deductions = tax(taxes,payableId,"payroll_deductions");
             Person person = people.computeIfAbsent(user.getId(),id -> new Person(user));
             person.subjects.addAll(detail.teacher().subjects());
             teacher.getTeachingSubjects().forEach(subject -> person.subjects.add(subject.getName()));
@@ -269,8 +363,8 @@ public class PayrollService {
                 WHERE t.teacher_id=? AND t.pay_month=? ORDER BY t.payment_date,t.id
                 """, (rs,n) -> new PayableDto.Payment(rs.getLong("id"),rs.getDate("payment_date").toLocalDate(),rs.getBigDecimal("amount"),rs.getString("method"),rs.getString("reference")),teacher.getId(),selected.atDay(1)) : List.of();
             person.contracts.add(new Contract(key,"TEACHER","Enseignant",teacher.getEmployeeNumber(),!Boolean.FALSE.equals(user.getActive()),teacher.getHireDate(),
-                    detail.rateType(),detail.rate(),eligible,payableId != null,payableId,due,paid,due.subtract(iuts).subtract(paid).max(ZERO),detail.month().workedHours(),detail.month().extraHours(),payments,
-                    iuts,tpa,due.subtract(iuts).max(ZERO),taxVersion(taxes,payableId)));
+                    detail.rateType(),detail.rate(),eligible,payableId != null,payableId,due,paid,due.subtract(iuts).subtract(deductions).subtract(paid).max(ZERO),detail.month().workedHours(),detail.month().extraHours(),payments,
+                    iuts,tpa,due.subtract(iuts).subtract(deductions).max(ZERO),taxVersion(taxes,payableId),deductions,calculation(taxes,payableId)));
         }
         return people.values().stream().map(person -> {
             BigDecimal due = total(person.contracts.stream().map(Contract::due).toList()), paid = total(person.contracts.stream().map(Contract::paid).toList());
@@ -283,7 +377,7 @@ public class PayrollService {
 
     private Employee certificateEmployee(Employee employee) {
         var contracts = employee.contracts().stream().filter(c -> c.active() && (c.hireDate() == null || !c.hireDate().isAfter(LocalDate.now(clock))))
-                .map(c -> new Contract(c.key(),c.kind(),c.jobTitle(),c.employeeNumber(),true,c.hireDate(),null,null,true,false,null,ZERO,ZERO,ZERO,ZERO,ZERO,List.of(),ZERO,ZERO,ZERO,0)).toList();
+                .map(c -> new Contract(c.key(),c.kind(),c.jobTitle(),c.employeeNumber(),true,c.hireDate(),null,null,true,false,null,ZERO,ZERO,ZERO,ZERO,ZERO,List.of(),ZERO,ZERO,ZERO,0,ZERO,null)).toList();
         if (contracts.isEmpty()) throw new IllegalArgumentException("Une attestation de travail est disponible pour un employé actif ayant commencé son emploi.");
         return new Employee(employee.userId(),employee.firstName(),employee.lastName(),employee.email(),employee.phone(),true,
                 contracts.stream().anyMatch(c -> c.kind().equals("TEACHER")) ? employee.subjects() : List.of(),contracts,ZERO,ZERO,ZERO,"");
@@ -297,7 +391,12 @@ public class PayrollService {
         return due.signum() == 0 ? "NOT_DUE" : "UNPAID";
     }
     private static BigDecimal tax(Map<Long,Map<String,Object>> rows,Long id,String column) {
-        return id == null || !rows.containsKey(id) ? ZERO : (BigDecimal) rows.get(id).get(column);
+        return id == null || !rows.containsKey(id) || rows.get(id).get(column)==null ? ZERO : (BigDecimal) rows.get(id).get(column);
+    }
+    private org.afritechinnovations.dto.finance.PayrollCalculationDto.Result calculation(Map<Long,Map<String,Object>> rows, Long id) {
+        if(id==null || !rows.containsKey(id) || rows.get(id).get("payroll_calculation")==null) return null;
+        try { return mapper.readValue(rows.get(id).get("payroll_calculation").toString(),org.afritechinnovations.dto.finance.PayrollCalculationDto.Result.class); }
+        catch(JsonProcessingException error) { throw new IllegalStateException("Calcul de paie conservé illisible.",error); }
     }
     private static long taxVersion(Map<Long,Map<String,Object>> rows,Long id) {
         return id == null || !rows.containsKey(id) ? 0 : ((Number) rows.get(id).get("payroll_tax_version")).longValue();

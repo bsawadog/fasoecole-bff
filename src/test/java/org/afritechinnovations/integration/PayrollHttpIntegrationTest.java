@@ -25,6 +25,8 @@ class PayrollHttpIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired JwtService jwt;
     @Autowired org.afritechinnovations.service.people.TeacherWorkService teacherWork;
+    @Autowired org.afritechinnovations.security.SchoolPermissions schoolPermissions;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean org.afritechinnovations.service.common.EmailService emailService;
     final String base="/api/owner/payroll/schools/4500";
     final String month=YearMonth.now().toString();
     @DynamicPropertySource static void properties(DynamicPropertyRegistry p) {
@@ -49,10 +51,14 @@ class PayrollHttpIntegrationTest {
             jdbc.update("INSERT INTO school_users(user_id,school_id,role_id) SELECT ?,?,id FROM roles WHERE name='SCHOOL_ADMIN' ON CONFLICT DO NOTHING",member[0],member[1]);
         jdbc.update("INSERT INTO school_users(user_id,school_id,role_id) SELECT 4505,4500,id FROM roles WHERE name='STAFF' ON CONFLICT DO NOTHING");
         jdbc.update("DELETE FROM school_payroll_documents WHERE school_id=4500");
+        jdbc.update("DELETE FROM school_payroll_calculation_events WHERE school_id=4500");
         jdbc.update("DELETE FROM school_tax_events WHERE school_id=4500");
         jdbc.update("DELETE FROM school_tax_obligations WHERE school_id=4500");
         jdbc.update("DELETE FROM school_payable_payments WHERE school_id=4500");
         jdbc.update("DELETE FROM school_payables WHERE school_id=4500");
+        jdbc.update("DELETE FROM school_staff WHERE school_id=4500 AND access_only");
+        jdbc.update("DELETE FROM school_users WHERE school_id=4500 AND user_id=4503 AND role_id=(SELECT id FROM roles WHERE name='STAFF')");
+        jdbc.update("UPDATE users SET first_name='Issa',last_name='Hourly',email='hourly.payroll@test.invalid',email_verified=true WHERE id=4503");
         jdbc.update("DELETE FROM fixed_school_charges WHERE school_id=4500");
         jdbc.update("DELETE FROM expenses WHERE school_id=4500");
         jdbc.update("DELETE FROM teacher_payments WHERE teacher_id IN (4502,4503)");
@@ -84,6 +90,100 @@ class PayrollHttpIntegrationTest {
     Map<String,Object> payment(int amount,UUID key) {return Map.of("requestId",key,"amount",amount,"date",LocalDate.now().toString(),"method","CASH","reference","PAYROLL-TEST");}
     Map<String,Object> document(String kind,long user,UUID key) {return Map.of("kind",kind,"userId",user,"month",month,"requestId",key);}
 
+    @Test void personnelDirectoryIncludesTeachersAndEditsProfilesAndModuleAccessWithoutAddingASalary() {
+        String directory="/api/owner/staff/schools/4500/employees";
+        var rows=ok(directory,HttpMethod.GET,null,4501);
+        assertEquals(4,rows.size());
+        var teacherRow=java.util.stream.StreamSupport.stream(rows.spliterator(),false).filter(r->r.path("staff").path("userId").asLong()==4503).findFirst().orElseThrow();
+        assertTrue(teacherRow.path("staff").path("id").isNull());assertEquals(4503,teacherRow.path("teacher").path("id").asLong());
+        assertEquals(HttpStatus.FORBIDDEN,request(directory,HttpMethod.GET,null,4505).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN,request(directory,HttpMethod.GET,null,4506).getStatusCode());
+        var profile=new HashMap<String,Object>();profile.put("firstName","Issa modifié");profile.put("lastName","Sawadogo");profile.put("email","issa.modified@test.invalid");profile.put("phone","70001122");profile.put("jobTitle","Enseignant");profile.put("monthlySalary",null);profile.put("modules",List.of("PAYROLL","GRADES"));
+        var update=new HashMap<String,Object>();update.put("profile",profile);update.put("employeeNumber","EMP-4503");update.put("specialty","Sciences");update.put("hireDate",YearMonth.now().atDay(1).toString());update.put("administrativeEmployment",false);update.put("teacherRate",null);
+        long previousVersion=jdbc.queryForObject("SELECT session_version FROM users WHERE id=4503",Long.class);
+        var saved=ok(directory+"/4503",HttpMethod.PUT,update,4501);
+        assertEquals("Issa modifié",saved.path("staff").path("firstName").asText());assertEquals("Sciences",saved.path("teacher").path("specialty").asText());
+        assertFalse(saved.path("staff").path("emailVerified").asBoolean());
+        assertEquals(previousVersion+1,jdbc.queryForObject("SELECT session_version FROM users WHERE id=4503",Long.class));
+        assertTrue(jdbc.queryForObject("SELECT access_only FROM school_staff WHERE school_id=4500 AND user_id=4503",Boolean.class));
+        assertTrue(schoolPermissions.staffAllows(4500L,4503L,org.afritechinnovations.model.common.StaffModule.PAYROLL));
+        assertFalse(schoolPermissions.staffAllows(4510L,4503L,org.afritechinnovations.model.common.StaffModule.PAYROLL));
+        ok(base+"/prepare?month="+month,HttpMethod.POST,null,4501);
+        assertEquals(1,employee(overview(),4503).path("contracts").size());
+        assertEquals(4,ok(directory,HttpMethod.GET,null,4501).size());
+        profile.put("modules",List.of());ok(directory+"/4503",HttpMethod.PUT,update,4501);
+        assertFalse(schoolPermissions.staffAllows(4500L,4503L,org.afritechinnovations.model.common.StaffModule.PAYROLL));
+        assertEquals(4,ok(directory,HttpMethod.GET,null,4501).size());
+        profile.put("email","owner.payroll@test.invalid");assertEquals(HttpStatus.BAD_REQUEST,request(directory+"/4503",HttpMethod.PUT,update,4501).getStatusCode());
+        assertEquals("issa.modified@test.invalid",jdbc.queryForObject("SELECT email FROM users WHERE id=4503",String.class));
+        assertEquals(HttpStatus.FORBIDDEN,request(directory+"/4503",HttpMethod.PUT,update,4506).getStatusCode());
+    }
+
+    Map<String,Object> automaticInput() {
+        var input=new HashMap<String,Object>();
+        input.put("regime","SALARIED");input.put("baseSalary",110000);
+        for(String name:List.of("housing","functionAllowance","transport","benefitsInKind","pension","otherSocial","employerContributions")) input.put(name,0);
+        input.put("otherDeductions",1000);input.put("upperCategory",false);input.put("familyCharges",0);
+        input.put("tpaExempt",false);input.put("approvedManagementCenter",false);input.put("reason","Justificatifs vérifiés");return input;
+    }
+    @Test void automaticCalculationGroupsContractsChangesNetFreezesAfterPaymentAndPreservesDocuments() {
+        ok(base+"/prepare?month="+month,HttpMethod.POST,null,4501);
+        var input=automaticInput();String url=base+"/employees/4502/calculation";
+        var preview=ok(url+"/preview?month="+month,HttpMethod.POST,input,4501);
+        assertEquals(110000,preview.path("result").path("gross").asInt());
+        assertEquals(6983,preview.path("result").path("iuts").asInt());
+        assertEquals(102017,preview.path("result").path("net").asInt());
+        assertEquals(3300,preview.path("result").path("tpa").asInt());
+        var apply=Map.of("input",input,"requestId",UUID.randomUUID(),"versions",preview.path("versions"),"grossByPayable",preview.path("grossByPayable"));
+        assertEquals(HttpStatus.FORBIDDEN,request(url+"/preview?month="+month,HttpMethod.POST,input,4506).getStatusCode());
+        ok(url+"?month="+month,HttpMethod.POST,apply,4501);
+        ok(url+"?month="+month,HttpMethod.POST,apply,4501);
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM school_payroll_calculation_events WHERE school_id=4500",Integer.class));
+        var person=employee(overview(),4502);
+        // Sum exact decimals, including allocation cents, instead of rounding each contract's net.
+        java.math.BigDecimal actualNet=java.math.BigDecimal.ZERO;
+        for(var contract:person.path("contracts"))actualNet=actualNet.add(contract.path("net").decimalValue());
+        assertEquals(0,new java.math.BigDecimal("102017").compareTo(actualNet));
+        assertEquals(0,new java.math.BigDecimal("6983").compareTo(jdbc.queryForObject("SELECT sum(payroll_iuts) FROM school_payables WHERE school_id=4500 AND payroll_calculation IS NOT NULL",java.math.BigDecimal.class)));
+        jdbc.update("UPDATE teacher_rates SET amount=90000 WHERE teacher_id=4502");
+        assertEquals(HttpStatus.BAD_REQUEST,request(base+"/payments/"+payable("staff:4502"),HttpMethod.POST,payment(1,UUID.randomUUID()),4501).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST,request(base+"/documents",HttpMethod.POST,document("PAYSLIP",4502,UUID.randomUUID()),4501).getStatusCode());
+        jdbc.update("UPDATE teacher_rates SET amount=80000 WHERE teacher_id=4502");
+        var saved=ok(base+"/documents",HttpMethod.POST,document("PAYSLIP",4502,UUID.randomUUID()),4501);
+        assertEquals("BF-CGI-2026-v1",saved.path("snapshot").path("employee").path("contracts").get(0).path("calculation").path("ruleVersion").asText());
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM expenses WHERE school_id=4500",Integer.class));
+        assertEquals(110000,ok(url+"?month="+month,HttpMethod.GET,null,4501).path("baseSalary").asInt());
+        long salary=payable("teacher:4502");ok(base+"/payments/"+salary,HttpMethod.POST,payment(1000,UUID.randomUUID()),4501);
+        assertEquals(HttpStatus.BAD_REQUEST,request(url+"/preview?month="+month,HttpMethod.POST,input,4501).getStatusCode());
+    }
+    @Test void staleCalculationPreviewCannotOverwriteAConcurrentChange() {
+        ok(base+"/prepare?month="+month,HttpMethod.POST,null,4501);var input=automaticInput();String url=base+"/employees/4502/calculation";
+        var preview=ok(url+"/preview?month="+month,HttpMethod.POST,input,4501);
+        jdbc.update("UPDATE school_payables SET payroll_tax_version=payroll_tax_version+1 WHERE id=?",payable("staff:4502"));
+        var apply=Map.of("input",input,"requestId",UUID.randomUUID(),"versions",preview.path("versions"),"grossByPayable",preview.path("grossByPayable"));
+        assertEquals(HttpStatus.BAD_REQUEST,request(url+"?month="+month,HttpMethod.POST,apply,4501).getStatusCode());
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM school_payroll_calculation_events WHERE school_id=4500",Integer.class));
+    }
+    @Test void vacationsAreTrackedSeparatelyAndSalaryPlusTaxPaymentsDoNotDoubleCountTheGross() {
+        jdbc.update("UPDATE teacher_rates SET rate_type='FIXED_MONTHLY',amount=80000 WHERE teacher_id=4503");
+        ok(base+"/prepare?month="+month,HttpMethod.POST,null,4501);
+        var input=automaticInput();input.put("regime","TEACHING_VACATION");input.put("baseSalary",0);input.put("otherDeductions",0);
+        String url=base+"/employees/4503/calculation";var preview=ok(url+"/preview?month="+month,HttpMethod.POST,input,4501);
+        assertEquals(1600,preview.path("result").path("vacationWithholding").asInt());
+        assertEquals(0,preview.path("result").path("iuts").asInt());assertEquals(0,preview.path("result").path("tpa").asInt());
+        var apply=Map.of("input",input,"requestId",UUID.randomUUID(),"versions",preview.path("versions"),"grossByPayable",preview.path("grossByPayable"));
+        ok(url+"?month="+month,HttpMethod.POST,apply,4501);
+        String taxes="/api/owner/taxes/schools/4500";
+        assertEquals(1600,ok(taxes+"/payroll-preview?month="+month,HttpMethod.GET,null,4501).path("vacationWithholding").asInt());
+        var taxImport=Map.of("month",month,"dueDate",LocalDate.now().toString(),"creditor","DGI","reason","Retenue sur vacation vérifiée");
+        ok(taxes+"/payroll-import",HttpMethod.POST,taxImport,4501);ok(taxes+"/payroll-import",HttpMethod.POST,taxImport,4501);
+        long taxId=jdbc.queryForObject("SELECT payable_id FROM school_tax_obligations WHERE school_id=4500 AND code='OTHER'",Long.class);
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM school_tax_obligations WHERE school_id=4500",Integer.class));
+        assertEquals(HttpStatus.BAD_REQUEST,request(base+"/payments/"+payable("teacher:4503"),HttpMethod.POST,payment(80000,UUID.randomUUID()),4501).getStatusCode());
+        ok(base+"/payments/"+payable("teacher:4503"),HttpMethod.POST,payment(78400,UUID.randomUUID()),4501);
+        ok(taxes+"/"+taxId+"/payments",HttpMethod.POST,payment(1600,UUID.randomUUID()),4501);
+        assertEquals(0,new java.math.BigDecimal("80000").compareTo(jdbc.queryForObject("SELECT (SELECT COALESCE(sum(amount),0) FROM expenses WHERE school_id=4500)+(SELECT COALESCE(sum(p.amount),0) FROM teacher_payments p JOIN teachers t ON t.id=p.teacher_id WHERE t.school_id=4500)",java.math.BigDecimal.class)));
+    }
     @Test void listsEveryEmployeeOnceAndPreparesOnlySalaryObligations() {
         var before=overview();assertEquals(4,before.path("employees").size());
         assertEquals(2,employee(before,4502).path("contracts").size());

@@ -35,6 +35,18 @@ public class PayrollController {
     @PutMapping("/payments/{id}/taxes") public void taxes(@PathVariable Long schoolId,@PathVariable Long id,@Valid @RequestBody TaxInput request,Authentication auth) {
         var p = principal(auth); service.taxes(schoolId,id,request,p.getId(),admin(p));
     }
+    @GetMapping("/employees/{userId}/calculation") public org.afritechinnovations.dto.finance.PayrollCalculationDto.Input calculationDefaults(
+            @PathVariable Long schoolId,@PathVariable Long userId,@RequestParam String month,Authentication auth) {
+        var p=principal(auth);return service.calculationDefaults(schoolId,userId,month,p.getId(),admin(p));
+    }
+    @PostMapping("/employees/{userId}/calculation/preview") public org.afritechinnovations.dto.finance.PayrollCalculationDto.Preview calculationPreview(
+            @PathVariable Long schoolId,@PathVariable Long userId,@RequestParam String month,@Valid @RequestBody org.afritechinnovations.dto.finance.PayrollCalculationDto.Input input,Authentication auth) {
+        var p=principal(auth);return service.previewCalculation(schoolId,userId,month,input,p.getId(),admin(p));
+    }
+    @PostMapping("/employees/{userId}/calculation") public void calculate(@PathVariable Long schoolId,@PathVariable Long userId,@RequestParam String month,
+            @Valid @RequestBody org.afritechinnovations.dto.finance.PayrollCalculationDto.Apply input,Authentication auth) {
+        var p=principal(auth);service.applyCalculation(schoolId,userId,month,input,p.getId(),admin(p));
+    }
     @PostMapping("/documents") public Document issue(@PathVariable Long schoolId,@Valid @RequestBody DocumentInput request,Authentication auth) {
         var p = principal(auth); return service.issue(schoolId,request,p.getId(),admin(p));
     }

@@ -17,6 +17,9 @@ public interface SchoolConversationMessageRepository extends JpaRepository<Schoo
         """)
     List<SchoolConversationMessage> findThread(@Param("conversationId") Long conversationId);
 
+    @Query(value="WITH params AS (SELECT :schoolId AS school_id,:userId AS user_id) " + org.afritechinnovations.service.communication.UnreadMessageSql.SCHOOL_BODY,nativeQuery=true)
+    long countUnreadForSchoolUser(@Param("schoolId") Long schoolId,@Param("userId") Long userId);
+
     @Query("SELECT COUNT(m) FROM SchoolConversationMessage m WHERE m.fromSchool = false AND EXISTS (" +
             "SELECT p.id FROM ConversationParticipant p WHERE p.conversation = m.conversation " +
             "AND p.school.id = :schoolId AND (p.lastReadAt IS NULL OR m.sentAt > p.lastReadAt))")

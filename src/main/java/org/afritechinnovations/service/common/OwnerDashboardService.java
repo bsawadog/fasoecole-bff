@@ -29,6 +29,7 @@ public class OwnerDashboardService {
     private final SchoolPermissions permissions;
     private final SchoolRepository schoolRepository;
     private final OwnerGradeService ownerGradeService;
+    private final DashboardChartQueries charts;
 
     public OwnerDashboardDto getDashboard(Long schoolId, Long ownerId) {
         School school = schoolRepository.findById(schoolId)
@@ -111,13 +112,8 @@ public class OwnerDashboardService {
                 results == null ? null : results.period().name(),
                 results == null ? null : results.passRate(),
                 results == null ? 0 : results.rankedCount(),
-                count("SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND read_at IS NULL", ownerId)
-                        + count("""
-                        SELECT COUNT(*) FROM school_conversation_messages m
-                        JOIN conversation_participants p ON p.conversation_id = m.conversation_id
-                        WHERE p.school_id = ? AND m.from_school = FALSE
-                          AND (p.last_read_at IS NULL OR m.sent_at > p.last_read_at)
-                        """, schoolId),
+                canViewChart(school,ownerId,StaffModule.MESSAGES) ? count("WITH params AS (SELECT ?::bigint school_id,?::bigint user_id) "
+                        + org.afritechinnovations.service.communication.UnreadMessageSql.SCHOOL_BODY,schoolId,ownerId) : 0,
                 recentPayments(schoolId, yearId),
                 recentNotifications(ownerId),
                 handledAttendanceReports(schoolId, today),
@@ -126,8 +122,64 @@ public class OwnerDashboardService {
                         WHERE school_id = ? AND status = 'PENDING'
                           AND start_date <= ? AND end_date >= ?
                         """, schoolId, Date.valueOf(today), Date.valueOf(today)),
-                pendingAttendanceReports(schoolId, today)
+                pendingAttendanceReports(schoolId, today),
+                canViewMonthlyFinance(school, ownerId) ? monthlyFinance(schoolId, yearId) : null,
+                canViewChart(school,ownerId,StaffModule.FINANCE) ? charts.receivables(schoolId,yearId,LocalDate.now()) : null,
+                canViewChart(school,ownerId,StaffModule.STUDENTS) ? charts.attendance(schoolId,yearId,LocalDate.now()) : null,
+                canViewChart(school,ownerId,StaffModule.FINANCE) ? charts.bankPosition(schoolId,yearId,LocalDate.now()) : null
         );
+    }
+
+    private boolean canViewMonthlyFinance(School school, Long actor) {
+        return school.getOwner().getId().equals(actor)
+                || permissions.staffAllows(school.getId(), actor, StaffModule.FINANCE)
+                && permissions.staffAllows(school.getId(), actor, StaffModule.EXPENSES);
+    }
+
+    private boolean canViewChart(School school,Long actor,StaffModule module) {
+        return school.getOwner().getId().equals(actor) || permissions.staffAllows(school.getId(),actor,module);
+    }
+
+    private record FinanceRow(Long yearId, String label, LocalDate start, LocalDate end, OwnerDashboardDto.FinanceMonth month) { }
+
+    OwnerDashboardDto.MonthlyFinance monthlyFinance(Long schoolId, Long yearId) {
+        var rows = jdbcTemplate.query("""
+                WITH selected_year AS (
+                    SELECT id, label, start_date, end_date FROM academic_years WHERE id = ? AND school_id = ?
+                ), months AS (
+                    SELECT generate_series(date_trunc('month', start_date), date_trunc('month', end_date), interval '1 month')::date AS month
+                    FROM selected_year
+                ), movements AS (
+                    SELECT date_trunc('month', p.payment_date)::date AS month, p.amount AS received, 0::numeric AS spent
+                    FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN students s ON s.id = i.student_id
+                    CROSS JOIN selected_year y
+                    WHERE s.school_id = ? AND p.payment_date BETWEEN y.start_date AND y.end_date
+                    UNION ALL
+                    SELECT date_trunc('month', e.expense_date)::date, 0::numeric, e.amount
+                    FROM expenses e CROSS JOIN selected_year y
+                    WHERE e.school_id = ? AND e.expense_date BETWEEN y.start_date AND y.end_date
+                    UNION ALL
+                    SELECT date_trunc('month', p.payment_date)::date, 0::numeric, p.amount
+                    FROM teacher_payments p JOIN teachers t ON t.id = p.teacher_id CROSS JOIN selected_year y
+                    WHERE t.school_id = ? AND p.payment_date BETWEEN y.start_date AND y.end_date
+                ), totals AS (
+                    SELECT month, SUM(received) AS received, SUM(spent) AS spent FROM movements GROUP BY month
+                )
+                SELECT y.id, y.label, y.start_date, y.end_date, m.month,
+                       COALESCE(t.received, 0) AS received, COALESCE(t.spent, 0) AS spent
+                FROM selected_year y CROSS JOIN months m LEFT JOIN totals t ON t.month = m.month
+                ORDER BY m.month
+                """, (r, n) -> new FinanceRow(r.getLong("id"), r.getString("label"),
+                r.getDate("start_date").toLocalDate(), r.getDate("end_date").toLocalDate(),
+                new OwnerDashboardDto.FinanceMonth(r.getDate("month").toLocalDate().toString().substring(0, 7),
+                        r.getBigDecimal("received"), r.getBigDecimal("spent"))), yearId, schoolId, schoolId, schoolId, schoolId);
+        if (rows.isEmpty()) return null;
+        var first = rows.getFirst();
+        var months = rows.stream().map(FinanceRow::month).toList();
+        BigDecimal received = months.stream().map(OwnerDashboardDto.FinanceMonth::receivedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal spent = months.stream().map(OwnerDashboardDto.FinanceMonth::spentAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new OwnerDashboardDto.MonthlyFinance(first.yearId(), first.label(), first.start(), first.end(), months,
+                received, spent, received.subtract(spent));
     }
 
     private List<OwnerDashboardDto.HandledAttendanceReport> handledAttendanceReports(Long schoolId, LocalDate date) {

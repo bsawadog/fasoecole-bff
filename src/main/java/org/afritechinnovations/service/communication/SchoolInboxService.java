@@ -54,7 +54,7 @@ public class SchoolInboxService {
         return new FamilyContactDto.InboxSummary(
                 guard.allowsSchoolModule(schoolId, StaffModule.STUDENTS)
                         ? reportRepository.countBySchoolIdAndStatus(schoolId, AbsenceReportStatus.PENDING) : 0,
-                guard.allowsSchoolModule(schoolId, StaffModule.MESSAGES) ? messageRepository.countUnreadBySchool(schoolId) : 0);
+                guard.allowsSchoolModule(schoolId, StaffModule.MESSAGES) ? messageRepository.countUnreadForSchoolUser(schoolId,guard.currentUserId()) : 0);
     }
 
     // ------------------------------------------------------------------ absences signalées
