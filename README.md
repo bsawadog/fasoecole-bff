@@ -620,3 +620,19 @@ La migration V54 ajoute le cahier de textes, les notes privées, l’accompagnem
 Les séances et messages d’accompagnement partagés sont consultables dans Cours et ressources des espaces parent et élève via `GET /api/me/students/{studentId}/learning`. L’accès exige sa propre fiche ou un lien parent autorisé dans un établissement actif. Les familles ne disposent d’aucune route d’écriture sur ces outils.
 
 API enseignant : `/api/me/teacher/daily/today`, `/daily/notes`, `/daily/availability`, `/classes/{classId}/lessons` et `/classes/{classId}/support`. Les modifications de séances et d’accompagnement exigent une classe affectée et une année courante ouverte. Les notes sont liées au compte ; les demandes restent liées à sa propre fiche employé.
+
+### Accueil parent et format des montants
+
+L’accueil parent propose un suivi par enfant dans le contexte établissement/année sélectionné. Le nouveau GET `/api/me/parent/dashboard?studentId=...` exige un lien parent/tuteur actif, puis vérifie le contexte avant de lire les données. Les graphiques présentent les moyennes officielles des bulletins publiés par période et par matière, les huit dernières semaines d’appels effectivement renseignés et les devoirs À faire/Remis/Corrigés. Un résultat non publié ou sans note reste absent, tandis qu’un vrai zéro est conservé. Les appels non saisis ne deviennent ni des présences ni des absences. Les dates et élèves ciblés par les publications sont respectés.
+
+Les points à suivre et les listes récapitulent les absences, retards, devoirs échus non remis, messages d’accompagnement partagés, prochaines évaluations sur quatorze jours, annonces et événements. Les liens vers les modules conservent l’enfant choisi. L’accès Accompagnement affiche uniquement les informations volontairement partagées par les professeurs ; leurs observations privées ne sont pas exposées. Les modules scolaires, vie scolaire, communication et démarches sont regroupés à l’accueil. Une erreur de chargement n’est pas affichée comme un compteur nul.
+
+Le format global Angular utilise désormais `fr-FR` avec les données locales françaises. Les montants affichent des espaces insécables entre milliers et une virgule décimale selon la précision demandée par chaque écran (exemple : 5 000 FCFA). Les valeurs numériques stockées, saisies et calculées restent inchangées. Les champs numériques et les reçus disposaient déjà de leur format français.
+
+### Espace élève : suivi et organisation
+
+L’accueil élève présente les cours du jour, devoirs à préparer, évaluations à venir, annonces, calendrier et rappels personnels. Les graphiques affichent les moyennes officielles publiées, les résultats par matière, les présences enregistrées et les statuts des devoirs renseignés par les enseignants. Une note non publiée reste masquée et une présence non saisie ne devient pas une absence.
+
+Les modules Mes présences et retards, Annonces, Mon accompagnement, Mon dossier élève (lecture seule) et Mon organisation complètent les accès aux cours, notes, devoirs, emploi du temps, bibliothèque, discipline, démarches, messages et rendez-vous. Les rappels sont privés au compte de l’élève et ne modifient pas le statut des devoirs de classe.
+
+API : GET /api/me/student/profiles et /api/me/student/dashboard?studentId=… ; CRUD des rappels sous /api/me/student/profiles/{studentId}/tasks. Ces routes exigent le dossier propre de l’utilisateur ; le lien parent ne suffit pas. Les lectures de vie scolaire autorisent aussi l’élève pour son propre dossier ; les écritures administratives restent réservées à leurs rôles. Redémarrer le BFF pour appliquer Flyway V55 (student_study_tasks).

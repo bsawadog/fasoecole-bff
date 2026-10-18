@@ -133,6 +133,18 @@ public class FamilySpaceService {
         return requireAccess(userId, studentId).student();
     }
 
+    public Student requireOwnStudent(Long userId, Long studentId) {
+        Student student = requireAccess(userId, studentId).student();
+        if (student.getUser() == null || !userId.equals(student.getUser().getId()))
+            throw new AccessDeniedException("Vous ne pouvez ouvrir que votre propre dossier élève.");
+        return student;
+    }
+
+    public List<SelfServiceDto.StudentOverview> ownStudents(Long userId) {
+        var ids = studentRepository.findAllByUserId(userId).stream().map(Student::getId).collect(Collectors.toSet());
+        return students(userId).stream().filter(s -> ids.contains(s.studentId())).toList();
+    }
+
     /** Action réservée au parent ou tuteur autorisé. */
     public Student requireGuardedChild(Long userId, Long studentId) {
         Accessible a = requireAccess(userId, studentId);

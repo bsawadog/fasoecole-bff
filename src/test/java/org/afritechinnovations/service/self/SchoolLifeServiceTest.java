@@ -28,7 +28,7 @@ class SchoolLifeServiceTest {
     }
     @Test void familyOverviewRequiresChildRelationshipBeforeReadingData() {
         when(guard.currentUserId()).thenReturn(7L);
-        when(family.requireGuardedChild(7L,9L)).thenThrow(new AccessDeniedException("Forbidden"));
+        when(family.requireReadableStudent(7L,9L)).thenThrow(new AccessDeniedException("Forbidden"));
         assertThrows(AccessDeniedException.class,()->service.studentOverview(9L));
         verifyNoInteractions(jdbc);
     }

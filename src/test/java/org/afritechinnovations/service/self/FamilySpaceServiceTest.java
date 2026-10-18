@@ -133,6 +133,16 @@ class FamilySpaceServiceTest {
         assertThrows(AccessDeniedException.class, () -> service.requireReadableStudent(20L, 11L));
     }
 
+    @Test
+    void ownDashboardRejectsLinkedParentAndOtherStudent() {
+        when(students.findAllByUserId(111L)).thenReturn(List.of(childA));
+        assertEquals(childA, service.requireOwnStudent(111L, 11L));
+        assertEquals(List.of(11L), service.ownStudents(111L).stream().map(s -> s.studentId()).toList());
+        assertThrows(AccessDeniedException.class, () -> service.requireOwnStudent(7L, 11L));
+        assertThrows(AccessDeniedException.class, () -> service.requireOwnStudent(112L, 11L));
+        assertTrue(service.ownStudents(7L).isEmpty());
+    }
+
     private static Student student(Long id, String firstName, School school) {
         return Student.builder().id(id).school(school).registrationNumber("MAT-" + id)
                 .user(User.builder().id(id + 100).firstName(firstName).lastName("Kaboré").build()).build();
