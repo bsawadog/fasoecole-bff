@@ -14,5 +14,6 @@ public class SubjectDto {
     private Long schoolId;
     private String name;
     private String code;
+    private String category;
     private BigDecimal coefficient;
 }

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/owner/taxes/schools/{schoolId}")
 public class SchoolTaxController {
     private final SchoolTaxService service;
+    @PostMapping("/synchronize-payroll") public Overview synchronizePayroll(@PathVariable Long schoolId,@RequestParam int year,Authentication auth){var p=principal(auth);return service.synchronizePayroll(schoolId,year,p.getId(),admin(p));}
     @GetMapping public Overview overview(@PathVariable Long schoolId,@RequestParam int year,Authentication auth){var p=principal(auth);return service.overview(schoolId,year,p.getId(),admin(p));}
     @GetMapping("/{id}") public Detail detail(@PathVariable Long schoolId,@PathVariable Long id,Authentication auth){var p=principal(auth);return service.detail(schoolId,id,p.getId(),admin(p));}
     @PostMapping public Row create(@PathVariable Long schoolId,@Valid @RequestBody Create input,Authentication auth){var p=principal(auth);return service.create(schoolId,input,p.getId(),admin(p));}

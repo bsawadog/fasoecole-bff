@@ -91,6 +91,19 @@ public class ClassRosterService {
     private final AbsenceReportRepository absenceReportRepository;
     private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
 
+    public record ClassTeacher(Long teacherId, String teacherName, String subjectName) {}
+
+    public List<ClassTeacher> getClassTeachers(Long classId, Long userId, boolean systemAdmin) {
+        var schoolClass = requireOwnedClass(classId, userId, systemAdmin);
+        return classSubjectTeacherRepository.findAllWithTeacherByClassId(classId).stream()
+                .filter(ClassSubjectTeacher::isActive)
+                .filter(a -> a.getTeacher().getSchool().getId().equals(schoolClass.getSchool().getId()))
+                .map(a -> new ClassTeacher(a.getTeacher().getId(),
+                        a.getTeacher().getUser().getFirstName() + " " + a.getTeacher().getUser().getLastName(),
+                        a.getSubject().getName()))
+                .distinct().toList();
+    }
+
     public List<ClassRosterRowDto> getRoster(Long classId, Long ownerId, boolean systemAdmin) {
         SchoolClass schoolClass = requireOwnedClass(classId, ownerId, systemAdmin);
         List<String> teacherNames = teacherNamesForClass(classId);

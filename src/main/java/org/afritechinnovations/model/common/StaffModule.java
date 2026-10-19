@@ -18,6 +18,7 @@ public enum StaffModule {
     PARENT_PORTAL("Portail parents"),
     MESSAGES("Messages"),
     CASH_BOOK("Brouillard de caisse"),
+    BANK_BOOK("Brouillard de banque"),
     FINANCIAL_STATEMENTS("États financiers"),
     ASSETS("Patrimoine et mobilier"),
     INVENTORY("Stocks et fournitures"),

@@ -31,6 +31,11 @@ class SchoolAcademicDefaultsTest {
         assertSame(school, year.getValue().getSchool());
         verify(subjects).saveAll(argThat(items -> {
             List<Subject> list = (List<Subject>) items;
+            if(type==SchoolType.SECONDAIRE){
+                assertEquals(15,list.size());
+                assertTrue(list.stream().allMatch(s->s.getCode()!=null&&s.getCategory()!=null));
+                assertEquals("FRA",list.stream().filter(s->s.getName().equals("Français")).findFirst().orElseThrow().getCode());
+            }
             return !list.isEmpty() && list.stream().allMatch(item -> item.getSchool() == school && item.getCoefficient().signum() > 0)
                     && list.stream().map(Subject::getName).distinct().count() == list.size();
         }));

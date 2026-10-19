@@ -31,6 +31,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional
 public class SchoolPayableService {
+    private final AutomaticPayrollTaxService automaticTaxes;
     private final JdbcTemplate jdbc;
     private final SchoolRepository schools;
     private final UserRepository users;
@@ -78,7 +79,7 @@ public class SchoolPayableService {
         List<PayableDto.FixedCharge> fixed = jdbc.query("SELECT * FROM fixed_school_charges WHERE school_id=? ORDER BY active DESC,label",
                 (rs,n) -> new PayableDto.FixedCharge(rs.getLong("id"),rs.getLong("category_id"),rs.getString("label"),
                         rs.getString("supplier"),rs.getBigDecimal("amount"),rs.getInt("due_day"),
-                        rs.getDate("start_month").toLocalDate().toString().substring(0,7),rs.getBoolean("active")), schoolId);
+                        rs.getDate("start_month").toLocalDate().toString().substring(0,7),rs.getBoolean("active"),ExpenseTaxAmounts.read(rs.getString("expense_taxes"))), schoolId);
         return new PayableDto.Overview(rows, salariesOnly ? List.of() : fixed,
                 sum(active.stream().map(PayableDto.Row::amount).toList()),sum(active.stream().map(PayableDto.Row::paid).toList()),
                 sum(active.stream().map(PayableDto.Row::remaining).toList()),
@@ -94,6 +95,7 @@ public class SchoolPayableService {
     /** The caller has checked PAYROLL and the exact school. No fixed charges are prepared here. */
     void prepareSalaries(Long schoolId, String month, Long actor) {
         prepareMonth(schoolId, month, actor, true, false);
+        automaticTaxes.calculate(schoolId,YearMonth.parse(month).atDay(1),actor);
     }
 
     /** Prepare only the teacher in the imported row, through the usual expense/payroll bridge. */
@@ -111,6 +113,7 @@ public class SchoolPayableService {
 
     private void prepareMonth(Long schoolId, String month, Long actor, boolean admin, boolean includeFixedCharges) {
         YearMonth period = month(month);
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?,0))","school-taxes:"+schoolId);
         jdbc.queryForObject("SELECT id FROM schools WHERE id=? FOR UPDATE", Long.class, schoolId);
         var categoryList = categories(schoolId, actor, admin);
         Long staffCategory = categoryList.stream().filter(c -> "STAFF_PAYROLL".equals(c.systemCode()))
@@ -142,7 +145,7 @@ public class SchoolPayableService {
         if (includeFixedCharges) jdbc.query("SELECT * FROM fixed_school_charges WHERE school_id=? AND active AND start_month<=?", (rs,n) -> {
             insert(schoolId,rs.getLong("category_id"),"FIXED","fixed:"+rs.getLong("id"),period,
                     period.atDay(Math.min(rs.getInt("due_day"),period.lengthOfMonth())),rs.getBigDecimal("amount"),
-                    rs.getString("label"),rs.getString("supplier"),null,null,actor);
+                    rs.getString("label"),rs.getString("supplier"),null,null,actor,rs.getString("expense_taxes"));
             return rs.getLong("id");
         },schoolId,period.atDay(1));
     }
@@ -186,18 +189,20 @@ public class SchoolPayableService {
 
     public void create(Long schoolId, PayableDto.Create request, Long actor, boolean admin) {
         requireSchool(schoolId,actor,admin); requireCategory(schoolId,request.categoryId());
+        ExpenseTaxAmounts.validate(request.taxDetails(),request.amount());
         insert(schoolId,request.categoryId(),"MANUAL","manual:"+UUID.randomUUID(),YearMonth.from(request.dueDate()),
-                request.dueDate(),money(request.amount()),request.label().trim(),clean(request.supplier()),clean(request.notes()),null,actor);
+                request.dueDate(),money(request.amount()),request.label().trim(),clean(request.supplier()),clean(request.notes()),null,actor,ExpenseTaxAmounts.json(request.taxDetails()));
     }
 
     public void createFixed(Long schoolId, PayableDto.FixedRequest request, Long actor, boolean admin) {
         requireSchool(schoolId,actor,admin); requireCategory(schoolId,request.categoryId());
+        ExpenseTaxAmounts.validate(request.taxDetails(),request.amount());
         if (request.dueDay()<1 || request.dueDay()>31) throw new IllegalArgumentException("Le jour doit être compris entre 1 et 31");
         jdbc.update("""
-            INSERT INTO fixed_school_charges(school_id,category_id,label,supplier,amount,due_day,start_month,created_by)
-            VALUES(?,?,?,?,?,?,?,?)
+            INSERT INTO fixed_school_charges(school_id,category_id,label,supplier,amount,due_day,start_month,created_by,expense_taxes)
+            VALUES(?,?,?,?,?,?,?,?,?)
             """,schoolId,request.categoryId(),request.label().trim(),clean(request.supplier()),money(request.amount()),
-                request.dueDay(),month(request.startMonth()).atDay(1),actor);
+                request.dueDay(),month(request.startMonth()).atDay(1),actor,ExpenseTaxAmounts.json(request.taxDetails()));
     }
 
     public void setFixedActive(Long schoolId, Long id, boolean active, Long actor, boolean admin) {
@@ -252,7 +257,8 @@ public class SchoolPayableService {
             var expense = expenses.saveAndFlush(Expense.builder().school(school)
                     .category(categories.findById(row.categoryId()).orElseThrow()).amount(amount).label(row.label())
                     .supplier(row.supplier()).expenseDate(request.date()).paymentMethod(request.method()).managedPayment(true)
-                    .reference(clean(request.reference())).notes(row.notes()).createdBy(users.getReferenceById(actor)).build());
+                    .reference(clean(request.reference())).notes(row.notes()).createdBy(users.getReferenceById(actor))
+                    .expenseTaxes(ExpenseTaxAmounts.json(ExpenseTaxAmounts.portion(row.taxDetails(),row.amount(),row.paid(),amount))).build());
             expenseId=expense.getId();
         }
         jdbc.update("""
@@ -297,7 +303,7 @@ public class SchoolPayableService {
         LocalDate due=rs.getDate("due_date").toLocalDate();
         return new PayableDto.Row(rs.getLong("id"),rs.getString("source"),period,due,rs.getString("label"),
                 rs.getString("supplier"),rs.getLong("category_id"),rs.getString("category_name"),amount,paid,
-                cancelled ? BigDecimal.ZERO : remaining,status(cancelled,amount,paid),!cancelled && remaining.signum()>0 && due.isBefore(LocalDate.now(clock)),rs.getString("notes"));
+                cancelled ? BigDecimal.ZERO : remaining,status(cancelled,amount,paid),!cancelled && remaining.signum()>0 && due.isBefore(LocalDate.now(clock)),rs.getString("notes"),ExpenseTaxAmounts.read(rs.getString("expense_taxes")));
     }
     private PayableDto.Row find(Long schoolId,Long id,boolean lock) {
         // The aggregate must use a new READ COMMITTED snapshot after waiting for the lock.
@@ -312,10 +318,14 @@ public class SchoolPayableService {
     }
     private void insert(Long school,Long category,String source,String key,YearMonth period,LocalDate due,BigDecimal amount,
                         String label,String supplier,String notes,Long teacher,Long actor) {
+        insert(school,category,source,key,period,due,amount,label,supplier,notes,teacher,actor,null);
+    }
+    private void insert(Long school,Long category,String source,String key,YearMonth period,LocalDate due,BigDecimal amount,
+                        String label,String supplier,String notes,Long teacher,Long actor,String expenseTaxes) {
         jdbc.update("""
-            INSERT INTO school_payables(school_id,category_id,source,source_key,period,due_date,amount,label,supplier,notes,teacher_id,created_by)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (school_id,source_key,period) DO NOTHING
-            """,school,category,source,key,period.atDay(1),due,amount,clip(label,150),clip(supplier,150),notes,teacher,actor);
+            INSERT INTO school_payables(school_id,category_id,source,source_key,period,due_date,amount,label,supplier,notes,teacher_id,created_by,expense_taxes)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (school_id,source_key,period) DO NOTHING
+            """,school,category,source,key,period.atDay(1),due,amount,clip(label,150),clip(supplier,150),notes,teacher,actor,expenseTaxes);
     }
     private void requireCategory(Long school,Long id) {
         categories.findById(id).filter(c -> c.getSchool().getId().equals(school) && c.isActive() && !c.isPayroll())

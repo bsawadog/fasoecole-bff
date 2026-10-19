@@ -28,7 +28,12 @@ public class SchoolAcademicDefaults {
         years.save(AcademicYear.builder().school(school).label(start.getYear() + "-" + (start.getYear() + 1))
                 .startDate(start).endDate(start.plusYears(1).minusDays(1)).isCurrent(true).build());
         subjects.saveAll(subjectNames(school.getType()).stream()
-                .map(name -> Subject.builder().school(school).name(name).build()).toList());
+                .map(name -> {
+                    var builder=Subject.builder().school(school).name(name);
+                    if(school.getType()==SchoolType.SECONDAIRE||school.getType()==SchoolType.MIXTE)
+                        SubjectCatalog.pack("SECONDARY").subjects().stream().filter(s->s.name().equals(name)).findFirst().ifPresent(s->builder.code(s.code()).category(s.category()));
+                    return builder.build();
+                }).toList());
     }
 
     static List<String> subjectNames(SchoolType type) {

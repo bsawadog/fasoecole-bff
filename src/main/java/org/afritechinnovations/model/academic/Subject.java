@@ -29,6 +29,9 @@ public class Subject {
     @Column(length = 30)
     private String code;
 
+    @Column(length=100)
+    private String category;
+
     /** Coefficient par défaut, appliqué aux classes qui ne le surchargent pas. */
     @Builder.Default
     @Column(nullable = false, precision = 4, scale = 2)

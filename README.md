@@ -636,3 +636,45 @@ L’accueil élève présente les cours du jour, devoirs à préparer, évaluati
 Les modules Mes présences et retards, Annonces, Mon accompagnement, Mon dossier élève (lecture seule) et Mon organisation complètent les accès aux cours, notes, devoirs, emploi du temps, bibliothèque, discipline, démarches, messages et rendez-vous. Les rappels sont privés au compte de l’élève et ne modifient pas le statut des devoirs de classe.
 
 API : GET /api/me/student/profiles et /api/me/student/dashboard?studentId=… ; CRUD des rappels sous /api/me/student/profiles/{studentId}/tasks. Ces routes exigent le dossier propre de l’utilisateur ; le lien parent ne suffit pas. Les lectures de vie scolaire autorisent aussi l’élève pour son propre dossier ; les écritures administratives restent réservées à leurs rôles. Redémarrer le BFF pour appliquer Flyway V55 (student_study_tasks).
+
+### Brouillard de banque
+
+Le module /proprietaire/banque apparaît après le brouillard de caisse. Il dispose du droit délégué BANK_BOOK, attribuable depuis Personnel et accès. Les propriétaires et administrateurs conservent leur accès aux établissements autorisés. Redémarrer le BFF pour appliquer la migration Flyway V56.
+
+Ouvrir le registre avec une date et le solde avant les premières opérations de cette date (découvert autorisé). Les règlements scolaires, dépenses et salaires enseignants par BANK_TRANSFER sont repris une seule fois ; les dépenses liées aux salaires administratifs sont reprises via expenses. Les paiements sans mode connu, carte ou mobile money sont exclus jusqu’à la saisie du dépôt bancaire correspondant. Les autres entrées et sorties sont saisies avec date, montant, libellé et référence ; les requêtes identiques réessayées ne créent pas de doublon.
+
+Le report mensuel inclut les mois vides et changements d’année. Le solde et les exports sont explicitement « avant rapprochement bancaire ». Ce module ne réalise pas de rapprochement avec un relevé et n’applique pas les clôtures de caisse. Seuls les mouvements manuels peuvent être supprimés ici ; les opérations automatiques se corrigent dans leur module d’origine. Une saisie manuelle ne crée pas de recette ou charge budgétaire. Pour un transfert caisse/banque, enregistrer le mouvement correspondant dans chacun des deux registres.
+
+API : GET /api/owner/bank-book/schools/{schoolId}?month=YYYY-MM ; POST /open ; POST /entries ; DELETE /entries/{id}. Tests PostgreSQL sur base jetable locale : BankBookIntegrationTest avec -DbankBookTestUrl=jdbc:postgresql://127.0.0.1:PORT/bank_book_test.
+
+### Paie automatique et fiscalité des factures
+
+La préparation mensuelle des salaires calcule l’IUTS et la TPA, groupe les contrats d’un même employé dans l’établissement et alimente les obligations PAYROLL sans double création. Les calculs validés et les paramètres fiscaux enregistrés sont réutilisés ; les anciennes saisies manuelles explicites restent prioritaires. Sans paramètres, le régime salarié est utilisé avec le brut comme base, zéro charge familiale et aucune exonération TPA. Ces hypothèses sont visibles et modifiables dans Salaires. Les versements antérieurs ne sont pas modifiés ; un paiement excédant le net recalculé doit être régularisé. Pour les salaires existants, le bouton Calculer et synchroniser IUTS / TPA appelle POST /api/owner/taxes/schools/{schoolId}/synchronize-payroll?year=YYYY. Les consultations GET ne créent aucune écriture fiscale.
+
+Les dépenses peuvent inclure une facture (numéro, date, IFU fournisseur), HT, TTC et plusieurs taxes. Les taxes INCLUDED font déjà partie du TTC ; les taxes WITHHELD sont déduites du paiement fournisseur. La dépense et la caisse/banque conservent le net effectivement payé. L’action distincte Créer les reversements fiscaux inscrit les retenues dans Impôts et taxes, avec l’origine EXPENSE et le lien à la facture ; elle n’effectue aucun paiement. L’utilisateur doit disposer des droits Dépenses et Impôts. Les références et échéances ne sont pas inventées. Une facture liée à une obligation active ne peut pas être modifiée ou supprimée ; annuler explicitement l’obligation non réglée avant correction. Les taxes facturées ne sont pas ajoutées une seconde fois aux reversements.
+
+Redémarrer le BFF pour Flyway V57. Les règles de paie réutilisent BurkinaPayrollCalculator (BF-CGI-2026-v1). Pour les factures, les taux ne sont pas imposés automatiquement : les conditions de retenue diffèrent selon le fournisseur, l’opération et le statut fiscal de l’établissement. Sources DGI : https://dgi.bf/verification/CGI et loi de finances 2026 publiée au Journal officiel (https://dgi.bf/wp-content/uploads/2026/01/JOURNAL-OFFICIEL-N%C2%B001-SPECIAL-LOI-DE-FINANCES-2026.pdf).
+
+### Catalogues de matières et imports
+
+Les nouveaux établissements SECONDAIRE (et les matières communes du type MIXTE) reçoivent les 15 matières générales avec codes et catégories : FRA, MAT, ANG, ALL, ESP, HGE, PHI, SVT, PCH, ECM, EPS, INF, SES, APL, MUS. Les coefficients initiaux restent à 1, modifiables par matière et par classe ; une catégorie n’est pas un coefficient.
+
+Dans Configuration de l’école → Académique → Matières → Afficher les catalogues, les établissements existants peuvent ajouter le secondaire général et les cinq filières techniques (gestion-commerce, informatique, électricité, mécanique, bâtiment). Le catalogue complète seulement les codes et catégories manquants, conserve les noms, codes personnalisés et coefficients, et signale les conflits sans écraser les données. Une application répétée ne crée pas de doublon. Les matières techniques ne sont pas imposées à tous les lycées : l’établissement choisit ses filières.
+
+RDM désigne une matière partagée entre mécanique et bâtiment. SEC désigne Secrétariat ; SCT désigne Sécurité de chantier pour éviter un même code pour deux matières différentes. Les imports enseignants acceptent dans la colonne matière le nom ou le code, sans distinction de casse ni d’accents. Les codes ambigus sont rejetés plutôt que rattachés arbitrairement.
+
+GET /api/subjects/catalog?schoolId=… et POST /api/subjects/catalog/{packId}?schoolId=… exigent le droit MANAGEMENT dans l’établissement. Les catalogues sont des modèles modifiables, pas un programme officiel. Redémarrer le BFF pour appliquer Flyway V58 (subjects.category).
+
+### Taxes lors de la création des dépenses à payer
+
+Dans Dépenses & budget → Dépenses à payer → Ajouter une dépense (ou Ajouter une charge fixe), le bouton « Ajouter la TVA / une taxe » permet de saisir les taxes facturées et comprises dans le montant TTC. Le HT est calculé par différence ; le total des taxes ne peut pas dépasser le TTC. Les références de facture, sa date et l’IFU fournisseur sont facultatifs. Une charge fixe conserve ses taxes et son IFU sans répéter le numéro ou la date d’une facture pour les mois suivants.
+
+Les taxes sont conservées dans les détails et réparties entre les versements partiels, avec régularisation des arrondis au dernier paiement. Les paiements et registres conservent leur montant TTC effectivement payé, sans ajout de taxe une seconde fois. Cette saisie ne crée pas de reversement fiscal. Les dépenses déjà payées disposent toujours de leur formulaire de facture et de retenues distinct. Redémarrer le BFF pour appliquer Flyway V59 (expense_taxes).
+
+Validation PostgreSQL sur base jetable locale : PayableTaxesIntegrationTest avec -DpayableTaxesTestUrl=jdbc:postgresql://127.0.0.1:PORT/payable_taxes_test.
+
+### État de TVA fournisseurs
+
+Impôts et taxes distingue les obligations de reversement de la TVA facturée à l’établissement par ses fournisseurs. L’état reprend les dépenses à payer MANUAL/FIXED non annulées et les factures directement enregistrées dans les dépenses payées ; les paiements gérés issus des échéances sont exclus pour éviter le double comptage. Seules les lignes TVA incluse sont reprises, pas les retenues WITHHELD. Les modèles de charges fixes ne sont pas comptés avant préparation d’une échéance.
+
+La date de facture détermine l’année et la période ; à défaut, la date d’échéance ou du paiement est utilisée avec une mention explicite. Le détail et l’export CSV suivent les filtres mois/trimestre/année. Le total concerne la TVA facturée, pas nécessairement déjà payée ou déductible. Il ne crée aucune obligation fiscale et ne modifie aucun registre. La TVA collectée par l’établissement et les reports de crédits ne sont pas calculés par cet état : aucun net à déclarer n’est déduit des seuls achats. Un excédent de TVA déductible sur la TVA collectée est un crédit de TVA, pas une promesse de remboursement automatique. Redémarrer le BFF pour exposer supplierVat dans l’aperçu fiscal ; aucune nouvelle migration.

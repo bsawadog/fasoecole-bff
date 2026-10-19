@@ -12,7 +12,10 @@ public final class SchoolTaxDto {
     public enum Code { TVA,IUTS,TPA,PATENTE,INCOME,PROPERTY,OTHER }
     public record Row(Long id,Code code,LocalDate periodStart,LocalDate periodEnd,String origin,
             String declarationReference,long version,boolean carryover,PayableDto.Row obligation) { }
-    public record Overview(int year,List<Row> rows,BigDecimal due,BigDecimal paid,BigDecimal remaining,BigDecimal overdue) { }
+    public record SupplierVat(String key,LocalDate date,boolean estimatedDate,String label,String supplier,String invoiceNumber,String supplierIfu,BigDecimal amount) { }
+    public record Overview(int year,List<Row> rows,BigDecimal due,BigDecimal paid,BigDecimal remaining,BigDecimal overdue,List<SupplierVat> supplierVat) {
+        public Overview(int year,List<Row> rows,BigDecimal due,BigDecimal paid,BigDecimal remaining,BigDecimal overdue){this(year,rows,due,paid,remaining,overdue,List.of());}
+    }
     public record Detail(Row tax,List<PayableDto.Payment> payments,List<Event> events) { }
     public record Event(Long id,String action,BigDecimal amount,LocalDate dueDate,String reason,String author,LocalDateTime createdAt) { }
     public record Create(@NotNull UUID requestId,@NotNull Code code,@NotBlank @Size(max=120) String label,

@@ -33,6 +33,12 @@ public class ClassRosterController {
                 principal.getRoles().contains("SUPER_ADMIN"));
     }
 
+    @GetMapping("/teachers")
+    public List<ClassRosterService.ClassTeacher> teachers(@PathVariable Long classId, Authentication authentication) {
+        var principal = requireOwner(authentication);
+        return classRosterService.getClassTeachers(classId, principal.getId(), principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
     @GetMapping
     public List<ClassRosterRowDto> getRoster(@PathVariable Long classId, Authentication authentication) {
         UserPrincipal principal = requireOwner(authentication);

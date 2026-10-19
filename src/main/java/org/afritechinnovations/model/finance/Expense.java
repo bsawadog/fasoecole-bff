@@ -55,6 +55,12 @@ public class Expense {
     @Column(length = 500)
     private String notes;
 
+    @Column(name="invoice_details",columnDefinition="text")
+    private String invoiceDetails;
+
+    @Column(name="expense_taxes",columnDefinition="text")
+    private String expenseTaxes;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;

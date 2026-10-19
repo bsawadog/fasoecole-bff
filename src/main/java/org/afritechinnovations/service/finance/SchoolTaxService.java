@@ -23,6 +23,15 @@ public class SchoolTaxService {
     private final JdbcTemplate jdbc;
     private final SchoolPayableService payables;
     private final OwnerExpenseService expenses;
+    private final AutomaticPayrollTaxService automaticTaxes;
+
+    /** Explicit write operation; GET overview remains read-only. */
+    public Overview synchronizePayroll(Long school,int year,Long actor,boolean admin) {
+        authorize(school,actor,admin,true);checkYear(year);lock(school);
+        if(year==LocalDate.now().getYear())payables.prepareSalaries(school,YearMonth.now().toString(),actor);
+        automaticTaxes.existing(school,year,actor);
+        return overview(school,year,actor,admin);
+    }
 
     private void authorize(Long school,Long actor,boolean admin,boolean write) {
         var entity=schools.findById(school).orElseThrow(()->new IllegalArgumentException("Établissement introuvable."));
@@ -42,7 +51,7 @@ public class SchoolTaxService {
         var rows=all.stream().map(id->row(school,id,year)).filter(r->r.periodEnd().getYear()>=year || !r.obligation().status().equals("CANCELLED")&&r.obligation().remaining().signum()>0).toList();
         var active=rows.stream().map(Row::obligation).filter(p->!p.status().equals("CANCELLED")).toList();
         return new Overview(year,rows,sum(active.stream().map(PayableDto.Row::amount).toList()),sum(active.stream().map(PayableDto.Row::paid).toList()),
-                sum(active.stream().map(PayableDto.Row::remaining).toList()),sum(active.stream().filter(PayableDto.Row::overdue).map(PayableDto.Row::remaining).toList()));
+                sum(active.stream().map(PayableDto.Row::remaining).toList()),sum(active.stream().filter(PayableDto.Row::overdue).map(PayableDto.Row::remaining).toList()),SupplierVatReport.read(jdbc,school,year));
     }
     @Transactional(readOnly=true,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public Detail detail(Long school,Long id,Long actor,boolean admin) {
