@@ -35,7 +35,7 @@ class TeacherDailyToolsIntegrationTest {
   jdbc.update("INSERT INTO subjects(id,school_id,name) VALUES(501,101,'Maths'),(502,102,'Other')");
   jdbc.update("INSERT INTO teachers(id,user_id,school_id,employee_number) VALUES(201,105,101,'T1'),(202,106,101,'T2')");
   jdbc.update("INSERT INTO class_subject_teacher(id,class_id,subject_id,teacher_id,active) VALUES(601,301,501,201,true),(602,301,501,202,true)");
-  jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number) VALUES(701,107,101,'A'),(702,108,102,'Other'),(703,110,101,'B')");
+  jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number,first_name,last_name) VALUES(701,107,101,'A','Child','A'),(702,108,102,'Other','Child','Other'),(703,110,101,'B','Child','B')");
   jdbc.update("INSERT INTO student_enrollments(student_id,class_id,academic_year_id,status) VALUES(701,301,401,'ACTIVE'),(702,302,402,'ACTIVE'),(703,301,401,'ACTIVE')");
  }
  @BeforeEach void reset(){

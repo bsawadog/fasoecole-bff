@@ -44,7 +44,7 @@ class MessagingHttpIntegrationTest {
         jdbc.update("INSERT INTO academic_years(id,school_id,label,start_date,end_date,is_current) VALUES(2002,2001,'HTTP-test','2026-09-01','2027-07-01',true) ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO levels(id,school_id,name,cycle) VALUES(2004,2001,'CM1','PRIMAIRE') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO classes(id,school_id,academic_year_id,level_id,name) VALUES(2003,2001,2002,2004,'CM1') ON CONFLICT DO NOTHING");
-        jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number) VALUES(2005,2204,2001,'HTTP-CHILD') ON CONFLICT DO NOTHING");
+        jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number,first_name,last_name) VALUES(2005,2204,2001,'HTTP-CHILD','Child','A') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO teachers(id,user_id,school_id,employee_number) VALUES(2007,2202,2001,'HTTP-TEACHER') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO subjects(id,school_id,name) VALUES(2008,2001,'Maths') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO class_subject_teacher(id,class_id,subject_id,teacher_id) VALUES(2009,2003,2008,2007) ON CONFLICT DO NOTHING");
