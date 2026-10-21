@@ -350,13 +350,13 @@ public class OwnerFinanceService {
                 .map(link -> link.getParent().getUser().getEmail())
                 .filter(email -> email != null && !email.isBlank())
                 .forEach(recipients::add);
-        if (recipients.isEmpty() && student.getUser().getEmail() != null && !student.getUser().getEmail().isBlank()) {
-            recipients.add(student.getUser().getEmail());
+        if (recipients.isEmpty() && student.getEmail() != null && !student.getEmail().isBlank()) {
+            recipients.add(student.getEmail());
         }
         if (recipients.isEmpty()) {
             throw new IllegalArgumentException("Aucune adresse courriel n'est connue pour cet élève ou ses parents");
         }
-        String studentName = student.getUser().getFirstName() + " " + student.getUser().getLastName();
+        String studentName = student.getFirstName() + " " + student.getLastName();
         String schoolName = student.getSchool().getName();
         String body = "Bonjour,\n\n"
                 + "Sauf erreur de notre part, le frais suivant reste à régler pour " + studentName + " :\n\n"
@@ -414,7 +414,7 @@ public class OwnerFinanceService {
         long daysOverdue = invoice.getStatus() == InvoiceStatus.OVERDUE
                 ? ChronoUnit.DAYS.between(invoice.getDueDate(), today()) : 0;
         return new OwnerFinanceDto.InvoiceRow(invoice.getId(), student.getId(),
-                student.getUser().getFirstName() + " " + student.getUser().getLastName(),
+                student.getFirstName() + " " + student.getLastName(),
                 student.getRegistrationNumber(),
                 label == null ? null : label.classId(), label == null ? "Sans classe" : label.className(),
                 invoice.getFeeType().getId(), invoice.getFeeType().getName(), invoice.getAmountDue(),
@@ -432,7 +432,7 @@ public class OwnerFinanceService {
                 : invoice.netAmount().subtract(paidByInvoice.getOrDefault(invoice.getId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
         return new OwnerFinanceDto.PaymentRow(payment.getId(), payment.getReference(), payment.getPaymentDate(),
                 payment.getAmount(), payment.getMethod().name(), invoice.getId(), student.getId(),
-                student.getUser().getFirstName() + " " + student.getUser().getLastName(),
+                student.getFirstName() + " " + student.getLastName(),
                 student.getRegistrationNumber(), label == null ? "Sans classe" : label.className(),
                 invoice.getFeeType().getName(), invoice.netAmount(), balance);
     }

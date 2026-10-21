@@ -1166,7 +1166,8 @@ public class TeacherWorkService {
                 user.getEmail(), user.getPhone(), teacher.getSpecialty(), subjects, activeInClass, classCount,
                 user.getId(), user.getEmailVerified(), invitations.deliveryStatus(user.getId()), teacher.getEmployeeNumber(),
                 teacher.getTeachingSubjects().stream().sorted(Comparator.comparing(Subject::getName))
-                        .map(subject -> new TeacherWorkDto.TeachingSubject(subject.getId(), subject.getName())).toList());
+                        .map(subject -> new TeacherWorkDto.TeachingSubject(subject.getId(), subject.getName())).toList(),
+                user.getPasswordSet());
     }
 
     private TeacherWorkDto.SlotInfo toSlotInfo(TeacherScheduleSlot slot) {

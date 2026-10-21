@@ -27,7 +27,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
         JOIN FETCH s.user u
         JOIN FETCH i.feeType ft
         WHERE s.school.id = :schoolId
-        ORDER BY i.dueDate ASC, u.lastName ASC
+        ORDER BY i.dueDate ASC, s.lastName ASC
         """)
     List<Invoice> findAllWithDetailsBySchoolId(@Param("schoolId") Long schoolId);
 

@@ -73,7 +73,7 @@ public class TeacherSpaceService {
                 .collect(Collectors.toMap(a -> a.getStudent().getId(), a -> a, (a,b) -> b));
         return roster(classId).stream().map(enrollment -> {
             var student = enrollment.getStudent(); var row = recorded.get(student.getId());
-            return new org.afritechinnovations.dto.self.TeacherAttendanceDto.Item(student.getId(), fullName(student.getUser()),
+            return new org.afritechinnovations.dto.self.TeacherAttendanceDto.Item(student.getId(), student.getFullName(),
                     student.getRegistrationNumber(), row == null ? null : row.getStatus(), row == null ? null : row.getJustification());
         }).toList();
     }
@@ -149,7 +149,7 @@ public class TeacherSpaceService {
     public List<SelfServiceDto.RosterStudent> students(Long userId, Long classId) {
         requireTaughtClass(userId, classId);
         return roster(classId).stream()
-                .map(se -> new SelfServiceDto.RosterStudent(se.getStudent().getId(), fullName(se.getStudent().getUser()),
+                .map(se -> new SelfServiceDto.RosterStudent(se.getStudent().getId(), se.getStudent().getFullName(),
                         se.getStudent().getRegistrationNumber(), se.getStudent().getGender(),
                         se.getStudent().getBirthDate()))
                 .toList();
@@ -339,9 +339,9 @@ public class TeacherSpaceService {
         return studentEnrollmentRepository.findStudentsWithUserByClassIdAndStatusIn(classId, ROSTER_STATUSES).stream()
                 .collect(Collectors.toMap(se -> se.getStudent().getId(), se -> se, (a, b) -> a, LinkedHashMap::new))
                 .values().stream()
-                .sorted(Comparator.comparing((StudentEnrollment se) -> se.getStudent().getUser().getLastName(),
+                .sorted(Comparator.comparing((StudentEnrollment se) -> se.getStudent().getLastName(),
                                 String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(se -> se.getStudent().getUser().getFirstName(), String.CASE_INSENSITIVE_ORDER))
+                        .thenComparing(se -> se.getStudent().getFirstName(), String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }
 

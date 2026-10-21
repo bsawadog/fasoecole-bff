@@ -64,7 +64,7 @@ final class SchoolExportCatalog {
             FROM school_calendar_events e LEFT JOIN classes c ON c.id=e.class_id WHERE e.school_id=? ORDER BY e.starts_on,e.id
             """),
         new DataSheet("Discipline", """
-            SELECT s.registration_number "Matricule",concat(u.first_name,' ',u.last_name) "Élève",o.kind "Type",
+            SELECT s.registration_number "Matricule",concat(s.first_name,' ',s.last_name) "Élève",o.kind "Type",
             o.observed_on "Date",o.description "Observation",o.action "Mesure prise",o.shared_with_family "Partagé",o.resolved "Traité"
             FROM student_observations o JOIN students s ON s.id=o.student_id JOIN users u ON u.id=s.user_id WHERE o.school_id=? ORDER BY o.id
             """),
@@ -107,9 +107,9 @@ final class SchoolExportCatalog {
             FROM subjects WHERE school_id=? ORDER BY name,id
             """),
         new DataSheet("Élèves et étudiants","""
-            SELECT s.id "ID élève",s.registration_number "Matricule",u.first_name "Prénom",u.last_name "Nom",
-            s.birth_date "Naissance",s.gender "Genre",u.email "Courriel",u.phone "Téléphone",u.active "Compte actif",
-            u.created_at "Création du compte" FROM students s JOIN users u ON u.id=s.user_id WHERE s.school_id=? ORDER BY u.last_name,u.first_name,s.id
+            SELECT s.id "ID élève",s.registration_number "Matricule",s.first_name "Prénom",s.last_name "Nom",
+            s.birth_date "Naissance",s.gender "Genre",u.email "Courriel personnel",s.phone "Téléphone",u.active "Compte actif",
+            u.created_at "Création du compte" FROM students s JOIN users u ON u.id=s.user_id WHERE s.school_id=? ORDER BY s.last_name,s.first_name,s.id
             """),
         new DataSheet("Parents","""
             SELECT p.id "ID parent",u.first_name "Prénom",u.last_name "Nom",u.email "Courriel",u.phone "Téléphone",u.active "Compte actif"
@@ -120,7 +120,7 @@ final class SchoolExportCatalog {
             """),
         new DataSheet("Liens parents enfants","""
             SELECT ps.id "ID lien",p.id "ID parent",CONCAT_WS(' ',pu.first_name,pu.last_name) "Parent",pu.email "Courriel parent",
-            pu.phone "Téléphone parent",s.id "ID élève",s.registration_number "Matricule",CONCAT_WS(' ',su.first_name,su.last_name) "Élève",ps.relationship "Lien familial"
+            pu.phone "Téléphone parent",s.id "ID élève",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",ps.relationship "Lien familial"
             FROM parent_student ps JOIN parents p ON p.id=ps.parent_id JOIN users pu ON pu.id=p.user_id
             JOIN students s ON s.id=ps.student_id JOIN users su ON su.id=s.user_id WHERE s.school_id=? ORDER BY s.registration_number,ps.id
             """),
@@ -141,7 +141,7 @@ final class SchoolExportCatalog {
             FROM school_users su JOIN users u ON u.id=su.user_id JOIN roles r ON r.id=su.role_id WHERE su.school_id=? ORDER BY u.last_name,u.first_name,su.id
             """),
         new DataSheet("Inscriptions et passages","""
-            SELECT e.id "ID inscription",s.id "ID élève",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT e.id "ID inscription",s.id "ID élève",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             y.label "Année",c.name "Classe",l.name "Niveau",e.enrollment_date "Inscription",e.status "Statut",e.decision "Décision",
             e.decision_average "Moyenne de décision",e.decided_at "Décision enregistrée"
             FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN users u ON u.id=s.user_id
@@ -170,7 +170,7 @@ final class SchoolExportCatalog {
             JOIN users u ON u.id=t.user_id WHERE c.school_id=? ORDER BY y.start_date,c.name,e.eval_date,e.id
             """),
         new DataSheet("Notes","""
-            SELECT g.id "ID note",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",y.label "Année",
+            SELECT g.id "ID note",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",y.label "Année",
             c.name "Classe",sub.name "Matière",g.term "Période historique",p.name "Période",e.title "Évaluation",g.type "Type",
             g.value "Note",g.max_value "Barème",e.weight "Poids",g.grade_date "Date",g.appreciation "Appréciation"
             FROM grades g JOIN students s ON s.id=g.student_id JOIN users u ON u.id=s.user_id
@@ -180,7 +180,7 @@ final class SchoolExportCatalog {
             WHERE s.school_id=? ORDER BY y.start_date,c.name,s.registration_number,g.grade_date,g.id
             """),
         new DataSheet("Historique des notes","""
-            SELECT h.id "ID historique",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT h.id "ID historique",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             y.label "Année",c.name "Classe",p.name "Période",h.evaluation_title "Évaluation",h.action "Action",h.old_value "Ancienne note",
             h.new_value "Nouvelle note",h.reason "Motif",h.changed_by_name "Auteur",h.changed_at "Date"
             FROM grade_history h JOIN students s ON s.id=h.student_id JOIN users u ON u.id=s.user_id
@@ -188,7 +188,7 @@ final class SchoolExportCatalog {
             LEFT JOIN grade_periods p ON p.id=h.period_id AND p.school_id=s.school_id WHERE s.school_id=? ORDER BY h.changed_at,h.id
             """),
         new DataSheet("Bulletins","""
-            SELECT r.id "ID bulletin",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",y.label "Année",
+            SELECT r.id "ID bulletin",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",y.label "Année",
             c.name "Classe",r.term "Période historique",p.name "Période",r.average "Moyenne",r.rank "Rang",r.class_size "Effectif",
             r.mention "Mention",r.comment "Commentaire",r.validated "Validé",r.generated_at "Génération"
             FROM report_cards r JOIN students s ON s.id=r.student_id JOIN users u ON u.id=s.user_id
@@ -197,14 +197,14 @@ final class SchoolExportCatalog {
             WHERE s.school_id=? ORDER BY y.start_date,s.registration_number,r.id
             """),
         new DataSheet("Présences","""
-            SELECT a.id "ID présence",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT a.id "ID présence",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             y.label "Année",c.name "Classe",a.attendance_date "Date",a.status "Statut",a.justification "Justification"
             FROM attendances a JOIN students s ON s.id=a.student_id JOIN users u ON u.id=s.user_id
             JOIN classes c ON c.id=a.class_id AND c.school_id=s.school_id JOIN academic_years y ON y.id=c.academic_year_id
             WHERE s.school_id=? ORDER BY a.attendance_date,c.name,s.registration_number,a.id
             """),
         new DataSheet("Signalements","""
-            SELECT r.id "ID signalement",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT r.id "ID signalement",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             r.attendance_type "Type",r.start_date "Début",r.end_date "Fin",r.reason "Motif",r.status "Statut",
             CONCAT_WS(' ',pu.first_name,pu.last_name) "Signalé par",r.created_at "Signalement",r.school_comment "Commentaire établissement",
             CONCAT_WS(' ',hu.first_name,hu.last_name) "Traité par",r.handled_at "Traitement"
@@ -249,7 +249,7 @@ final class SchoolExportCatalog {
             FROM fee_types f LEFT JOIN levels l ON l.id=f.level_id AND l.school_id=f.school_id WHERE f.school_id=? ORDER BY f.name,f.id
             """),
         new DataSheet("Factures","""
-            SELECT i.id "ID facture",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",y.label "Année",
+            SELECT i.id "ID facture",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",y.label "Année",
             f.name "Frais",i.amount_due "Montant brut",i.discount_amount "Réduction",i.discount_reason "Motif réduction",
             i.amount_due-i.discount_amount "Montant net",COALESCE(p.paid,0) "Total payé",
             CASE WHEN i.status='CANCELLED' THEN 0 ELSE GREATEST(i.amount_due-i.discount_amount-COALESCE(p.paid,0),0) END "Reste à payer",
@@ -261,13 +261,13 @@ final class SchoolExportCatalog {
             WHERE s.school_id=? ORDER BY y.start_date,s.registration_number,i.id
             """),
         new DataSheet("Paiements élèves","""
-            SELECT p.id "ID paiement",i.id "ID facture",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT p.id "ID paiement",i.id "ID facture",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             y.label "Année de la facture",p.payment_date "Date paiement",p.amount "Montant",p.method "Mode",p.reference "Référence"
             FROM payments p JOIN invoices i ON i.id=p.invoice_id JOIN students s ON s.id=i.student_id JOIN users u ON u.id=s.user_id
             JOIN academic_years y ON y.id=i.academic_year_id AND y.school_id=s.school_id WHERE s.school_id=? ORDER BY p.payment_date,p.id
             """),
         new DataSheet("Impayés reportés","""
-            SELECT y.label "Année de report",i.id "ID facture originale",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT y.label "Année de report",i.id "ID facture originale",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             oy.label "Année de la facture",r.amount_at_closure "Solde au report",
             CASE WHEN i.status='CANCELLED' THEN 0 ELSE GREATEST(i.amount_due-i.discount_amount-COALESCE(p.paid,0),0) END "Solde actuel"
             FROM academic_year_receivables r JOIN academic_years y ON y.id=r.academic_year_id JOIN invoices i ON i.id=r.invoice_id
@@ -322,7 +322,7 @@ final class SchoolExportCatalog {
         new DataSheet("Documents portail","SELECT f.id \"ID fichier\",p.id \"ID publication\",p.title \"Publication\",f.filename \"Nom fichier\",f.size_bytes \"Taille octets\","
             +PORTAL_PATH+" \"Chemin dans ZIP\" FROM parent_portal_files f JOIN parent_portal_posts p ON p.id=f.post_id WHERE p.school_id=? ORDER BY p.id,f.id"),
         new DataSheet("Rendez-vous","""
-            SELECT a.id "ID rendez-vous",s.registration_number "Matricule",CONCAT_WS(' ',u.first_name,u.last_name) "Élève",
+            SELECT a.id "ID rendez-vous",s.registration_number "Matricule",CONCAT_WS(' ',s.first_name,s.last_name) "Élève",
             CONCAT_WS(' ',pu.first_name,pu.last_name) "Parent",CONCAT_WS(' ',tu.first_name,tu.last_name) "Enseignant",
             a.proposed_at "Date proposée",a.reason "Motif",a.status "Statut",a.response "Réponse",a.created_at "Demande"
             FROM parent_appointments a JOIN students s ON s.id=a.student_id AND s.school_id=a.school_id JOIN users u ON u.id=s.user_id

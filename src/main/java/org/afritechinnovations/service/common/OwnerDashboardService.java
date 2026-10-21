@@ -184,7 +184,7 @@ public class OwnerDashboardService {
 
     private List<OwnerDashboardDto.HandledAttendanceReport> handledAttendanceReports(Long schoolId, LocalDate date) {
         return jdbcTemplate.query("""
-                SELECT r.id, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                SELECT r.id, CONCAT(s.first_name, ' ', s.last_name) AS student_name,
                        r.attendance_type, r.start_date, r.end_date, r.handled_at
                 FROM absence_reports r
                 JOIN students s ON s.id = r.student_id
@@ -202,7 +202,7 @@ public class OwnerDashboardService {
 
     private List<OwnerDashboardDto.PendingAttendanceReport> pendingAttendanceReports(Long schoolId, LocalDate date) {
         return jdbcTemplate.query("""
-                SELECT r.id, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                SELECT r.id, CONCAT(s.first_name, ' ', s.last_name) AS student_name,
                        r.attendance_type, r.start_date, r.end_date, r.created_at
                 FROM absence_reports r
                 JOIN students s ON s.id = r.student_id
@@ -241,7 +241,7 @@ public class OwnerDashboardService {
 
     private List<OwnerDashboardDto.RecentPayment> recentPayments(Long schoolId, Long yearId) {
         return jdbcTemplate.query("""
-                SELECT p.id, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                SELECT p.id, CONCAT(s.first_name, ' ', s.last_name) AS student_name,
                        p.amount, p.payment_date, p.method, p.reference
                 FROM payments p
                 JOIN invoices i ON i.id = p.invoice_id

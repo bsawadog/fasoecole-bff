@@ -1,5 +1,27 @@
 # FasoEcole
 
+## Récupération assistée des comptes apprenants
+
+Sur la page de connexion, **Courriel et mot de passe oubliés ? Récupérer mon compte** ouvre le formulaire public : établissement, matricule, prénom, nom, nouvelle adresse accessible et motif. La réponse reste générique, sans révéler l’existence du compte ni son ancienne adresse. Une demande correspondant au dossier apparaît dans **Demandes de compte → Récupération des comptes apprenants** ; les demandes répétées en attente ne créent pas de doublon. Aucun identifiant ne change à la soumission.
+
+Le propriétaire vérifie l’identité par les informations et coordonnées déjà enregistrées, notamment auprès du responsable légal pour un mineur, puis consigne ses vérifications et confirme les avoir effectuées. Un compte limité aux écoles de ce propriétaire peut être approuvé par celui-ci. Les comptes liés à un autre propriétaire, à un rôle parent/enseignant ou administratif, ou à un propriétaire même sans indicateur global, passent au support. Le super-administrateur dispose de la file globale dans **Administration → Récupérations de compte — Support**, qui mène à `/admin/demandes`. Les agents délégués ne disposent pas de ces décisions.
+
+Après approbation, un lien à usage unique valable une heure est envoyé à la nouvelle adresse et une notification à l’ancienne. L’adresse actuelle et le mot de passe restent utilisables jusqu’à la confirmation. Le titulaire ouvre le lien et choisit son nouveau mot de passe ; la nouvelle adresse devient alors celle du compte dans tous les établissements. Les anciennes sessions, vérifications, réinitialisations et autres récupérations en attente sont invalidées. Dossiers, identifiants, inscriptions et droits sont conservés. Une adresse appartenant à un autre compte est refusée, sans fusion automatique.
+
+Le propriétaire ou le support peut refuser une demande, annuler un lien approuvé encore inutilisé ou réessayer un envoi échoué. Un renvoi remplace le précédent lien ; une vérification de plus de 24 heures nécessite une nouvelle demande. L’historique conserve les décisions, auteurs, notes, envois et confirmation. Les listes affichent les 100 demandes les plus récentes. Les formulaires publics bénéficient de la limite de tentatives des routes d’authentification ; les demandes et envois sont aussi limités par compte.
+
+Redémarrer le BFF pour appliquer **Flyway V62**, puis déployer le frontend reconstruit. Les tables `account_recovery_requests` et `account_recovery_events` conservent les demandes et leur audit. API publiques : `POST /api/auth/account-recovery` et `POST /api/auth/account-recovery/complete`. API de traitement authentifiées : `GET /api/account-recovery`, `POST /api/account-recovery/{id}/decision` et `POST /api/account-recovery/{id}/resend`.
+
+Validation PostgreSQL sur base jetable exclusivement : `AccountRecoveryPostgresTest` avec `-DaccountRecoveryTestUrl=jdbc:postgresql://127.0.0.1:PORT/account_recovery_test`. Le test utilise un serveur jetable avec identifiants de test, vérifie les migrations, les transactions JPA, la conservation des dossiers et l’invalidation des anciens liens. Il n’est pas exécuté contre une base d’école.
+
+## Alertes d’erreur et assistance
+
+Les erreurs générales s’affichent dans une modale avec le message précis de l’API, plutôt que dans une bannière persistante. Fermer la modale, y compris avec Échap, efface l’erreur de la page et permet de reprendre les actions sans perdre les valeurs du formulaire. Les erreurs de validation propres aux champs restent affichées près des champs concernés.
+
+Le courriel personnel de l’apprenant appartient à son compte et sert à la connexion dans tous ses établissements. Avant activation, le propriétaire peut corriger une erreur de saisie depuis Élèves par classe → Actions → Modifier : l’ancien lien est invalidé et une nouvelle invitation est envoyée. Dès que le titulaire a choisi un mot de passe ou confirmé son adresse, le courriel devient en lecture seule dans la fiche scolaire ; il se modifie depuis « Mon profil » avec confirmation de la nouvelle adresse. Les autres informations du dossier scolaire restent propres à l’établissement. Un compte non activé partagé entre les écoles du même propriétaire peut être corrigé : le courriel commun change dans tous ses dossiers. Les comptes liés à un autre propriétaire, avec d’autres rôles ou avec un accès propriétaire/administrateur restent protégés.
+
+La modale propose le support technique. Depuis les espaces propriétaire et administration, **Ouvrir un incident** mène au module Incidents ; pour un propriétaire, le formulaire s’ouvre avec la page d’origine renseignée. Aucun incident n’est envoyé sans validation du formulaire. Les profils sans accès au module Incidents disposent du lien de contact public, sans élargissement de leurs droits. Recharger le frontend ou reconstruire puis publier sa version déployée ; aucune migration de base de données n’est nécessaire.
+
 ## Personnel et accès : annuaire unifié et modification des employés
 
 **Personnel et accès** affiche tous les employés de l’établissement, enseignants compris et même sans module délégué. Une personne qui cumule enseignement et fonction administrative apparaît une seule fois. La liste présente les coordonnées, fonctions, rémunération, modules attribués et statut de l’accès, avec recherche et filtre « avec/sans accès ». La liste « Tous les employés » ouvre le même éditeur.
@@ -242,7 +264,9 @@ Le lien expire après 30 minutes par défaut (`PASSWORD_RESET_TOKEN_EXPIRATION_M
 
 Lors de l'inscription, l'utilisateur choisit l'établissement concerné afin que seul son propriétaire reçoive la demande. Le propriétaire choisit le rôle et peut affecter le compte à l'un de ses établissements lors de l'approbation.
 
-Pour tester la réception, inscrivez `boubacar.sawadogo02@gmail.com` et demandez une réinitialisation après approbation du compte. L'adresse SMTP est l'expéditeur ; ne configurez pas une redirection globale des messages vers l'adresse de test.
+Pour tester la réception avec le profil `local` seul, demandez une réinitialisation avec l'adresse d'un compte actif, même fictive : la destination SMTP est redirigée vers `boubacar.sawadogo02@gmail.com` (voir `MAIL_TEST_RECIPIENT` plus bas). Saisissez l'adresse du compte à réinitialiser, pas celle de la boîte de réception de test. L'adresse du compte et son mot de passe ne changent pas avant utilisation du lien.
+
+Les variables SMTP d'une configuration IntelliJ ne sont pas transmises à un lancement Maven dans un autre terminal. Utilisez la configuration Spring Boot **Fasoecole**, avec le profil `local` et ses variables SMTP, ou fournissez ces mêmes variables au processus Maven. Une réponse HTTP 202 ne prouve pas l'envoi : la réponse publique reste générique ; vérifiez les erreurs `Password reset email delivery failed` dans la console du backend.
 
 ### Comptes locaux de démonstration
 
@@ -358,7 +382,7 @@ ni l'exécution des migrations ni les valeurs de la base réelle.
 | --- | --- | --- |
 | Inscription publique enseignant, parent ou élève | Le titulaire choisit son mot de passe puis confirme son courriel | Approbation du propriétaire ; le parent lié à un enfant peut recevoir un accès automatique tracé |
 | Enseignant créé par l'établissement | Invitation par courriel ; le titulaire choisit son mot de passe | Profil et affectation classe/matière créés par l'établissement |
-| Élève créé par l'établissement | Invitation par courriel ; le titulaire choisit son mot de passe | Dossier, matricule, année et inscription active créés ensemble |
+| Élève créé par l'établissement | Courriel personnel unique ; activation explicite depuis Actions → Accès de connexion | Dossier, matricule, année et inscription active créés ensemble ; aucun rattachement automatique par courriel |
 | Parent ajouté à un enfant | Invitation si un courriel est fourni ; réutilisation du compte existant par courriel | Rattachement explicite à l'enfant ; preuve du courriel exigée pour l'accès automatique |
 | Personnel administratif | Invitation ou notification d'accès pour un compte déjà vérifié | Modules limités par la délégation du propriétaire |
 | Compte créé directement par la plateforme | Invitation ; aucun mot de passe transmis par l'administrateur | Les rôles sont attribués séparément par la plateforme |
@@ -672,6 +696,16 @@ Dans Dépenses & budget → Dépenses à payer → Ajouter une dépense (ou Ajou
 Les taxes sont conservées dans les détails et réparties entre les versements partiels, avec régularisation des arrondis au dernier paiement. Les paiements et registres conservent leur montant TTC effectivement payé, sans ajout de taxe une seconde fois. Cette saisie ne crée pas de reversement fiscal. Les dépenses déjà payées disposent toujours de leur formulaire de facture et de retenues distinct. Redémarrer le BFF pour appliquer Flyway V59 (expense_taxes).
 
 Validation PostgreSQL sur base jetable locale : PayableTaxesIntegrationTest avec -DpayableTaxesTestUrl=jdbc:postgresql://127.0.0.1:PORT/payable_taxes_test.
+
+### Courriel personnel unique et dossiers scolaires indépendants
+
+Le prénom, le nom, le téléphone, le matricule et les données scolaires du dossier restent propres à l’établissement. Le courriel personnel provient exclusivement du compte (`users.email`) : c’est la même adresse dans les fiches scolaires et pour la connexion. Les adresses des parents se renseignent sur les fiches parent. Un apprenant sans courriel peut être inscrit sans créer une adresse fictive.
+
+La création et l’import refusent une adresse déjà associée à un compte, sans fusion automatique. Pour rejoindre une autre école avec son compte existant, l’apprenant demande l’accès avec son matricule et l’école approuve le rattachement. Dans Élèves par classe → Actions → Accès de connexion, l’école peut renseigner le premier courriel d’un compte sans adresse ou envoyer un lien d’activation/réinitialisation à l’adresse existante. Le propriétaire (ou le super-administrateur) peut corriger le courriel depuis Actions → Modifier uniquement si `passwordSet=false` et `emailVerified=false`, pour un compte actif dont tous les dossiers et accès élève appartiennent aux écoles de ce propriétaire. Les agents délégués ne disposent pas de cette correction. Une adresse déjà utilisée est refusée. Les anciennes invitations et réinitialisations sont invalidées, même si le nouvel envoi échoue ou est temporairement limité ; la correction reste enregistrée et l’envoi peut être repris dans Accès de connexion. Aucune nouvelle migration n’est nécessaire pour cette correction avant activation.
+
+Dans Mon profil → Changer mon courriel personnel, le titulaire confirme son mot de passe actuel. `POST /api/users/me/email-change` envoie un jeton à la nouvelle adresse ; l’ancienne reste utilisable tant que le jeton n’est pas confirmé. La confirmation vérifie à nouveau la disponibilité de l’adresse, change le courriel pour tous les établissements, invalide les sessions et anciens liens de réinitialisation, puis impose une reconnexion. Un changement de mot de passe invalide aussi un changement de courriel en attente. Un échec d’envoi ne modifie pas l’adresse actuelle.
+
+Redémarrer le BFF pour appliquer V60 et V61, puis déployer le frontend reconstruit. V60 conserve les données scolaires ; ses anciennes copies du courriel restent archivées en base, sans usage fonctionnel. V61 ajoute les données nécessaires aux jetons de changement de courriel. Aucun compte, dossier, inscription, note, paiement ou accès existant n’est supprimé ni fusionné automatiquement.
 
 ### État de TVA fournisseurs
 

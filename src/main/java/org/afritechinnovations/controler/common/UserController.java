@@ -64,6 +64,12 @@ public class UserController {
         return userService.findActive();
     }
 
+    @PostMapping("/me/email-change")
+    public java.util.Map<String, Boolean> changeEmail(
+            @Valid @RequestBody org.afritechinnovations.dto.common.ChangeEmailRequest request) {
+        return java.util.Map.of("emailSent", userService.requestEmailChange(guard.currentUserId(), request.email(), request.currentPassword()));
+    }
+
     @PostMapping("/me/owner-account")
     public UserDto becomeOwner() {
         return userService.enableOwnerAccount(guard.currentUserId());

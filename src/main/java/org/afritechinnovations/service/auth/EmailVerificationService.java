@@ -46,11 +46,69 @@ public class EmailVerificationService {
     private final ParentAutoAccessService parentAutoAccessService;
     private final org.afritechinnovations.security.AuthAttemptLimiter mailAttempts;
 
+    private final org.afritechinnovations.repository.common.PasswordResetTokenRepository passwordResetTokens;
+
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
 
     @Value("${app.email-verification.token-expiration-hours:24}")
     private long expirationHours = 24;
+
+    @Transactional
+    public boolean correctUnactivatedEmail(Long userId, String email) {
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+        if (!Boolean.TRUE.equals(user.getActive()) || !Boolean.FALSE.equals(user.getPasswordSet())
+                || !Boolean.FALSE.equals(user.getEmailVerified()))
+            throw new IllegalArgumentException("Ce compte est déjà activé ou pris en main. Son titulaire doit modifier son courriel depuis Mon profil.");
+        String address = email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
+        if (address.isBlank() || address.length() > 150 || !address.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"))
+            throw new IllegalArgumentException("Renseignez un courriel personnel valide pour envoyer la nouvelle invitation.");
+        if (userRepository.findByEmailIgnoreCase(address).filter(existing -> !existing.getId().equals(userId)).isPresent())
+            throw new IllegalArgumentException("Ce courriel est déjà utilisé par un autre compte. Aucun rattachement automatique n’a été effectué.");
+        EmailVerificationToken previous = tokenRepository.findByUserId(userId).orElse(null);
+        Long schoolId = previous == null ? null : previous.getRequestedSchoolId();
+        RoleName role = previous == null ? null : previous.getRequestedRole();
+        var childNumbers = previous == null ? java.util.List.<String>of() : java.util.List.copyOf(previous.getChildRegistrationNumbers());
+        String identifier = previous == null ? null : previous.getSchoolIdentifier();
+        user.setEmail(address); user.setEmailVerified(false); user.revokeSessions();
+        userRepository.saveAndFlush(user);
+        tokenRepository.deleteByUserId(userId); tokenRepository.flush();
+        passwordResetTokens.deleteByUserId(userId);
+        return sendActivation(user, schoolId, role, childNumbers, identifier);
+    }
+
+    @Transactional
+    public boolean requestEmailChange(Long userId, String email, String currentPassword) {
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+        if (!Boolean.TRUE.equals(user.getActive()) || !Boolean.TRUE.equals(user.getPasswordSet())
+                || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new IllegalArgumentException("Le mot de passe actuel est incorrect ou le compte est inactif.");
+        }
+        String address = email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
+        if (address.isBlank() || address.length() > 150 || !address.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"))
+            throw new IllegalArgumentException("Renseignez un courriel valide.");
+        if (address.equalsIgnoreCase(user.getEmail())) throw new IllegalArgumentException("Cette adresse est déjà votre courriel personnel.");
+        if (userRepository.findByEmailIgnoreCase(address).isPresent()) throw new IllegalArgumentException("Ce courriel est déjà utilisé par un autre compte.");
+        if (!mailAttempts.allow("account-mail:" + userId, 3)) return false;
+        String raw = store(user, EmailVerificationToken.Purpose.CHANGE_EMAIL, null, null);
+        EmailVerificationToken token = tokenRepository.findByTokenHash(hash(raw)).orElseThrow();
+        token.setPreviousEmail(user.getEmail());
+        token.setRequestSessionVersion(user.getSessionVersion());
+        token.setRecipientEmail(address);
+        tokenRepository.save(token);
+        try {
+            emailService.sendText(address, "Confirmez votre nouveau courriel FasoÉcole",
+                    "Bonjour %s,\n\nPour remplacer votre courriel personnel dans tous vos établissements, confirmez la nouvelle adresse :\n%s\n\nCe lien expire dans %d heures. Votre adresse actuelle reste utilisable jusqu’à confirmation. Si vous n’avez pas demandé ce changement, ignorez ce message."
+                            .formatted(user.getFirstName(), link("verify", raw), expirationHours));
+            token.setDeliveryStatus("SENT"); tokenRepository.save(token);
+            return true;
+        } catch (MailException ex) {
+            token.setDeliveryStatus("FAILED"); tokenRepository.save(token);
+            return false;
+        }
+    }
 
     /** Envoie (ou renvoie) le lien de confirmation d'adresse. Sans effet si l'adresse est déjà vérifiée. */
     @Transactional
@@ -155,6 +213,20 @@ public class EmailVerificationService {
             throw new IllegalArgumentException("Lien de vérification invalide ou expiré");
         }
         User user = token.getUser();
+        if (token.getPurpose() == EmailVerificationToken.Purpose.CHANGE_EMAIL) {
+            user = userRepository.findByIdForUpdate(user.getId()).orElseThrow();
+            if (!Boolean.TRUE.equals(user.getActive()) || token.getRecipientEmail() == null
+                    || !java.util.Objects.equals(token.getPreviousEmail(), user.getEmail())
+                    || !java.util.Objects.equals(token.getRequestSessionVersion(), user.getSessionVersion()))
+                throw new IllegalArgumentException("Lien de changement de courriel invalide ou expiré");
+            if (userRepository.findByEmailIgnoreCase(token.getRecipientEmail()).isPresent())
+                throw new IllegalArgumentException("Ce courriel est déjà utilisé. Demandez un nouveau lien depuis Mon profil.");
+            user.setEmail(token.getRecipientEmail()); user.setEmailVerified(true); user.revokeSessions();
+            userRepository.saveAndFlush(user);
+            passwordResetTokens.deleteByUserId(user.getId());
+            tokenRepository.delete(token);
+            return;
+        }
         if (token.getRequestedRole() != null) org.afritechinnovations.security.RegistrationRoles.requireAllowed(token.getRequestedRole());
         if (token.getRecipientEmail() == null || !token.getRecipientEmail().equalsIgnoreCase(user.getEmail())) {
             throw new IllegalArgumentException("Lien de vérification invalide ou expiré");

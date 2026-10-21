@@ -58,6 +58,7 @@ class ClassRosterRoleAssignmentTest {
         existingParent = Parent.builder().id(30L).user(User.builder().id(31L).email("parent@test.bf").build()).build();
         when(classes.findById(11L)).thenReturn(Optional.of(schoolClass));
         when(students.findById(20L)).thenReturn(Optional.of(student));
+        when(users.findByIdForUpdate(10L)).thenReturn(Optional.of(owner));
         when(enrollments.findByStudentId(20L)).thenReturn(List.of(StudentEnrollment.builder()
                 .student(student).schoolClass(schoolClass).status(EnrollmentStatus.ACTIVE).build()));
         when(roles.findByName("PARENT")).thenReturn(Optional.of(Role.builder().name("PARENT").build()));
@@ -141,13 +142,173 @@ class ClassRosterRoleAssignmentTest {
         verify(memberships, never()).delete(parentRole); verify(users, never()).deleteById(anyLong());
     }
 
-    @Test
-    void sharedAccountIdentityCannotBeOverwrittenFromAStudentDossier() {
-        student.setUser(owner);
-        when(users.findById(owner.getId())).thenReturn(Optional.of(owner));
+    private org.afritechinnovations.dto.people.UpdateStudentProfileRequest profile(String email) {
         var request = new org.afritechinnovations.dto.people.UpdateStudentProfileRequest();
-        request.setFirstName("Different"); request.setLastName("Name"); request.setEmail(owner.getEmail());
-        assertThrows(IllegalArgumentException.class, () -> service.updateStudentProfile(11L, 20L, request, 10L, false));
-        assertEquals("Boubacar", owner.getFirstName()); verify(users, never()).save(any());
+        request.setFirstName("Local"); request.setLastName("Student");
+        request.setEmail(email); request.setRegistrationNumber("MAT-20");
+        return request;
+    }
+
+    @Test
+    void editingOneSchoolDoesNotChangeTheOtherSchoolOrLogin() {
+        User pupil = User.builder().id(21L).firstName("Ali").lastName("Kabore")
+                .email("login@test.bf").emailVerified(true).build();
+        student.setUser(pupil); student.initializeSchoolIdentity();
+        Student other = Student.builder().id(22L).user(pupil)
+                .school(School.builder().id(2L).owner(owner).build()).build();
+        other.initializeSchoolIdentity();
+        service.updateStudentProfile(11L, 20L, profile("login@test.bf"), 10L, false);
+        assertEquals("login@test.bf", student.getEmail());
+        assertEquals("Local", student.getFirstName());
+        assertEquals("Ali", other.getFirstName());
+        assertEquals("login@test.bf", other.getEmail());
+        assertEquals("login@test.bf", pupil.getEmail());
+        assertTrue(pupil.getEmailVerified());
+        assertEquals(0, pupil.getSessionVersion());
+        verify(users, never()).save(any()); verify(invitations, never()).sendInvitation(any());
+    }
+
+    @Test
+    void editingAnOwnerStudentDossierDoesNotChangeTheirAccount() {
+        student.setUser(owner);
+        service.updateStudentProfile(11L, 20L, profile(owner.getEmail()), 10L, false);
+        assertEquals("Local", student.getFirstName());
+        assertEquals("Boubacar", owner.getFirstName());
+        assertEquals("admin@fasoecole.com", owner.getEmail());
+        verify(users, never()).save(any()); verify(invitations, never()).sendInvitation(any());
+    }
+
+    @Test
+    void ownerCanCorrectEmailBeforeActivation() {
+        var account = student.getUser(); account.setPasswordSet(false);
+        account.setEmail("typo@test.bf");
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(account));
+        when(invitations.correctUnactivatedEmail(21L, "correct@test.bf")).thenAnswer(call -> {
+            account.setEmail("correct@test.bf"); return true;
+        });
+        var row = service.updateStudentProfile(11L, 20L, profile("correct@test.bf"), 10L, false);
+        assertEquals("correct@test.bf", row.email());
+        verify(invitations).correctUnactivatedEmail(21L, "correct@test.bf");
+    }
+
+    @Test
+    void ownerCanCorrectAnUnactivatedAccountSharedBetweenTheirSchools() {
+        var account = student.getUser(); account.setPasswordSet(false); account.setEmail("typo@test.bf");
+        School secondSchool = School.builder().id(2L).owner(owner).build();
+        Student second = Student.builder().id(22L).school(secondSchool).user(account)
+                .firstName("Other local name").lastName("Test").registrationNumber("OTHER-22").build();
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(account));
+        var role = Role.builder().name("STUDENT").build();
+        when(memberships.findByUserId(21L)).thenReturn(List.of(
+                SchoolUser.builder().school(school).role(role).build(),
+                SchoolUser.builder().school(secondSchool).role(role).build()));
+        when(students.findAllByUserId(21L)).thenReturn(List.of(student, second));
+        when(invitations.correctUnactivatedEmail(21L, "correct@test.bf")).thenAnswer(call -> {
+            account.setEmail("correct@test.bf"); return true;
+        });
+        var row = service.updateStudentProfile(11L, 20L, profile("correct@test.bf"), 10L, false);
+        assertEquals("correct@test.bf", row.email());
+        assertEquals("correct@test.bf", second.getEmail());
+        assertEquals("Other local name", second.getFirstName());
+        assertEquals("OTHER-22", second.getRegistrationNumber());
+        verify(students, never()).save(second);
+        verify(invitations).correctUnactivatedEmail(21L, "correct@test.bf");
+    }
+
+    @Test
+    void ownerCannotCorrectEmailForAnUnactivatedAccountInAnotherOwnersSchool() {
+        student.getUser().setPasswordSet(false);
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(student.getUser()));
+        when(students.findAllByUserId(21L)).thenReturn(List.of(student, Student.builder().id(22L)
+                .school(School.builder().id(2L).owner(User.builder().id(99L).build()).build()).build()));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile("correct@test.bf"), 10L, false));
+        verify(invitations, never()).correctUnactivatedEmail(anyLong(), anyString());
+    }
+
+    @Test
+    void anotherSchoolMembershipAlsoPreventsOwnerEmailCorrection() {
+        student.getUser().setPasswordSet(false);
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(student.getUser()));
+        when(memberships.findByUserId(21L)).thenReturn(List.of(SchoolUser.builder()
+                .school(School.builder().id(2L).owner(User.builder().id(99L).build()).build())
+                .role(Role.builder().name("STUDENT").build()).build()));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile("correct@test.bf"), 10L, false));
+        verify(invitations, never()).correctUnactivatedEmail(anyLong(), anyString());
+    }
+
+    @Test
+    void additionalParentRoleStillPreventsUnactivatedStudentEmailCorrection() {
+        student.getUser().setPasswordSet(false);
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(student.getUser()));
+        when(memberships.findByUserId(21L)).thenReturn(List.of(SchoolUser.builder().school(school)
+                .role(Role.builder().name("PARENT").build()).build()));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile("correct@test.bf"), 10L, false));
+        verify(invitations, never()).correctUnactivatedEmail(anyLong(), anyString());
+    }
+
+    @Test
+    void staffWithStudentAccessCannotCorrectAnAccountEmail() {
+        when(permissions.staffAllows(1L, 99L, org.afritechinnovations.model.common.StaffModule.STUDENTS)).thenReturn(true);
+        assertThrows(AccessDeniedException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile("correct@test.bf"), 99L, false));
+        verify(invitations, never()).correctUnactivatedEmail(anyLong(), anyString());
+    }
+
+    @Test
+    void schoolCannotChangeOrClearThePersonalEmail() {
+        student.setUser(owner); student.initializeSchoolIdentity();
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile(null), 10L, false));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile("other@test.bf"), 10L, false));
+        assertEquals(owner.getEmail(), student.getEmail());
+        assertEquals("admin@fasoecole.com", owner.getEmail());
+    }
+
+    @Test
+    void cannotEditAStudentFromAnotherSchool() {
+        student.setSchool(School.builder().id(2L).owner(owner).build());
+        assertThrows(AccessDeniedException.class,
+                () -> service.updateStudentProfile(11L, 20L, profile("local@test.bf"), 10L, false));
+        verify(students, never()).save(any());
+    }
+
+    @Test
+    void explicitActivationAssignsTheSinglePersonalEmail() {
+        student.getUser().setPasswordSet(false);
+        student.setFirstName("Local"); student.setLastName("Student"); student.setEmail("contact@test.bf");
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(student.getUser()));
+        when(invitations.sendInvitation(student.getUser())).thenReturn(true);
+        var result = service.inviteStudentAccount(11L, 20L, " LOGIN@test.bf ", 10L, false);
+        assertTrue(result.emailSent());
+        assertEquals("login@test.bf", result.student().accountEmail());
+        assertEquals("login@test.bf", result.student().email());
+        verify(users).saveAndFlush(student.getUser());
+    }
+
+    @Test
+    void activationNeverLinksAnExistingAccountByEmail() {
+        student.getUser().setPasswordSet(false);
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(student.getUser()));
+        when(users.findByEmailIgnoreCase(owner.getEmail())).thenReturn(Optional.of(owner));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inviteStudentAccount(11L, 20L, owner.getEmail(), 10L, false));
+        assertNull(student.getUser().getEmail());
+        assertEquals(21L, student.getUser().getId());
+        verify(users, never()).saveAndFlush(any()); verifyNoInteractions(invitations);
+    }
+
+    @Test
+    void activationCannotRepurposeALegacySharedAccount() {
+        student.getUser().setPasswordSet(false);
+        when(users.findByIdForUpdate(21L)).thenReturn(Optional.of(student.getUser()));
+        when(students.findAllByUserId(21L)).thenReturn(List.of(student,
+                Student.builder().id(22L).user(student.getUser()).build()));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.inviteStudentAccount(11L, 20L, "login@test.bf", 10L, false));
+        verify(users, never()).saveAndFlush(any()); verifyNoInteractions(invitations);
     }
 }

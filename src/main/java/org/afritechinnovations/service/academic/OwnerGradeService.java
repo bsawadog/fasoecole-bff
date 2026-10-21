@@ -465,7 +465,7 @@ public class OwnerGradeService {
         requireOwnedPeriod(periodId, ownerId, systemAdmin);
         Map<Long, String> names = new HashMap<>();
         for (StudentEnrollment se : studentEnrollmentRepository.findAllWithStudentByClassId(classId)) {
-            names.put(se.getStudent().getId(), fullName(se.getStudent().getUser()));
+            names.put(se.getStudent().getId(), se.getStudent().getFullName());
         }
         return gradeHistoryRepository.findTop300ByClassIdAndPeriodIdOrderByChangedAtDescIdDesc(classId, periodId)
                 .stream()
@@ -641,7 +641,7 @@ public class OwnerGradeService {
             ReportCard card = cards.get(student.getId());
             long[] counts = attendance.getOrDefault(student.getId(), new long[3]);
             boolean passed = general != null && general >= c.passMark();
-            bulletins.add(new OwnerGradeDto.Bulletin(student.getId(), fullName(student.getUser()),
+            bulletins.add(new OwnerGradeDto.Bulletin(student.getId(), student.getFullName(),
                     student.getRegistrationNumber(), student.getBirthDate(), student.getGender(), lines,
                     round(totalCoef), round(totalWeighted), round(general), c.ranks().get(student.getId()),
                     c.roster().size(), mention(general, c.passMark()),
@@ -1003,8 +1003,8 @@ public class OwnerGradeService {
                 .map(StudentEnrollment::getStudent)
                 .collect(Collectors.toMap(Student::getId, Function.identity(), (a, b) -> a, LinkedHashMap::new))
                 .values().stream()
-                .sorted(Comparator.comparing((Student s) -> s.getUser().getLastName(), String.CASE_INSENSITIVE_ORDER)
-                        .thenComparing(s -> s.getUser().getFirstName(), String.CASE_INSENSITIVE_ORDER))
+                .sorted(Comparator.comparing(Student::getLastName, String.CASE_INSENSITIVE_ORDER)
+                        .thenComparing(Student::getFirstName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }
 

@@ -62,7 +62,7 @@ public class ParentChildAdmissionService {
     public List<String> review(Long schoolId, List<String> numbers) {
         return normalize(numbers, false).stream().map(number -> students
                 .findBySchoolIdAndRegistrationNumber(schoolId, number)
-                .map(child -> number + " — " + child.getUser().getFirstName() + " " + child.getUser().getLastName())
+                .map(child -> number + " — " + child.getFullName())
                 .orElse(number + " — introuvable dans cet établissement")).toList();
     }
 }

@@ -305,6 +305,10 @@ public class UserService {
         return toDto(userRepository.save(user));
     }
 
+    public boolean requestEmailChange(Long id, String email, String currentPassword) {
+        return emailVerificationService.requestEmailChange(id, email, currentPassword);
+    }
+
     public void changePassword(Long id, String currentPassword, String newPassword) {
         if (newPassword == null || newPassword.length() < 8 || newPassword.length() > 100) {
             throw new IllegalArgumentException("Le mot de passe doit contenir de 8 à 100 caractères");

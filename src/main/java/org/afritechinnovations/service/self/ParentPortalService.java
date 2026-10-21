@@ -29,7 +29,7 @@ public class ParentPortalService {
 
     private static final String POST_SELECT = "SELECT p.*, c.name AS class_name FROM parent_portal_posts p LEFT JOIN classes c ON c.id=p.class_id ";
     private static final String APPOINTMENT_SELECT = """
-        SELECT a.*, concat(su.first_name, ' ', su.last_name) AS student_name,
+        SELECT a.*, concat(s.first_name, ' ', s.last_name) AS student_name,
                concat(pu.first_name, ' ', pu.last_name) AS parent_name,
                CASE WHEN tu.id IS NULL THEN 'Administration' ELSE concat(tu.first_name, ' ', tu.last_name) END AS teacher_name
         FROM parent_appointments a JOIN students s ON s.id=a.student_id JOIN users su ON su.id=s.user_id
@@ -52,11 +52,11 @@ public class ParentPortalService {
         guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         guard.requireSame(schoolId, guard.schoolOfClass(classId), "classe");
         return jdbc.query("""
-                SELECT DISTINCT s.id, u.first_name, u.last_name, s.registration_number
+                SELECT DISTINCT s.id, s.first_name, s.last_name, s.registration_number
                 FROM students s JOIN users u ON u.id=s.user_id
                 JOIN student_enrollments e ON e.student_id=s.id
                 WHERE s.school_id=? AND e.class_id=? AND e.status IN ('ACTIVE','COMPLETED')
-                ORDER BY u.last_name, u.first_name, s.id
+                ORDER BY s.last_name, s.first_name, s.id
                 """, (rs, n) -> new StudentTarget(rs.getLong("id"), rs.getString("first_name"),
                 rs.getString("last_name"), rs.getString("registration_number")), schoolId, classId);
     }

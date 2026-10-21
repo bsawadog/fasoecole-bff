@@ -110,7 +110,7 @@ public class ConversationMessagingService {
         if (schoolActor) {
             studentRepository.findBySchoolId(schoolId).stream()
                     .filter(student -> studentId == null || student.getId().equals(studentId))
-                    .forEach(student -> addRecipient(recipients, student.getUser(), "ELEVE"));
+                    .forEach(student -> addStudentRecipient(recipients, student));
             recipients.remove(userId);
         }
         return List.copyOf(recipients.values());
@@ -140,7 +140,7 @@ public class ConversationMessagingService {
                     .filter(e -> e.getStudent().getSchool().getId().equals(schoolId))
                     .filter(e -> e.getAcademicYear().getId().equals(schoolClass.getAcademicYear().getId()))
                     .forEach(e -> {
-                        addRecipient(result, e.getStudent().getUser(), "ELEVE");
+                        addStudentRecipient(result, e.getStudent());
                         parentStudentRepository.findByStudentIdWithParentUser(e.getStudent().getId())
                                 .forEach(ps -> addRecipient(result, ps.getParent().getUser(), "PARENT"));
                     });
@@ -314,6 +314,13 @@ public class ConversationMessagingService {
     private void addRecipient(Map<Long, FamilyContactDto.Recipient> map, User user, String role) {
         if (user != null && Boolean.TRUE.equals(user.getActive()) && Boolean.TRUE.equals(user.getApproved())) map.putIfAbsent(user.getId(), new FamilyContactDto.Recipient(user.getId(),
                 (user.getFirstName() + " " + user.getLastName()).trim(), role, user.getEmail()));
+    }
+
+    private void addStudentRecipient(Map<Long, FamilyContactDto.Recipient> map, Student student) {
+        User user = student.getUser();
+        if (user != null && Boolean.TRUE.equals(user.getActive()) && Boolean.TRUE.equals(user.getApproved())) {
+            map.putIfAbsent(user.getId(), new FamilyContactDto.Recipient(user.getId(), student.getFullName(), "ELEVE", student.getEmail()));
+        }
     }
 
     private void addParticipant(SchoolConversation conversation, ConversationParticipant participant) {

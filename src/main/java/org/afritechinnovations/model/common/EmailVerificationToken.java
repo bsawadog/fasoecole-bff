@@ -14,7 +14,13 @@ import java.time.LocalDateTime;
 @Builder
 public class EmailVerificationToken {
 
-    public enum Purpose { VERIFY, ACTIVATE }
+    public enum Purpose { VERIFY, ACTIVATE, CHANGE_EMAIL }
+
+    @Column(name = "previous_email", length = 150)
+    private String previousEmail;
+
+    @Column(name = "request_session_version")
+    private Long requestSessionVersion;
 
     @Builder.Default
     @ElementCollection

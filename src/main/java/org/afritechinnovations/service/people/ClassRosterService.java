@@ -130,36 +130,59 @@ public class ClassRosterService {
             throw new AccessDeniedException("Vous ne pouvez modifier que les élèves de votre établissement");
         }
 
-        User user = userRepository.findById(student.getUser().getId())
-                .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
-        String normalizedEmail = request.getEmail() == null || request.getEmail().isBlank()
-                ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
-        if (isSharedIdentity(user, "STUDENT", student.getSchool().getId())
-                && identityChanged(user, request.getFirstName(), request.getLastName(), normalizedEmail, request.getPhone())) {
-            throw new IllegalArgumentException("Ce compte possède plusieurs rôles. Son titulaire peut modifier son identité depuis Mon profil.");
+        if (!java.util.Objects.equals(importEmail(request.getEmail()), importEmail(student.getEmail()))) {
+            if (!systemAdmin && !student.getSchool().getOwner().getId().equals(ownerId))
+                throw new AccessDeniedException("Seul le propriétaire peut corriger le courriel avant activation.");
+            User account = userRepository.findByIdForUpdate(student.getUser().getId())
+                    .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+            if (!Boolean.FALSE.equals(account.getPasswordSet()) || !Boolean.FALSE.equals(account.getEmailVerified()))
+                throw new IllegalArgumentException("Ce compte est déjà activé ou pris en main. Son titulaire doit modifier son courriel depuis Mon profil et confirmer la nouvelle adresse.");
+            requireUnactivatedStudentEmailAccess(account, ownerId, systemAdmin);
+            invitations.correctUnactivatedEmail(account.getId(), request.getEmail());
         }
-        user.setFirstName(request.getFirstName().trim());
-        user.setLastName(request.getLastName().trim());
-        String studentEmail = request.getEmail() == null || request.getEmail().isBlank()
-                ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
-        boolean emailChanged = !java.util.Objects.equals(studentEmail,
-                user.getEmail() == null ? null : user.getEmail().toLowerCase(java.util.Locale.ROOT));
-        if (emailChanged) {
-            user.setEmailVerified(false);
-            user.revokeSessions();
-        }
-        user.setEmail(studentEmail);
-        user.setPhone(request.getPhone());
-        userRepository.save(user);
-
-        if (emailChanged && studentEmail != null) invitations.sendInvitation(user);
-
+        student.setFirstName(request.getFirstName().trim());
+        student.setLastName(request.getLastName().trim());
+        student.setPhone(request.getPhone() == null || request.getPhone().isBlank() ? null : request.getPhone().trim());
         student.setRegistrationNumber(request.getRegistrationNumber().trim());
         student.setBirthDate(request.getBirthDate());
         student.setGender(request.getGender());
         studentRepository.save(student);
 
         return toRow(student, teacherNamesForClass(classId));
+    }
+
+    public record StudentAccessResult(ClassRosterRowDto student, boolean emailSent) { }
+
+    public StudentAccessResult inviteStudentAccount(Long classId, Long studentId, String email,
+                                                    Long actor, boolean systemAdmin) {
+        SchoolClass schoolClass = requireOwnedClass(classId, actor, systemAdmin);
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new IllegalArgumentException("Élève introuvable"));
+        if (!student.getSchool().getId().equals(schoolClass.getSchool().getId())) {
+            throw new AccessDeniedException("Cet élève n’appartient pas à cet établissement");
+        }
+        String loginEmail = importEmail(email);
+        if (loginEmail == null) throw new IllegalArgumentException("Renseignez le courriel de connexion de l’élève.");
+        User user = userRepository.findByIdForUpdate(student.getUser().getId())
+                .orElseThrow(() -> new IllegalArgumentException("Compte introuvable"));
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            throw new IllegalArgumentException("Cet élève dispose déjà d’un compte de connexion. Utilisez son adresse de connexion actuelle pour envoyer un lien.");
+        }
+        if (!Boolean.TRUE.equals(user.getActive()) || Boolean.TRUE.equals(user.getPasswordSet())
+                || Boolean.TRUE.equals(user.getEmailVerified())
+                || sharedIdentityError(user, "STUDENT", student.getSchool().getId()) != null
+                || studentRepository.findAllByUserId(user.getId()).stream().anyMatch(s -> !studentId.equals(s.getId()))) {
+            throw new IllegalArgumentException("Ce compte ne peut pas être activé depuis cette fiche. Contactez le support technique pour vérifier ses accès.");
+        }
+        if (userRepository.findByEmailIgnoreCase(loginEmail).isPresent()) {
+            throw new IllegalArgumentException("Ce courriel identifie déjà un compte. Aucun rattachement automatique n’a été effectué. Utilisez la demande d’accès avec le matricule, à faire approuver par l’établissement, ou une adresse de connexion propre à l’élève.");
+        }
+        user.setEmail(loginEmail);
+        user.setEmailVerified(false);
+        user.revokeSessions();
+        userRepository.saveAndFlush(user);
+        boolean sent = invitations.sendInvitation(user);
+        return new StudentAccessResult(toRow(student, teacherNamesForClass(classId)), sent);
     }
 
     public ClassRosterRowDto addParent(Long classId, Long studentId, CreateRosterParentRequest request,
@@ -224,10 +247,11 @@ public class ClassRosterService {
                 return toRow(studentInClass, teacherNamesForClass(classId));
             }
         }
-        boolean sharedAccount = isSharedIdentity(user, "PARENT", studentInClass.getSchool().getId());
+        String sharedIdentityError = sharedIdentityError(user, "PARENT", studentInClass.getSchool().getId());
+        boolean sharedAccount = sharedIdentityError != null;
         if (sharedAccount) {
             if (identityChanged(user, request.getFirstName(), request.getLastName(), parentEmail, request.getPhone())) {
-                throw new IllegalArgumentException("Ce compte possède plusieurs rôles. Son titulaire peut modifier son identité depuis Mon profil.");
+                throw new IllegalArgumentException(sharedIdentityError);
             }
             return toRow(studentInClass, teacherNamesForClass(classId));
         }
@@ -356,9 +380,9 @@ public class ClassRosterService {
             boolean enrolled = studentEnrollmentRepository.findByStudentIdAndAcademicYearId(student.getId(), schoolClass.getAcademicYear().getId())
                     .stream().anyMatch(e -> classId.equals(e.getSchoolClass().getId())
                             && (e.getStatus() == EnrollmentStatus.ACTIVE || e.getStatus() == EnrollmentStatus.COMPLETED));
-            if (!enrolled || !found.getUser().getFirstName().equalsIgnoreCase(request.getFirstName().trim())
-                    || !found.getUser().getLastName().equalsIgnoreCase(request.getLastName().trim())
-                    || importEmail(request.getEmail()) != null && !java.util.Objects.equals(importEmail(found.getUser().getEmail()), importEmail(request.getEmail())))
+            if (!enrolled || !found.getFirstName().equalsIgnoreCase(request.getFirstName().trim())
+                    || !found.getLastName().equalsIgnoreCase(request.getLastName().trim())
+                    || importEmail(request.getEmail()) != null && !java.util.Objects.equals(importEmail(found.getEmail()), importEmail(request.getEmail())))
                 throw new IllegalArgumentException("Le matricule existe avec une autre identité ou dans une autre classe. Vérifiez le dossier.");
         } else student = createEnrolledStudent(schoolClass, request);
         if (financial) importStudentBilling(student, schoolClass, request, actor, admin);
@@ -584,13 +608,6 @@ public class ClassRosterService {
         }
         String email = request.getEmail() == null || request.getEmail().isBlank()
                 ? null : request.getEmail().trim().toLowerCase(java.util.Locale.ROOT);
-        User pending = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
-        if (pending != null && !Boolean.TRUE.equals(pending.getActive())) {
-            throw new IllegalArgumentException("Ce compte est inactif. Contactez l’administration de la plateforme.");
-        }
-        if (pending != null && studentRepository.findAllByUserId(pending.getId()).stream().anyMatch(t -> t.getSchool().getId().equals(schoolClass.getSchool().getId()))) {
-            throw new IllegalArgumentException("Ce compte possède déjà un dossier élève dans cet établissement");
-        }
         String registrationNumber = request.getRegistrationNumber() == null ? "" : request.getRegistrationNumber().trim();
         if (registrationNumber.isEmpty()) {
             registrationNumber = nextRegistrationNumber(schoolClass);
@@ -599,7 +616,8 @@ public class ClassRosterService {
             throw new IllegalArgumentException("Ce matricule est déjà utilisé dans cet établissement");
         }
 
-        User user = pending != null ? pending : User.builder()
+        // A contact address is not proof of account ownership (siblings may share a parent's address).
+        User user = User.builder()
                 .firstName(request.getFirstName().trim())
                 .lastName(request.getLastName().trim())
                 .email(email)
@@ -609,6 +627,9 @@ public class ClassRosterService {
                 .active(true)
                 .approved(true)
                 .build();
+        if (email != null && userRepository.findByEmailIgnoreCase(email).isPresent()) {
+            throw new IllegalArgumentException("Ce courriel personnel est déjà associé à un compte. Utilisez une demande d’accès avec le matricule ; aucun rattachement automatique n’est effectué. Le courriel d’un parent doit être renseigné dans la fiche parent.");
+        }
         user.setApproved(true);
         user = userRepository.save(user);
 
@@ -627,6 +648,8 @@ public class ClassRosterService {
         Student student = Student.builder()
                 .user(user)
                 .school(schoolClass.getSchool())
+                .firstName(request.getFirstName().trim()).lastName(request.getLastName().trim())
+                .email(email).phone(request.getPhone())
                 .registrationNumber(registrationNumber)
                 .birthDate(request.getBirthDate())
                 .gender(request.getGender())
@@ -640,8 +663,6 @@ public class ClassRosterService {
                 .status(EnrollmentStatus.ACTIVE)
                 .enrollmentDate(LocalDate.now())
                 .build());
-
-        if (email != null) invitations.sendAccessAssigned(user, schoolClass.getSchool(), "Élève / étudiant");
 
         return student;
     }
@@ -844,10 +865,10 @@ public class ClassRosterService {
         return new StudentDetailDto(
                 student.getId(),
                 user.getId(),
-                user.getFirstName(),
-                user.getLastName(),
-                user.getEmail(),
-                user.getPhone(),
+                student.getFirstName(),
+                student.getLastName(),
+                student.getEmail(),
+                student.getPhone(),
                 student.getRegistrationNumber(),
                 student.getBirthDate(),
                 student.getGender(),
@@ -1134,10 +1155,34 @@ public class ClassRosterService {
         return schoolClass;
     }
 
-    private boolean isSharedIdentity(User user, String role, Long schoolId) {
-        return user.isOwnerAccount() || !user.getPlatformRoles().isEmpty()
-                || schoolUserRepository.findByUserId(user.getId()).stream()
-                .anyMatch(link -> !role.equals(link.getRole().getName()) || !schoolId.equals(link.getSchool().getId()));
+    private void requireUnactivatedStudentEmailAccess(User account, Long actor, boolean systemAdmin) {
+        if (account.isOwnerAccount() || !account.getPlatformRoles().isEmpty())
+            throw new IllegalArgumentException("Ce compte possède un accès propriétaire ou administrateur. Son courriel ne peut pas être corrigé depuis une fiche élève.");
+        var memberships = schoolUserRepository.findByUserId(account.getId());
+        if (memberships.stream().anyMatch(link -> !"STUDENT".equals(link.getRole().getName())))
+            throw new IllegalArgumentException("Ce compte possède aussi un autre rôle. Contactez le support pour vérifier son identité avant de corriger son courriel.");
+        var dossiers = studentRepository.findAllByUserId(account.getId());
+        if (!systemAdmin && (memberships.stream().anyMatch(link -> !ownsSchool(link.getSchool(), actor))
+                || dossiers.stream().anyMatch(dossier -> !ownsSchool(dossier.getSchool(), actor))))
+            throw new IllegalArgumentException("Ce compte est également lié à un établissement qui ne vous appartient pas. Le support doit vérifier la correction de son courriel commun.");
+    }
+
+    private boolean ownsSchool(org.afritechinnovations.model.common.School school, Long actor) {
+        return school != null && school.getOwner() != null && actor.equals(school.getOwner().getId());
+    }
+
+    private String sharedIdentityError(User user, String role, Long schoolId) {
+        if (user.isOwnerAccount() || !user.getPlatformRoles().isEmpty()) {
+            return "Ce compte dispose aussi d’un accès propriétaire ou administrateur. Son identité ne peut pas être modifiée depuis cette fiche. Pour corriger son courriel, contactez le support technique.";
+        }
+        var memberships = schoolUserRepository.findByUserId(user.getId());
+        if (memberships.stream().anyMatch(link -> !role.equals(link.getRole().getName()))) {
+            return "Ce compte possède plusieurs rôles. Son courriel et son identité sont communs à ses différents accès et ne peuvent pas être modifiés depuis cette fiche. Pour corriger son courriel, contactez le support technique.";
+        }
+        if (memberships.stream().anyMatch(link -> !schoolId.equals(link.getSchool().getId()))) {
+            return "Ce compte est partagé entre plusieurs établissements. Modifier son courriel ou son identité affecterait tous ses dossiers. Cette modification n’est pas autorisée depuis une seule fiche. Pour corriger son courriel, contactez le support technique.";
+        }
+        return null;
     }
 
     private boolean identityChanged(User user, String firstName, String lastName, String email, String phone) {
@@ -1186,10 +1231,10 @@ public class ClassRosterService {
         return new ClassRosterRowDto(
                 student.getId(),
                 user.getId(),
-                user.getFirstName(),
-                user.getLastName(),
-                user.getEmail(),
-                user.getPhone(),
+                student.getFirstName(),
+                student.getLastName(),
+                student.getEmail(),
+                student.getPhone(),
                 student.getRegistrationNumber(),
                 student.getBirthDate(),
                 student.getGender(),
@@ -1197,7 +1242,8 @@ public class ClassRosterService {
                 teacherNames,
                 user.getEmailVerified(),
                 invitations.deliveryStatus(user.getId()),
-                withBilling ? buildBillingSummary(buildInvoiceInfos(student.getId())) : null
+                withBilling ? buildBillingSummary(buildInvoiceInfos(student.getId())) : null,
+                user.getEmail(), user.getPasswordSet()
         );
     }
 }

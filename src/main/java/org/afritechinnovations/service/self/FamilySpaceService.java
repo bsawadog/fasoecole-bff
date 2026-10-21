@@ -124,8 +124,8 @@ public class FamilySpaceService {
 
         var school = student.getSchool();
         var user = student.getUser();
-        return new SelfServiceDto.StudentProfile(overview, user == null ? null : user.getEmail(),
-                user == null ? null : user.getPhone(), guardians, teachers, schoolContact(school));
+        return new SelfServiceDto.StudentProfile(overview, student.getEmail(),
+                student.getPhone(), guardians, teachers, schoolContact(school));
     }
 
     /** Lecture par un élève de sa propre fiche ou par un parent autorisé. */
@@ -398,6 +398,6 @@ public class FamilySpaceService {
     }
 
     private static String fullName(Student student) {
-        return TeacherSpaceService.fullName(student.getUser());
+        return student.getFullName();
     }
 }

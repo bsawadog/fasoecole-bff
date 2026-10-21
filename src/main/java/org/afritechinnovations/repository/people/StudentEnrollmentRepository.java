@@ -53,7 +53,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH s.user u
         WHERE se.schoolClass.id = :classId AND se.status = :status
           AND s.school.id = se.schoolClass.school.id
-        ORDER BY u.lastName
+        ORDER BY s.lastName
         """)
     List<StudentEnrollment> findActiveStudentsWithUserByClassId(
             @Param("classId") Long classId,
@@ -65,7 +65,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH s.user u
         WHERE se.schoolClass.id = :classId AND se.status IN :statuses
           AND s.school.id = se.schoolClass.school.id
-        ORDER BY u.lastName
+        ORDER BY s.lastName
         """)
     List<StudentEnrollment> findStudentsWithUserByClassIdAndStatusIn(
             @Param("classId") Long classId,
@@ -79,7 +79,7 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
         JOIN FETCH s.user u
         WHERE se.academicYear.id = :yearId
           AND s.school.id = c.school.id AND c.school.id = se.academicYear.school.id
-        ORDER BY u.lastName, u.firstName
+        ORDER BY s.lastName, s.firstName
         """)
     List<StudentEnrollment> findByYearWithStudent(@Param("yearId") Long yearId);
 

@@ -84,7 +84,7 @@ public class TeacherDailyToolsService {
     public List<Support> support(Long user,Long classId) {
         var cls=scope(user,classId,false);
         return jdbc.query("""
-          WITH roster AS(SELECT DISTINCT s.id,concat(u.first_name,' ',u.last_name) name FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN users u ON u.id=s.user_id WHERE e.class_id=? AND e.academic_year_id=? AND e.status='ACTIVE' AND s.school_id=?),
+          WITH roster AS(SELECT DISTINCT s.id,concat(s.first_name,' ',s.last_name) name FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN users u ON u.id=s.user_id WHERE e.class_id=? AND e.academic_year_id=? AND e.status='ACTIVE' AND s.school_id=?),
           attendance AS(SELECT DISTINCT ON(student_id,attendance_date) student_id,status FROM attendances WHERE class_id=? AND attendance_date BETWEEN ? AND ? ORDER BY student_id,attendance_date,id DESC),
           absent AS(SELECT student_id,count(*) n FROM attendance WHERE status='ABSENT' GROUP BY student_id),
           late_work AS(SELECT e.student_id,count(DISTINCT p.id) n FROM parent_portal_posts p JOIN student_enrollments e ON e.class_id=p.class_id AND e.academic_year_id=? AND e.status='ACTIVE' LEFT JOIN homework_progress h ON h.post_id=p.id AND h.student_id=e.student_id WHERE p.class_id=? AND p.school_id=? AND p.author_id=? AND p.kind='HOMEWORK' AND p.due_date<? AND (p.student_id IS NULL OR p.student_id=e.student_id) AND coalesce(h.status,'TO_DO')='TO_DO' GROUP BY e.student_id),

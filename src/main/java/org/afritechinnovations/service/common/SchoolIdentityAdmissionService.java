@@ -39,6 +39,7 @@ public class SchoolIdentityAdmissionService {
             }
             if (!Objects.equals(applicant.getId(), dossier.getUser().getId())) {
                 removePlaceholderAccess(dossier.getUser(), school, role);
+                dossier.initializeSchoolIdentity();
                 dossier.setUser(applicant);
                 students.save(dossier);
             }
@@ -77,7 +78,7 @@ public class SchoolIdentityAdmissionService {
     public String review(Long schoolId, RoleName role, String identifier) {
         if (identifier == null || identifier.isBlank()) return "Identifiant à compléter par le demandeur";
         if (role == RoleName.STUDENT) return students.findBySchoolIdAndRegistrationNumber(schoolId, identifier)
-                .map(dossier -> dossier.getUser().getFirstName() + " " + dossier.getUser().getLastName())
+                .map(org.afritechinnovations.model.people.Student::getFullName)
                 .orElse("Matricule introuvable dans cet établissement");
         if (role == RoleName.TEACHER) return teachers.findBySchoolIdAndEmployeeNumber(schoolId, identifier)
                 .map(dossier -> dossier.getUser().getFirstName() + " " + dossier.getUser().getLastName())

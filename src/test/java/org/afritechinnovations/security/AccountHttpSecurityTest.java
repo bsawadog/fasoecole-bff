@@ -52,6 +52,10 @@ class AccountHttpSecurityTest {
             return new AuthController(manager, jwt, users, resets, parents, verification, details);
         }
         @Bean Probe probe() { return new Probe(); }
+        @Bean AccountRecoveryService recovery() { return mock(AccountRecoveryService.class); }
+        @Bean org.afritechinnovations.controler.auth.AccountRecoveryController recoveryController(AccountRecoveryService recovery) {
+            return new org.afritechinnovations.controler.auth.AccountRecoveryController(recovery);
+        }
         @Bean GlobalExceptionHandler errors() { return new GlobalExceptionHandler(); }
     }
     @RestController static class Probe {
@@ -106,6 +110,25 @@ class AccountHttpSecurityTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         String token = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("token").asText();
         org.junit.jupiter.api.Assertions.assertTrue(jwt.isTokenValid(token, new UserPrincipal(user, List.of("PARENT"))));
+    }
+
+    @Test void recoveryFormIsPublicButQueueAndDecisionsRequireAuthentication() throws Exception {
+        String body = """
+            {"schoolId":1,"registrationNumber":"001","firstName":"Ali","lastName":"Test","newEmail":"new@example.test","reason":"Courriel et mot de passe perdus"}
+            """;
+        var first = mvc.perform(post("/api/auth/account-recovery").contentType("application/json").content(body))
+            .andExpect(status().isAccepted()).andExpect(jsonPath("$.token").doesNotExist()).andExpect(jsonPath("$.userId").doesNotExist())
+            .andReturn().getResponse().getContentAsString();
+        var unknown = mvc.perform(post("/api/auth/account-recovery").contentType("application/json").content(body.replace("001","unknown")))
+            .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        org.junit.jupiter.api.Assertions.assertEquals(first,unknown);
+        mvc.perform(post("/api/auth/account-recovery").contentType("application/json").content(body.replace("new@example.test","invalid")))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/account-recovery")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/account-recovery/1/decision").contentType("application/json").content("{}"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/account-recovery/complete").contentType("application/json").content("{\"token\":\"proof\",\"newPassword\":\"short\"}"))
+            .andExpect(status().isBadRequest());
     }
 
     @Test void publicRegistrationAlwaysReturnsAcceptedWithoutTokenAndInvalidEmailIsRejected() throws Exception {

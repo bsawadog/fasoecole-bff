@@ -56,14 +56,14 @@ public class SchoolLifeService {
     private Overview overview(Scope scope, LifeModule module) {
         Long schoolId = scope.schoolId(), classId = scope.classId(), studentId = scope.studentId();
         List<StudentChoice> students = jdbc.query("""
-            SELECT DISTINCT s.id, concat(u.first_name,' ',u.last_name) AS name, c.id AS class_id, c.name AS class_name,
-              u.last_name,u.first_name
+            SELECT DISTINCT s.id, concat(s.first_name,' ',s.last_name) AS name, c.id AS class_id, c.name AS class_name,
+              s.last_name,s.first_name
             FROM students s JOIN users u ON u.id=s.user_id
             JOIN student_enrollments e ON e.student_id=s.id AND e.status='ACTIVE'
             JOIN classes c ON c.id=e.class_id AND c.school_id=s.school_id
             JOIN academic_years y ON y.id=e.academic_year_id AND y.id=c.academic_year_id AND y.is_current=true
             WHERE s.school_id=? AND (? OR c.id=?) AND (?::bigint IS NULL OR s.id=?)
-            ORDER BY c.name,u.last_name,u.first_name,s.id
+            ORDER BY c.name,s.last_name,s.first_name,s.id
             """, (rs,n) -> new StudentChoice(rs.getLong("id"),rs.getString("name"),rs.getLong("class_id"),rs.getString("class_name")),
                 schoolId,scope.owner(),classId,studentId,studentId);
         var events = module==null || module==LifeModule.CALENDAR ? jdbc.query("""
@@ -73,7 +73,7 @@ public class SchoolLifeService {
                 rs.getString("title"),rs.getString("description"),rs.getString("kind"),rs.getObject("starts_on",LocalDate.class),rs.getObject("ends_on",LocalDate.class)),
                 schoolId,scope.owner(),classId) : List.<Event>of();
         var observations = module==null || module==LifeModule.DISCIPLINE ? jdbc.query("""
-            SELECT o.*,concat(u.first_name,' ',u.last_name) AS student_name FROM student_observations o
+            SELECT o.*,concat(s.first_name,' ',s.last_name) AS student_name FROM student_observations o
             JOIN students s ON s.id=o.student_id JOIN users u ON u.id=s.user_id
             WHERE o.school_id=? AND (? OR o.class_id=?) AND (?::bigint IS NULL OR o.student_id=?)
               AND (? OR o.shared_with_family=true) ORDER BY o.observed_on DESC,o.id DESC
@@ -81,7 +81,7 @@ public class SchoolLifeService {
                 rs.getObject("observed_on",LocalDate.class),rs.getString("description"),rs.getString("action"),rs.getBoolean("shared_with_family"),rs.getBoolean("resolved")),
                 schoolId,scope.owner() || studentId != null,classId,studentId,studentId,scope.owner() || scope.teacher()) : List.<Observation>of();
         List<Document> requests = scope.teacher() || (module!=null && module!=LifeModule.REQUESTS) ? List.of() : jdbc.query("""
-            SELECT r.*,concat(u.first_name,' ',u.last_name) AS student_name FROM school_document_requests r
+            SELECT r.*,concat(s.first_name,' ',s.last_name) AS student_name FROM school_document_requests r
             JOIN students s ON s.id=r.student_id JOIN users u ON u.id=s.user_id
             WHERE r.school_id=? AND (?::bigint IS NULL OR r.student_id=?) ORDER BY r.created_at DESC,r.id DESC
             """, (rs,n) -> new Document(rs.getLong("id"),rs.getLong("student_id"),rs.getString("student_name"),rs.getString("kind"),
@@ -92,7 +92,7 @@ public class SchoolLifeService {
             FROM library_books b WHERE b.school_id=? ORDER BY b.title,b.id
             """, (rs,n) -> new Book(rs.getLong("id"),rs.getString("title"),rs.getString("author"),rs.getString("reference"),rs.getInt("copies"),rs.getInt("available")),schoolId) : List.<Book>of();
         var loans = module==null || module==LifeModule.LIBRARY ? jdbc.query("""
-            SELECT l.*,b.title,concat(u.first_name,' ',u.last_name) AS student_name FROM library_loans l
+            SELECT l.*,b.title,concat(s.first_name,' ',s.last_name) AS student_name FROM library_loans l
             JOIN library_books b ON b.id=l.book_id JOIN students s ON s.id=l.student_id JOIN users u ON u.id=s.user_id
             WHERE l.school_id=? AND (?::bigint IS NULL OR l.student_id=?) AND (? OR EXISTS(
               SELECT 1 FROM student_enrollments e WHERE e.student_id=l.student_id AND e.class_id=? AND e.status='ACTIVE'))
@@ -103,7 +103,7 @@ public class SchoolLifeService {
         var homeworks = module==null || module==LifeModule.HOMEWORK ? jdbc.query("""
             SELECT DISTINCT p.id,p.title,p.content,p.due_date,p.author_id,s.id AS student_id,
               (y.is_current AND y.closed_at IS NULL) AS year_open,
-              concat(u.first_name,' ',u.last_name) AS student_name,
+              concat(s.first_name,' ',s.last_name) AS student_name,
               coalesce(h.status,'TO_DO') AS progress_status,coalesce(h.feedback,'') AS feedback
             FROM parent_portal_posts p JOIN classes c ON c.id=p.class_id AND c.school_id=p.school_id
             JOIN academic_years y ON y.id=c.academic_year_id

@@ -17,7 +17,9 @@ public record ClassRosterRowDto(
         List<String> teacherNames,
         Boolean emailVerified,
         String invitationDeliveryStatus,
-        StudentDetailDto.BillingSummary billingSummary
+        StudentDetailDto.BillingSummary billingSummary,
+        String accountEmail,
+        Boolean passwordSet
 ) {
     public record ParentInfo(
             Long parentId,

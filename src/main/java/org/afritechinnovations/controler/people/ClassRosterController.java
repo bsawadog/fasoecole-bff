@@ -65,6 +65,16 @@ public class ClassRosterController {
                 principal.getRoles().contains("SUPER_ADMIN"));
     }
 
+    @PostMapping("/students/{studentId}/account-invitation")
+    public ClassRosterService.StudentAccessResult inviteStudentAccount(@PathVariable Long classId,
+            @PathVariable Long studentId,
+            @Valid @RequestBody org.afritechinnovations.dto.people.StudentAccountInvitationRequest request,
+            Authentication authentication) {
+        UserPrincipal principal = requireOwner(authentication);
+        return classRosterService.inviteStudentAccount(classId, studentId, request.email(), principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
     @PutMapping("/parents/{parentId}")
     public ClassRosterRowDto updateParent(@PathVariable Long classId,
                                            @PathVariable Long parentId,
