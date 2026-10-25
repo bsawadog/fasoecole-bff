@@ -83,7 +83,7 @@ class OwnerStaffServiceTest {
     @Test
     void createsAnInvitedAccountWithTheStaffRoleAndNoDisclosedPassword() {
         when(userRepository.findByEmailIgnoreCase("awa@ecole.bf")).thenReturn(Optional.empty());
-        when(invitations.sendInvitation(any())).thenReturn(false);
+        when(invitations.sendAccessAssigned(any(), any(), anyString())).thenReturn(false);
 
         OwnerStaffDto.StaffCreated created = service.create(1L,
                 request(" Awa@Ecole.bf ", EnumSet.of(StaffModule.EXPENSES, StaffModule.FINANCE)), OWNER_ID, false);
@@ -93,7 +93,7 @@ class OwnerStaffServiceTest {
         verify(userRepository).save(account.capture());
         assertFalse(account.getValue().getPasswordSet());
         assertFalse(account.getValue().getEmailVerified());
-        verify(invitations).sendInvitation(account.getValue());
+        verify(invitations).sendAccessAssigned(account.getValue(), school, "Personnel administratif : Comptable");
         assertFalse(created.existingAccount());
         assertFalse(created.emailSent());
         assertEquals("awa@ecole.bf", created.staff().email());
@@ -161,6 +161,34 @@ class OwnerStaffServiceTest {
         assertEquals(StaffModule.values().length, access.get(0).modules().size());
         assertFalse(access.get(1).owner());
         assertEquals(List.of("DASHBOARD", "STUDENTS"), access.get(1).modules());
+    }
+
+    @Test
+    void ownerCanAlsoHaveAStaffFunctionButNoOwnershipRoleIsGranted() {
+        User owner = school.getOwner();
+        owner.setFirstName("Original"); owner.setEmail("admin@test.bf"); owner.setPasswordHash("chosen");
+        owner.setOwnerAccount(true); owner.setEmailVerified(true);
+        when(userRepository.findByEmailIgnoreCase(owner.getEmail())).thenReturn(Optional.of(owner));
+        var result = service.create(1L, request(owner.getEmail(), EnumSet.of(StaffModule.FINANCE)), OWNER_ID, false);
+        assertTrue(result.existingAccount()); assertFalse(result.staff().managedAccount());
+        assertEquals("chosen", owner.getPasswordHash()); assertEquals("Original", owner.getFirstName());
+        verify(schoolUserRepository).save(argThat(link -> "STAFF".equals(link.getRole().getName())));
+        verify(roleRepository, never()).findByName("SCHOOL_ADMIN"); verify(roleRepository, never()).findByName("SUPER_ADMIN");
+        verify(userRepository, never()).save(any());
+        verify(invitations).sendAccessAssigned(owner, school, "Personnel administratif : Comptable");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    void createsStaffWithoutEmailOrPhone(String email) {
+        var request = new OwnerStaffDto.StaffRequest("Awa", "Diallo", email, null, "Gardien", Set.of());
+        var result = service.create(1L, request, OWNER_ID, false);
+        assertNull(result.staff().email());
+        assertNull(result.staff().phone());
+        assertFalse(result.emailSent());
+        verify(userRepository, never()).findByEmailIgnoreCase(any());
+        verify(invitations, never()).sendInvitation(any());
+        verifyNoInteractions(emailService);
     }
 
     @Test

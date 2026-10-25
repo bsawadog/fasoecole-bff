@@ -63,10 +63,10 @@ public class StudentService {
                 .registrationNumber(student.getRegistrationNumber())
                 .birthDate(student.getBirthDate())
                 .gender(student.getGender())
-                .firstName(student.getUser().getFirstName())
-                .lastName(student.getUser().getLastName())
-                .email(student.getUser().getEmail())
-                .phone(student.getUser().getPhone())
+                .firstName(student.getFirstName())
+                .lastName(student.getLastName())
+                .email(student.getEmail())
+                .phone(student.getPhone())
                 .build();
     }
 }

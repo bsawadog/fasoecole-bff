@@ -40,10 +40,52 @@ class TeacherCreationControllerTest {
         assertEquals("EMP-001", request.getValue().getEmployeeNumber());
     }
 
-    @Test void emailAndSubjectRemainMandatoryEvenThoughPasswordIsNotRequired() throws Exception {
+    @Test void subjectRemainsMandatory() throws Exception {
         mvc.perform(post("/api/teacher-work/classes/3/teachers").principal(owner).contentType("application/json")
                 .content("""
                   {"firstName":"Awa","lastName":"Diallo","email":""}
+                  """)).andExpect(status().isBadRequest());
+        verifyNoInteractions(service);
+    }
+
+    @Test void teacherCanBeCreatedWithoutEmailOrPhone() throws Exception {
+        mvc.perform(post("/api/teacher-work/classes/3/teachers").principal(owner).contentType("application/json")
+                .content("""
+                  {"firstName":"Awa","lastName":"Diallo","subjectId":8}
+                  """)).andExpect(status().isCreated());
+        var request = org.mockito.ArgumentCaptor.forClass(CreateClassTeacherRequest.class);
+        verify(service).createClassTeacher(eq(3L), request.capture(), eq(10L), eq(false));
+        assertNull(request.getValue().getEmail());
+        assertNull(request.getValue().getPhone());
+    }
+
+    @Test void suppliedEmailMustStillBeValid() throws Exception {
+        mvc.perform(post("/api/teacher-work/classes/3/teachers").principal(owner).contentType("application/json")
+                .content("""
+                  {"firstName":"Awa","lastName":"Diallo","email":"invalid","subjectId":8}
+                  """)).andExpect(status().isBadRequest());
+        verifyNoInteractions(service);
+    }
+
+    @Test void schoolTeacherCreationAcceptsHourlyCompensationAndInitialSubjectSlots() throws Exception {
+        mvc.perform(post("/api/teacher-work/schools/1/teachers").principal(owner).contentType("application/json")
+                .content("""
+                  {"firstName":"Awa","lastName":"Diallo","rateType":"HOURLY","hourlyRate":2500,
+                   "rateEffectiveFrom":"2026-10-01","initialSlots":[{"classId":3,"subjectId":8,"dayOfWeek":1,
+                   "startTime":"08:00","endTime":"10:00","effectiveFrom":"2026-10-15"}]}
+                  """)).andExpect(status().isCreated());
+        var request = org.mockito.ArgumentCaptor.forClass(org.afritechinnovations.dto.people.CreateTeacherRequest.class);
+        verify(service).createSchoolTeacher(eq(1L), request.capture(), eq(10L), eq(false));
+        assertEquals("HOURLY", request.getValue().getRateType());
+        assertEquals(0, request.getValue().getHourlyRate().compareTo(new java.math.BigDecimal("2500")));
+        assertEquals(8L, request.getValue().getInitialSlots().getFirst().getSubjectId());
+    }
+
+    @Test void hourlySlotsValidateTheirSubjectAndTimeBeforeInvokingTheService() throws Exception {
+        mvc.perform(post("/api/teacher-work/schools/1/teachers").principal(owner).contentType("application/json")
+                .content("""
+                  {"firstName":"Awa","lastName":"Diallo","rateType":"HOURLY","hourlyRate":2500,
+                   "initialSlots":[{"classId":3,"dayOfWeek":1,"startTime":"25:00","endTime":"10:00","effectiveFrom":"2026-10-15"}]}
                   """)).andExpect(status().isBadRequest());
         verifyNoInteractions(service);
     }

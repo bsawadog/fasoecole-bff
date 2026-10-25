@@ -24,6 +24,21 @@ public class ClassRosterController {
 
     private final ClassRosterService classRosterService;
 
+    @PostMapping("/import")
+    public ClassRosterRowDto importStudent(@PathVariable Long classId,
+            @Valid @RequestBody org.afritechinnovations.dto.people.ImportRosterStudentRequest request,
+            Authentication authentication) {
+        var principal = requireOwner(authentication);
+        return classRosterService.importStudent(classId, request, principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
+    @GetMapping("/teachers")
+    public List<ClassRosterService.ClassTeacher> teachers(@PathVariable Long classId, Authentication authentication) {
+        var principal = requireOwner(authentication);
+        return classRosterService.getClassTeachers(classId, principal.getId(), principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
     @GetMapping
     public List<ClassRosterRowDto> getRoster(@PathVariable Long classId, Authentication authentication) {
         UserPrincipal principal = requireOwner(authentication);
@@ -47,6 +62,16 @@ public class ClassRosterController {
                                             Authentication authentication) {
         UserPrincipal principal = requireOwner(authentication);
         return classRosterService.updateStudentProfile(classId, studentId, request, principal.getId(),
+                principal.getRoles().contains("SUPER_ADMIN"));
+    }
+
+    @PostMapping("/students/{studentId}/account-invitation")
+    public ClassRosterService.StudentAccessResult inviteStudentAccount(@PathVariable Long classId,
+            @PathVariable Long studentId,
+            @Valid @RequestBody org.afritechinnovations.dto.people.StudentAccountInvitationRequest request,
+            Authentication authentication) {
+        UserPrincipal principal = requireOwner(authentication);
+        return classRosterService.inviteStudentAccount(classId, studentId, request.email(), principal.getId(),
                 principal.getRoles().contains("SUPER_ADMIN"));
     }
 

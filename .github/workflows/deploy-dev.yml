@@ -98,19 +98,33 @@ jobs:
             docker push "$IMAGE"
           fi
           echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
       - name: Deploy service through CloudFormation
+        id: backend
         env:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
           CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
+          FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL || (inputs.environment == 'dev' && 'https://app.dev.fasoecole.com' || '') }}
         run: |
           set -euo pipefail
           aws cloudformation deploy --stack-name "$BACKEND_STACK" \
             --template-file infra/dev/backend.json --capabilities CAPABILITY_NAMED_IAM \
             --role-arn "$CFN_ROLE" --no-fail-on-empty-changeset \
-            --parameter-overrides "TargetEnvironment=$TARGET_ENVIRONMENT" "ImageUri=$IMAGE_URI" "SmtpHost=$SMTP_HOST" "MailFrom=$MAIL_FROM" DesiredCount=1
+            --parameter-overrides "TargetEnvironment=$TARGET_ENVIRONMENT" "ImageUri=$IMAGE_URI" "SmtpHost=$SMTP_HOST" "MailFrom=$MAIL_FROM" "FrontendBaseUrl=$FRONTEND_BASE_URL" DesiredCount=1
           aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+      - name: Show backend deployment failure reasons
+        if: ${{ failure() && steps.backend.outcome == 'failure' }}
+        run: |
+          aws cloudformation describe-stack-events \
+            --region "$AWS_REGION" --stack-name "$BACKEND_STACK" \
+            --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]" \
+            --output table || echo "::warning::CloudFormation events unavailable."
+          aws ecs describe-services \
+            --region "$AWS_REGION" --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[].{Service:serviceName,Deployments:deployments,RecentEvents:events[:10]}' \
+            --output json
       - name: Verify API through CloudFront
         run: |
           set -euo pipefail

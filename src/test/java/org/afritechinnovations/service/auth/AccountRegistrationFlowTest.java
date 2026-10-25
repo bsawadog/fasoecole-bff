@@ -56,7 +56,7 @@ class AccountRegistrationFlowTest {
 
     @BeforeEach void setup() {
         AuthAttemptLimiter mailAttempts = new AuthAttemptLimiter();
-        verification = new EmailVerificationService(users, proofTokens, encoder, mail, parentAccess, mailAttempts);
+        verification = new EmailVerificationService(users, proofTokens, encoder, mail, parentAccess, mailAttempts, resetTokens);
         resets = new PasswordResetService(users, resetTokens, encoder, mail, parentAccess, mailAttempts);
         childAdmission = new ParentChildAdmissionService(students, parents, childLinks);
         identityAdmission = new SchoolIdentityAdmissionService(students, teacherDossiers, memberships);

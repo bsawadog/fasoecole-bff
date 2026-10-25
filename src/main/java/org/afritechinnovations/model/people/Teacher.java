@@ -44,4 +44,11 @@ public class Teacher {
 
     @Column(name = "hire_date")
     private LocalDate hireDate;
+
+    /** Matières que cet enseignant peut enseigner, même sans classe affectée. */
+    @Builder.Default
+    @ManyToMany
+    @JoinTable(name = "teacher_subjects", joinColumns = @JoinColumn(name = "teacher_id"),
+            inverseJoinColumns = @JoinColumn(name = "subject_id"))
+    private java.util.Set<org.afritechinnovations.model.academic.Subject> teachingSubjects = new java.util.LinkedHashSet<>();
 }

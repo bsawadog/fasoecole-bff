@@ -47,8 +47,11 @@ public class SupportIncidentController {
  }
  @GetMapping("/incidents")
  public List<Map<String,Object>> list(@RequestParam(defaultValue="0") @Min(0) int page,
-   @RequestParam(defaultValue="") @Size(max=160) String search) {
+   @RequestParam(defaultValue="") @Size(max=160) String search,
+   @RequestParam(required=false) @Positive Long schoolId) {
+  if(schoolId!=null) owner(schoolId);
   String scope=guard.isSuperAdmin()?"":" AND s.owner_id="+guard.currentUserId();
+  if(schoolId!=null) return jdbc.queryForList(SELECT+"WHERE (i.title ILIKE ? OR s.name ILIKE ?)"+scope+" AND i.school_id=? ORDER BY i.updated_at DESC,i.id DESC LIMIT 30 OFFSET ?","%"+search+"%","%"+search+"%",schoolId,Math.max(0,page)*30L);
   return jdbc.queryForList(SELECT+"WHERE (i.title ILIKE ? OR s.name ILIKE ?)"+scope+" ORDER BY i.updated_at DESC,i.id DESC LIMIT 30 OFFSET ?","%"+search+"%","%"+search+"%",Math.max(0,page)*30L);
  }
  @GetMapping("/incidents/{id}")

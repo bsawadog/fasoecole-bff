@@ -22,6 +22,9 @@ for repository, workflow in [
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert doc["permissions"]["id-token"] == "write", path
     assert doc["env"]["AWS_REGION"] == "eu-west-3", path
-    expected = "${{ inputs.environment }}" if repository == "fasoecole-bff" and workflow == "deploy-dev" else "dev"
+    if workflow == "deploy-dev":
+        expected = "${{ inputs.environment }}" if repository == "fasoecole-bff" else "${{ inputs.environment || 'dev' }}"
+    else:
+        expected = "dev"
     assert all(job["environment"] == expected for job in doc["jobs"].values()), path
     print(f"{repository}/{workflow}: YAML valid")

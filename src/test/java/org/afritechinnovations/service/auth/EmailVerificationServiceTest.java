@@ -39,6 +39,7 @@ class EmailVerificationServiceTest {
     @Mock EmailService email;
     @Mock ParentAutoAccessService autoAccess;
     @Mock org.afritechinnovations.security.AuthAttemptLimiter mailAttempts;
+    @Mock org.afritechinnovations.repository.common.PasswordResetTokenRepository passwordResetTokens;
     @InjectMocks EmailVerificationService service;
 
     private User parent;
@@ -62,12 +63,168 @@ class EmailVerificationServiceTest {
         doAnswer(i -> { stored = null; return null; }).when(tokens).delete(any());
     }
 
+    @Test
+    void correctingAnUnactivatedEmailRevokesOldLinksAndSendsANewInvitation() {
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(tokens.findByUserId(7L)).thenAnswer(call -> Optional.ofNullable(stored));
+        doAnswer(call -> { stored = null; return null; }).when(tokens).deleteByUserId(7L);
+        assertTrue(service.sendInvitation(parent));
+        String oldToken = sentToken("activate");
+        clearInvocations(email);
+        assertTrue(service.correctUnactivatedEmail(7L, " CORRECT@example.test "));
+        assertEquals("correct@example.test", parent.getEmail());
+        assertFalse(parent.getPasswordSet()); assertFalse(parent.getEmailVerified());
+        assertEquals(1, parent.getSessionVersion());
+        verify(email).sendText(eq("correct@example.test"), anyString(), anyString());
+        verify(passwordResetTokens).deleteByUserId(7L);
+        assertEquals("SENT", stored.getDeliveryStatus());
+        assertThrows(IllegalArgumentException.class, () -> service.confirm(oldToken, "password123"));
+    }
+
+    @Test
+    void correctionRefusesTakenEmailsAndAccountsAlreadyTakenInHand() {
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(users.findByEmailIgnoreCase("taken@example.test")).thenReturn(Optional.of(User.builder().id(8L).build()));
+        assertThrows(IllegalArgumentException.class, () -> service.correctUnactivatedEmail(7L, "taken@example.test"));
+        parent.setPasswordSet(true);
+        assertThrows(IllegalArgumentException.class, () -> service.correctUnactivatedEmail(7L, "new@example.test"));
+        parent.setPasswordSet(false); parent.setEmailVerified(true);
+        assertThrows(IllegalArgumentException.class, () -> service.correctUnactivatedEmail(7L, "new@example.test"));
+        assertEquals("awa@ecole.bf", parent.getEmail());
+        verifyNoInteractions(email); verify(tokens, never()).deleteByUserId(any());
+    }
+
+    @Test
+    void correctionRevokesOldLinksEvenWhenNewInvitationIsRateLimited() {
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(mailAttempts.allow(anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(false);
+        assertFalse(service.correctUnactivatedEmail(7L, "new@example.test"));
+        assertEquals("new@example.test", parent.getEmail());
+        verify(tokens).deleteByUserId(7L); verify(passwordResetTokens).deleteByUserId(7L);
+        verifyNoInteractions(email);
+    }
+
+    @Test
+    void correctionKeepsNewAddressAndReportsFailedSmtpDelivery() {
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        doThrow(new org.springframework.mail.MailSendException("offline")).when(email).sendText(anyString(), anyString(), anyString());
+        assertFalse(service.correctUnactivatedEmail(7L, "new@example.test"));
+        assertEquals("new@example.test", parent.getEmail()); assertEquals("FAILED", stored.getDeliveryStatus());
+        verify(passwordResetTokens).deleteByUserId(7L);
+    }
+
+    @Test
+    void personalEmailChangesOnlyAfterConfirmationAndFollowsAllSchools() {
+        parent.setPasswordSet(true); parent.setEmailVerified(true);
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(encoder.matches("current", "random")).thenReturn(true);
+        var schoolA = org.afritechinnovations.model.people.Student.builder().user(parent).build();
+        var schoolB = org.afritechinnovations.model.people.Student.builder().user(parent).build();
+        assertTrue(service.requestEmailChange(7L, " NEW@example.test ", "current"));
+        assertEquals("awa@ecole.bf", parent.getEmail());
+        assertEquals(0, parent.getSessionVersion());
+        var body = ArgumentCaptor.forClass(String.class);
+        verify(email).sendText(eq("new@example.test"), anyString(), body.capture());
+        var matcher = Pattern.compile("http://app/login\\?verify=([\\w-]+)").matcher(body.getValue());
+        assertTrue(matcher.find());
+        service.confirm(matcher.group(1), null);
+        assertEquals("new@example.test", schoolA.getEmail());
+        assertEquals("new@example.test", schoolB.getEmail());
+        assertTrue(parent.getEmailVerified()); assertEquals(1, parent.getSessionVersion());
+        verify(passwordResetTokens).deleteByUserId(7L);
+        assertNull(stored);
+    }
+
+    @Test
+    void emailChangeRequiresPasswordAndRefusesExistingAccount() {
+        parent.setPasswordSet(true);
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        assertThrows(IllegalArgumentException.class, () -> service.requestEmailChange(7L, "other@example.test", "bad"));
+        when(encoder.matches("current", "random")).thenReturn(true);
+        when(users.findByEmailIgnoreCase("other@example.test")).thenReturn(Optional.of(User.builder().id(8L).build()));
+        assertThrows(IllegalArgumentException.class, () -> service.requestEmailChange(7L, "other@example.test", "current"));
+        assertEquals("awa@ecole.bf", parent.getEmail());
+        verifyNoInteractions(email);
+    }
+
+    @Test
+    void failedEmailChangeDeliveryKeepsCurrentAddressAndSessions() {
+        parent.setPasswordSet(true);
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(encoder.matches("current", "random")).thenReturn(true);
+        doThrow(new org.springframework.mail.MailSendException("offline")).when(email).sendText(anyString(), anyString(), anyString());
+        assertFalse(service.requestEmailChange(7L, "new@example.test", "current"));
+        assertEquals("awa@ecole.bf", parent.getEmail()); assertEquals(0, parent.getSessionVersion());
+    }
+
+    @Test
+    void emailChangeLinkExpiresAndCannotTakeAnAddressClaimedMeanwhile() {
+        parent.setPasswordSet(true);
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(encoder.matches("current", "random")).thenReturn(true);
+        assertTrue(service.requestEmailChange(7L, "new@example.test", "current"));
+        var body = ArgumentCaptor.forClass(String.class);
+        verify(email).sendText(eq("new@example.test"), anyString(), body.capture());
+        var matcher = Pattern.compile("http://app/login\\?verify=([\\w-]+)").matcher(body.getValue());
+        assertTrue(matcher.find());
+        when(users.findByEmailIgnoreCase("new@example.test")).thenReturn(Optional.of(User.builder().id(8L).build()));
+        assertThrows(IllegalArgumentException.class, () -> service.confirm(matcher.group(1), null));
+        assertEquals("awa@ecole.bf", parent.getEmail());
+        stored.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        assertThrows(IllegalArgumentException.class, () -> service.confirm(matcher.group(1), null));
+    }
+
+    @Test
+    void passwordChangeInvalidatesAnOutstandingEmailChange() {
+        parent.setPasswordSet(true);
+        when(users.findByIdForUpdate(7L)).thenReturn(Optional.of(parent));
+        when(encoder.matches("current", "random")).thenReturn(true);
+        assertTrue(service.requestEmailChange(7L, "new@example.test", "current"));
+        var body = ArgumentCaptor.forClass(String.class);
+        verify(email).sendText(eq("new@example.test"), anyString(), body.capture());
+        var matcher = Pattern.compile("http://app/login\\?verify=([\\w-]+)").matcher(body.getValue());
+        assertTrue(matcher.find());
+        parent.revokeSessions();
+        assertThrows(IllegalArgumentException.class, () -> service.confirm(matcher.group(1), null));
+        assertEquals("awa@ecole.bf", parent.getEmail());
+    }
+
     private String sentToken(String param) {
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(email).sendText(eq("awa@ecole.bf"), anyString(), body.capture());
         Matcher m = Pattern.compile("http://app/login\\?" + param + "=([\\w-]+)").matcher(body.getValue());
         assertTrue(m.find(), body.getValue());
         return m.group(1);
+    }
+
+    @Test
+    void existingVerifiedAccountGetsOneNotificationWithoutActivationOrPasswordChange() {
+        parent.setPasswordSet(true);
+        parent.setEmailVerified(true);
+        var school = org.afritechinnovations.model.common.School.builder().id(1L).name("École ABC").build();
+        assertTrue(service.sendAccessAssigned(parent, school, "Enseignant"));
+        verify(email, times(1)).sendText(eq(parent.getEmail()), anyString(), org.mockito.ArgumentMatchers.contains("Changer d’espace"));
+        verifyNoInteractions(tokens, users, encoder, autoAccess);
+        assertEquals("random", parent.getPasswordHash());
+    }
+
+    @Test
+    void newAccountGetsOneActivationEmailForDirectAssignment() {
+        var school = org.afritechinnovations.model.common.School.builder().id(1L).name("École ABC").build();
+        assertTrue(service.sendAccessAssigned(parent, school, "Parent"));
+        sentToken("activate");
+        verify(email, times(1)).sendText(eq(parent.getEmail()), anyString(), anyString());
+        assertFalse(parent.getEmailVerified());
+        assertTrue(parent.getApproved());
+    }
+
+    @Test
+    void assignmentEmailFailureDoesNotUndoTheAssignedAccess() {
+        parent.setPasswordSet(true); parent.setEmailVerified(true);
+        doThrow(new org.springframework.mail.MailSendException("unavailable")).when(email).sendText(anyString(), anyString(), anyString());
+        assertFalse(service.sendAccessAssigned(parent, org.afritechinnovations.model.common.School.builder().name("École").build(), "Parent"));
+        assertTrue(parent.getApproved());
+        verifyNoInteractions(users, tokens);
     }
 
     @Test

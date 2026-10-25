@@ -53,6 +53,10 @@ public class ParentPortalController {
     }
     @GetMapping("/owner/parent-portal/schools/{schoolId}/posts")
     public List<Post> schoolPosts(@PathVariable Long schoolId) { return service.schoolPosts(schoolId); }
+    @GetMapping("/owner/parent-portal/schools/{schoolId}/students")
+    public List<StudentTarget> schoolStudents(@PathVariable Long schoolId, @RequestParam Long classId) {
+        return service.schoolStudents(schoolId, classId);
+    }
     @PostMapping(value="/owner/parent-portal/schools/{schoolId}/posts",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public Post publish(@PathVariable Long schoolId,@Valid @RequestPart("request") PostRequest request,

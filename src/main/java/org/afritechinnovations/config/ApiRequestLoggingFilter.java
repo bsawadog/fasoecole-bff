@@ -13,7 +13,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
-/** Logs API access without recording request bodies, query parameters, or headers. */
+/** Logs API and ALB health-check access without recording bodies, query parameters, or headers. */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class ApiRequestLoggingFilter extends OncePerRequestFilter {
@@ -23,7 +23,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI().substring(request.getContextPath().length());
-        return !path.startsWith("/api/");
+        return !path.startsWith("/api/") && !"/actuator/health".equals(path);
     }
 
     @Override

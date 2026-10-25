@@ -124,11 +124,28 @@ public class FamilySpaceService {
 
         var school = student.getSchool();
         var user = student.getUser();
-        return new SelfServiceDto.StudentProfile(overview, user == null ? null : user.getEmail(),
-                user == null ? null : user.getPhone(), guardians, teachers, schoolContact(school));
+        return new SelfServiceDto.StudentProfile(overview, student.getEmail(),
+                student.getPhone(), guardians, teachers, schoolContact(school));
     }
 
-    /** Enfant dont l'utilisateur est le parent / tuteur (un élève ne peut pas agir pour lui-même ici). */
+    /** Lecture par un élève de sa propre fiche ou par un parent autorisé. */
+    public Student requireReadableStudent(Long userId, Long studentId) {
+        return requireAccess(userId, studentId).student();
+    }
+
+    public Student requireOwnStudent(Long userId, Long studentId) {
+        Student student = requireAccess(userId, studentId).student();
+        if (student.getUser() == null || !userId.equals(student.getUser().getId()))
+            throw new AccessDeniedException("Vous ne pouvez ouvrir que votre propre dossier élève.");
+        return student;
+    }
+
+    public List<SelfServiceDto.StudentOverview> ownStudents(Long userId) {
+        var ids = studentRepository.findAllByUserId(userId).stream().map(Student::getId).collect(Collectors.toSet());
+        return students(userId).stream().filter(s -> ids.contains(s.studentId())).toList();
+    }
+
+    /** Action réservée au parent ou tuteur autorisé. */
     public Student requireGuardedChild(Long userId, Long studentId) {
         Accessible a = requireAccess(userId, studentId);
         boolean linkedParent = parentRepository.findByUserId(userId)
@@ -381,6 +398,6 @@ public class FamilySpaceService {
     }
 
     private static String fullName(Student student) {
-        return TeacherSpaceService.fullName(student.getUser());
+        return student.getFullName();
     }
 }

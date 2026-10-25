@@ -13,6 +13,13 @@ import java.util.List;
 
 /** Contrats de l'espace « Dépenses & budget » du propriétaire. */
 public final class OwnerExpenseDto {
+    public enum TaxTreatment { INCLUDED, WITHHELD }
+    public record InvoiceTax(@NotNull SchoolTaxDto.Code code, @NotBlank @Size(max=100) String label,
+            @NotNull TaxTreatment treatment, @NotNull @DecimalMin("0.01") BigDecimal amount) {}
+    public record Invoice(@NotBlank @Size(max=100) String number, @NotNull LocalDate date,
+            @Size(max=50) String supplierIfu, @NotNull @DecimalMin("0") BigDecimal excludingTax,
+            @NotNull @DecimalMin("0.01") BigDecimal total, LocalDate taxDueDate,
+            @NotNull @Size(max=20) List<@Valid InvoiceTax> taxes) {}
 
     private OwnerExpenseDto() {
     }
@@ -30,7 +37,9 @@ public final class OwnerExpenseDto {
     /** Ligne de dépense : saisie manuelle (MANUAL) ou paiement de la paie des enseignants (PAYROLL, lecture seule). */
     public record ExpenseRow(Long id, String source, LocalDate expenseDate, Long categoryId, String categoryName,
                              String label, String supplier, BigDecimal amount, String method, String reference,
-                             String notes, String createdByName) {
+                             String notes, String createdByName, Invoice invoice, ExpenseTaxDetails taxDetails) {
+        public ExpenseRow(Long id,String source,LocalDate expenseDate,Long categoryId,String categoryName,String label,String supplier,BigDecimal amount,String method,String reference,String notes,String createdByName,Invoice invoice){this(id,source,expenseDate,categoryId,categoryName,label,supplier,amount,method,reference,notes,createdByName,invoice,null);}
+        public ExpenseRow(Long id,String source,LocalDate expenseDate,Long categoryId,String categoryName,String label,String supplier,BigDecimal amount,String method,String reference,String notes,String createdByName){this(id,source,expenseDate,categoryId,categoryName,label,supplier,amount,method,reference,notes,createdByName,null);}
     }
 
     public record ExpenseRequest(
@@ -42,7 +51,8 @@ public final class OwnerExpenseDto {
             @Size(max = 150) String supplier,
             @NotNull(message = "Le mode de paiement est obligatoire") PaymentMethod method,
             @Size(max = 100) String reference,
-            @Size(max = 500) String notes) {
+            @Size(max = 500) String notes, @Valid Invoice invoice) {
+        public ExpenseRequest(Long categoryId,LocalDate expenseDate,BigDecimal amount,String label,String supplier,PaymentMethod method,String reference,String notes){this(categoryId,expenseDate,amount,label,supplier,method,reference,notes,null);}
     }
 
     public record YearInfo(Long id, String label, LocalDate startDate, LocalDate endDate, boolean current) {

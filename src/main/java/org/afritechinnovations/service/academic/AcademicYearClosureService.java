@@ -93,12 +93,12 @@ public class AcademicYearClosureService {
         find(years.findBySchoolId(schoolId), yearId);
         return Map.of("accounts", jdbc.queryForList("SELECT account,opening_balance FROM academic_year_balances WHERE academic_year_id=?",yearId),
                 "receivables", jdbc.queryForList("""
-                    SELECT r.invoice_id,r.amount_at_closure,s.registration_number,u.first_name,u.last_name,
+                    SELECT r.invoice_id,r.amount_at_closure,s.registration_number,s.first_name,s.last_name,
                       GREATEST(i.amount_due-COALESCE(i.discount_amount,0)-COALESCE(p.paid,0),0) remaining
                     FROM academic_year_receivables r JOIN invoices i ON i.id=r.invoice_id
                     JOIN students s ON s.id=i.student_id JOIN users u ON u.id=s.user_id
                     LEFT JOIN (SELECT invoice_id,SUM(amount) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id
-                    WHERE r.academic_year_id=? AND s.school_id=? ORDER BY u.last_name,u.first_name
+                    WHERE r.academic_year_id=? AND s.school_id=? ORDER BY s.last_name,s.first_name
                     """,yearId,schoolId));
     }
 

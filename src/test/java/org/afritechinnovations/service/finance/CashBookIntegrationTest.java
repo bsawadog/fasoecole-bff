@@ -40,7 +40,7 @@ class CashBookIntegrationTest {
         jdbc.update("INSERT INTO users(id,first_name,last_name,password_hash) VALUES(99101,'Owner','A','test'),(99102,'Student','A','test'),(99103,'Teacher','A','test') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO schools(id,name,type,owner_id) VALUES(99001,'Cash School','PRIMAIRE',99101),(99002,'Other School','PRIMAIRE',99101) ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO academic_years(id,school_id,label,start_date,end_date,is_current) VALUES(99201,99001,'2026','2026-01-01','2026-12-31',true) ON CONFLICT DO NOTHING");
-        jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number) VALUES(99301,99102,99001,'CASH-STUDENT') ON CONFLICT DO NOTHING");
+        jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number,first_name,last_name) VALUES(99301,99102,99001,'CASH-STUDENT','Student','A') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO teachers(id,user_id,school_id,employee_number) VALUES(99302,99103,99001,'CASH-TEACHER') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO fee_types(id,school_id,name,amount) VALUES(99401,99001,'Tuition',100000) ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO invoices(id,student_id,fee_type_id,academic_year_id,amount_due,due_date) VALUES(99501,99301,99401,99201,100000,'2026-10-01') ON CONFLICT DO NOTHING");
@@ -136,7 +136,7 @@ class CashBookIntegrationTest {
     }
     @Test void schoolIsolationAndDelegatedPermissionsAreEnforced() {
         assertThrows(AccessDeniedException.class,()->service.overview(SCHOOL,"2026-07",999L,false));
-        when(permissions.staffAllows(SCHOOL,999L,StaffModule.EXPENSES)).thenReturn(true);
+        when(permissions.staffAllows(SCHOOL,999L,StaffModule.CASH_BOOK)).thenReturn(true);
         assertDoesNotThrow(()->service.overview(SCHOOL,"2026-07",999L,false));
         assertThrows(AccessDeniedException.class,()->service.overview(OTHER,"2026-07",999L,false));
     }

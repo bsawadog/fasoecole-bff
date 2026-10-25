@@ -34,6 +34,10 @@ import java.util.Map;
 public class OwnerExpenseController {
 
     private final OwnerExpenseService expenseService;
+    @PostMapping("/expenses/{expenseId}/tax-obligations")
+    public void createInvoiceObligations(@PathVariable Long expenseId,Authentication authentication){
+        UserPrincipal p=requireOwner(authentication);expenseService.createInvoiceObligations(expenseId,p.getId(),isSuperAdmin(p));
+    }
 
     @GetMapping("/schools/{schoolId}/summary")
     public OwnerExpenseDto.Summary summary(@PathVariable Long schoolId,

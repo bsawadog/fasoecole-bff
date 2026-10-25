@@ -4,5 +4,11 @@ import lombok.Setter;
 import jakarta.validation.constraints.NotNull;
 @Getter @Setter
 public class CreateClassTeacherRequest extends CreateTeacherRequest {
-    @NotNull(message = "La matière est obligatoire") private Long subjectId;
+    private Long subjectId;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @jakarta.validation.constraints.AssertTrue(message = "Choisissez au moins une matière")
+    public boolean isSubjectSelectionPresent() {
+        return subjectId != null || (getSubjectIds() != null && !getSubjectIds().isEmpty());
+    }
 }

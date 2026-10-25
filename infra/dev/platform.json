@@ -2,6 +2,16 @@
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "FasoEcole dev Paris: network, private PostgreSQL, ALB, S3 CloudFront; optional HTTPS origin.",
   "Parameters": {
+    "FrontendDomain": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "[a-z0-9.-]*"
+    },
+    "FrontendCertificateArn": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|arn:aws:acm:us-east-1:[0-9]{12}:certificate/.+"
+    },
     "ApiDomain": {
       "Type": "String",
       "Default": "",
@@ -18,17 +28,39 @@
     }
   },
   "Rules": {
+    "FrontendTlsParametersTogether": {
+      "Assertions": [{
+        "Assert": { "Fn::Or": [
+          { "Fn::And": [
+            { "Fn::Equals": [{ "Ref": "FrontendDomain" }, ""] },
+            { "Fn::Equals": [{ "Ref": "FrontendCertificateArn" }, ""] }
+          ] },
+          { "Fn::And": [
+            { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "FrontendDomain" }, ""] }] },
+            { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "FrontendCertificateArn" }, ""] }] }
+          ] }
+        ] },
+        "AssertDescription": "Provide both FrontendDomain and its issued ACM certificate ARN in us-east-1, or leave both empty."
+      }]
+    },
     "ApiTlsParametersTogether": {
       "Assertions": [{
-        "Assert": { "Fn::Equals": [
-          { "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] },
-          { "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }
+        "Assert": { "Fn::Or": [
+          { "Fn::And": [
+            { "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] },
+            { "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }
+          ] },
+          { "Fn::And": [
+            { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiDomain" }, ""] }] },
+            { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }] }
+          ] }
         ] },
         "AssertDescription": "Provide both ApiDomain and ApiCertificateArn, or leave both empty for dev without a domain."
       }]
     }
   },
   "Conditions": {
+    "UseFrontendDomain": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "FrontendCertificateArn" }, ""] }] },
     "UseApiTls": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ApiCertificateArn" }, ""] }] }
   },
   "Resources": {
@@ -341,6 +373,10 @@
         "Protocol": "HTTP",
         "TargetType": "ip",
         "HealthCheckPath": "/actuator/health",
+        "HealthCheckIntervalSeconds": 15,
+        "HealthCheckTimeoutSeconds": 5,
+        "HealthyThresholdCount": 2,
+        "UnhealthyThresholdCount": 2,
         "Matcher": {
           "HttpCode": "200"
         },
@@ -430,6 +466,12 @@
       "Properties": {
         "DistributionConfig": {
           "Enabled": true,
+          "Aliases": { "Fn::If": ["UseFrontendDomain", [{ "Ref": "FrontendDomain" }], { "Ref": "AWS::NoValue" }] },
+          "ViewerCertificate": { "Fn::If": ["UseFrontendDomain", {
+            "AcmCertificateArn": { "Ref": "FrontendCertificateArn" },
+            "SslSupportMethod": "sni-only",
+            "MinimumProtocolVersion": "TLSv1.2_2021"
+          }, { "CloudFrontDefaultCertificate": true }] },
           "DefaultRootObject": "index.html",
           "PriceClass": "PriceClass_All",
           "HttpVersion": "http2and3",
@@ -634,6 +676,14 @@
       "Export": {
         "Name": "fasoecole-dev-LogGroup"
       }
+    },
+    "FrontendAccessUrl": {
+      "Description": "Public frontend URL; use for application links after configuring DNS.",
+      "Value": { "Fn::If": ["UseFrontendDomain", { "Fn::Sub": "https://${FrontendDomain}" }, { "Fn::Sub": "https://${Distribution.DomainName}" }] }
+    },
+    "CloudFrontDomainName": {
+      "Description": "Route 53 A and AAAA alias target.",
+      "Value": { "Fn::GetAtt": ["Distribution", "DomainName"] }
     },
     "FrontendUrl": {
       "Value": {

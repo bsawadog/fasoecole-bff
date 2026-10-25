@@ -1,5 +1,110 @@
 # FasoEcole
 
+## Récupération assistée des comptes apprenants
+
+Sur la page de connexion, **Courriel et mot de passe oubliés ? Récupérer mon compte** ouvre le formulaire public : établissement, matricule, prénom, nom, nouvelle adresse accessible et motif. La réponse reste générique, sans révéler l’existence du compte ni son ancienne adresse. Une demande correspondant au dossier apparaît dans **Demandes de compte → Récupération des comptes apprenants** ; les demandes répétées en attente ne créent pas de doublon. Aucun identifiant ne change à la soumission.
+
+Le propriétaire vérifie l’identité par les informations et coordonnées déjà enregistrées, notamment auprès du responsable légal pour un mineur, puis consigne ses vérifications et confirme les avoir effectuées. Un compte limité aux écoles de ce propriétaire peut être approuvé par celui-ci. Les comptes liés à un autre propriétaire, à un rôle parent/enseignant ou administratif, ou à un propriétaire même sans indicateur global, passent au support. Le super-administrateur dispose de la file globale dans **Administration → Récupérations de compte — Support**, qui mène à `/admin/demandes`. Les agents délégués ne disposent pas de ces décisions.
+
+Après approbation, un lien à usage unique valable une heure est envoyé à la nouvelle adresse et une notification à l’ancienne. L’adresse actuelle et le mot de passe restent utilisables jusqu’à la confirmation. Le titulaire ouvre le lien et choisit son nouveau mot de passe ; la nouvelle adresse devient alors celle du compte dans tous les établissements. Les anciennes sessions, vérifications, réinitialisations et autres récupérations en attente sont invalidées. Dossiers, identifiants, inscriptions et droits sont conservés. Une adresse appartenant à un autre compte est refusée, sans fusion automatique.
+
+Le propriétaire ou le support peut refuser une demande, annuler un lien approuvé encore inutilisé ou réessayer un envoi échoué. Un renvoi remplace le précédent lien ; une vérification de plus de 24 heures nécessite une nouvelle demande. L’historique conserve les décisions, auteurs, notes, envois et confirmation. Les listes affichent les 100 demandes les plus récentes. Les formulaires publics bénéficient de la limite de tentatives des routes d’authentification ; les demandes et envois sont aussi limités par compte.
+
+Redémarrer le BFF pour appliquer **Flyway V62**, puis déployer le frontend reconstruit. Les tables `account_recovery_requests` et `account_recovery_events` conservent les demandes et leur audit. API publiques : `POST /api/auth/account-recovery` et `POST /api/auth/account-recovery/complete`. API de traitement authentifiées : `GET /api/account-recovery`, `POST /api/account-recovery/{id}/decision` et `POST /api/account-recovery/{id}/resend`.
+
+Validation PostgreSQL sur base jetable exclusivement : `AccountRecoveryPostgresTest` avec `-DaccountRecoveryTestUrl=jdbc:postgresql://127.0.0.1:PORT/account_recovery_test`. Le test utilise un serveur jetable avec identifiants de test, vérifie les migrations, les transactions JPA, la conservation des dossiers et l’invalidation des anciens liens. Il n’est pas exécuté contre une base d’école.
+
+## Alertes d’erreur et assistance
+
+Les erreurs générales s’affichent dans une modale avec le message précis de l’API, plutôt que dans une bannière persistante. Fermer la modale, y compris avec Échap, efface l’erreur de la page et permet de reprendre les actions sans perdre les valeurs du formulaire. Les erreurs de validation propres aux champs restent affichées près des champs concernés.
+
+Le courriel personnel de l’apprenant appartient à son compte et sert à la connexion dans tous ses établissements. Avant activation, le propriétaire peut corriger une erreur de saisie depuis Élèves par classe → Actions → Modifier : l’ancien lien est invalidé et une nouvelle invitation est envoyée. Dès que le titulaire a choisi un mot de passe ou confirmé son adresse, le courriel devient en lecture seule dans la fiche scolaire ; il se modifie depuis « Mon profil » avec confirmation de la nouvelle adresse. Les autres informations du dossier scolaire restent propres à l’établissement. Un compte non activé partagé entre les écoles du même propriétaire peut être corrigé : le courriel commun change dans tous ses dossiers. Les comptes liés à un autre propriétaire, avec d’autres rôles ou avec un accès propriétaire/administrateur restent protégés.
+
+La modale propose le support technique. Depuis les espaces propriétaire et administration, **Ouvrir un incident** mène au module Incidents ; pour un propriétaire, le formulaire s’ouvre avec la page d’origine renseignée. Aucun incident n’est envoyé sans validation du formulaire. Les profils sans accès au module Incidents disposent du lien de contact public, sans élargissement de leurs droits. Recharger le frontend ou reconstruire puis publier sa version déployée ; aucune migration de base de données n’est nécessaire.
+
+## Personnel et accès : annuaire unifié et modification des employés
+
+**Personnel et accès** affiche tous les employés de l’établissement, enseignants compris et même sans module délégué. Une personne qui cumule enseignement et fonction administrative apparaît une seule fois. La liste présente les coordonnées, fonctions, rémunération, modules attribués et statut de l’accès, avec recherche et filtre « avec/sans accès ». La liste « Tous les employés » ouvre le même éditeur.
+
+Le bouton **Modifier** permet de changer prénom, nom, courriel facultatif, téléphone, fonction et salaire du personnel, ainsi que le numéro, la spécialité, la date d’embauche et le tarif daté d’un enseignant. Le tarif enseignant passe par le service existant et conserve ses contrôles sur les mois déjà payés. Une date d’embauche ne peut pas exclure des mois déjà préparés/payés. Les affectations, matières et plannings restent gérés dans la fiche enseignant.
+
+Les modules se cochent indépendamment ; **Tout sélectionner**, **Tout retirer** et **Retirer les accès** facilitent la gestion. Retirer les accès conserve la fiche, l’emploi, les versements et l’historique. Suspendre l’accès concerne les modules de gestion délégués ; l’espace enseignant lié aux affectations est indiqué séparément. Les droits du propriétaire ne se retirent pas par délégation et les identités des autres comptes propriétaires/administrateurs se modifient depuis leur propre profil. La gestion reste réservée au propriétaire de l’établissement ou au super-administrateur.
+
+Un changement de courriel refuse les adresses déjà utilisées, invalide les anciens liens d’activation/réinitialisation et les sessions, puis propose une confirmation de la nouvelle adresse. L’identité est celle du compte partagé, y compris lorsqu’il est aussi enseignant ou parent. Aucun mot de passe n’est affiché ni choisi par le gestionnaire ; le bouton d’envoi transmet un lien au titulaire.
+
+**V53** ajoute `school_staff.access_only` : attribuer des modules à un enseignant crée seulement sa délégation, sans contrat de salaire administratif supplémentaire. Une véritable fonction administrative rémunérée s’ajoute explicitement dans sa fiche. L’API d’annuaire est `GET /api/owner/staff/schools/{school}/employees` ; l’édition utilise `PUT .../employees/{user}` et le lien d’accès `POST .../employees/{user}/send-link`. L’ancienne API des membres du personnel reste disponible pour compatibilité. Redémarrer le backend pour appliquer V53, puis actualiser le frontend.
+
+## Calcul automatique de la paie au Burkina Faso
+
+Dans **Salaires**, préparer le mois, ouvrir la fiche de l’employé puis **Calculer la paie — IUTS et TPA**. Renseigner la composition du brut déjà enregistré, la catégorie, les charges familiales justifiées, les cotisations effectivement retenues, les avances/autres retenues et le statut TPA de l’établissement. **Calculer l’aperçu** ne modifie rien ; **Valider le calcul et le net à payer** conserve les paramètres et actualise les montants à verser. Les derniers paramètres de cet employé sont proposés pour les mois suivants, à vérifier avant chaque validation. Aucun calcul n’est appliqué rétroactivement aux salaires existants.
+
+Le calcul regroupe les rémunérations de toutes les fonctions d’un employé dans un même établissement/mois, applique une seule fois les abattements et le barème, puis répartit exactement les retenues entre les rémunérations. Le brut reste celui du circuit existant : montants préparés du personnel, tarifs et présences des enseignants. Les indemnités saisies sont des composantes de ce brut, pas des suppléments. Les avantages en nature entrent dans les bases fiscales et le coût employeur, sans être versés en espèces. Les cotisations sociales sont saisies en montants réels : aucun taux CNSS universel n’est supposé. Les avances déjà versées doivent correspondre à une retenue justifiée et ne doivent pas être aussi enregistrées comme versement du même net, sous peine de les compter deux fois.
+
+Version initiale **BF-CGI-2026-v1**, pour les mois à compter de janvier 2026 : barème progressif de l’article 112 ; abattement professionnel de 25 % ou 20 % du salaire de base ; retraite fiscalement déductible plafonnée à 8 % du salaire de base ; franchises logement/fonction/transport avec leurs plafonds ; réduction familiale de 0/8/10/12/14 %. La base imposable conserve ses décimales ; l’impôt final est arrondi au franc le plus proche. La TPA est calculée séparément à 3 %, avec abattement CGA de 20 % si éligible et exonération selon le statut explicitement renseigné. L’exonération des entreprises privées d’enseignement doit être confirmée pour l’établissement. Le régime **Vacations d’enseignement** applique la retenue distincte de 2 % prévue par la loi de finances 2026, sans IUTS salarié ni TPA sur cette prestation non salariée ; il ne peut pas être appliqué globalement à un employé qui possède aussi une rémunération du personnel. Les situations mixtes ou hors de ces règles nécessitent une vérification comptable avant saisie.
+
+Sources de référence : [CGI publié par la DGI, articles 106, 111–113 et 227–229](https://dgi.bf/verification/CGI), [loi de finances 2026, article 16](https://www.finances.gov.bf/fileadmin/user_upload/storage/fichiers/jo-N__01-special_Loi_de_finances_2026.pdf). Les hypothèses fiscales, le régime et les arrondis doivent être validés par le responsable de paie avant utilisation déclarative ; une évolution légale nécessite une nouvelle version du calculateur, sans recalculer les anciens bulletins.
+
+La validation est transactionnelle, contrôle les versions et rémunérations de l’aperçu et résiste aux relances après une réponse perdue. Elle se verrouille après le premier versement de l’employé pour le mois. Un tarif modifié avant paiement exige un nouveau calcul ; un tarif qui changerait une paie automatique déjà versée est refusé. La fiche de paie conserve les paramètres, bases, retenues, net, TPA et coût employeur de son édition. Les anciennes éditions restent lisibles et inchangées. Les saisies manuelles antérieures restent disponibles ; après un calcul automatique, les corrections passent par un nouveau calcul global de l’employé.
+
+**Comptabilité :** seuls les versements du net sont enregistrés comme paiements de salaire. Dans **Impôts et taxes → Reprise des salaires**, reprendre ou actualiser séparément l’IUTS, la TPA et les retenues sur vacations (catégorie **Autres**, libellé explicite), puis enregistrer leurs règlements réels. La préparation et le calcul ne créent aucun décaissement. Les cotisations sociales et avances restent à suivre dans leurs circuits dédiés ; elles ne sont pas assimilées à l’IUTS ou à la TPA. Le coût employeur affiché inclut les cotisations patronales renseignées, pas des cotisations inconnues calculées implicitement.
+
+API : `GET /api/owner/payroll/schools/{school}/employees/{user}/calculation?month=AAAA-MM` (derniers paramètres), `POST .../calculation/preview` (aperçu), `POST .../calculation` (validation avec paramètres, versions, bruts et identifiant de requête). Ces opérations utilisent les droits **Salaires**, et les reprises fiscales les droits **Impôts et taxes**. Redémarrer le backend pour appliquer **V52**, puis recharger le frontend.
+
+## Graphique financier de l’accueil propriétaire
+
+Le tableau de bord affiche **Encaissements et dépenses** pour l’établissement et l’année scolaire sélectionnés : total encaissé, total dépensé, différence et deux barres par mois. Les montants exacts sont consultables au survol, au clic ou au clavier ; une table détaillée complète le graphique. Les mois sans mouvement restent à zéro. Le graphique reprend le thème de l’application et défile horizontalement sur mobile.
+
+`GET /api/owner/dashboard?schoolId={id}` fournit `monthlyFinance`, avec les bornes de l’année, les mois et leurs totaux. Les encaissements sont les paiements scolaires reçus selon `payment_date`, y compris les paiements de factures ensuite annulées et les paiements d’anciens frais reçus pendant la période. Les dépenses additionnent les dépenses enregistrées (`expenses`, dont les salaires du personnel) et les versements aux enseignants (`teacher_payments`) selon leur date réelle. Les échéances non payées ne sont pas comptées ; la table de liaison des paiements de salaires n’est pas additionnée une deuxième fois. Les écritures manuelles propres au brouillard de caisse ne font pas partie de ce graphique. La différence est un flux sur la période, pas un bénéfice ni un solde bancaire.
+
+Le graphique est accessible au propriétaire, ou au personnel disposant à la fois de **Frais et paiements** et de **Dépenses**, en plus de l’accès au tableau de bord. Il n’est pas affiché sur la page publique. Une année absente ou inaccessible ne produit pas de série. Le calcul utilise les données réelles ; aucune donnée de démonstration n’est injectée. Redémarrer le backend et recharger le frontend après mise à jour ; aucune migration ni nouvelle dépendance graphique n’est nécessaire.
+
+## Import des élèves, frais et salaires
+
+Le bouton de choix du fichier est bleu. La colonne **Résultat** affiche en vert les lignes « À importer » et « Enregistré », et en rouge les erreurs. Après traitement, une boîte de dialogue confirme la réussite complète ou signale l’échec, y compris un import partiel, avec les détails par ligne. Le bouton **OK** actualise les listes (élèves, enseignants et salaires), tout en conservant les lignes échouées pour reprise. Les fichiers illisibles et les erreurs de validation ouvrent aussi une boîte d’erreur, sans actualiser les listes puisqu’aucune donnée n’a été enregistrée.
+
+Le **courriel est facultatif pour les élèves et les enseignants**, aussi bien dans Excel que dans CSV : la colonne `courriel` peut être absente ou ses cellules vides. Le matricule (élève) et le numéro d’employé (enseignant) restent obligatoires et servent à distinguer les personnes, y compris pour plusieurs affectations d’un enseignant. Un courriel renseigné doit être valide. Omettre le courriel d’un dossier existant conserve son adresse ; aucune invitation ne peut être envoyée pour un nouveau dossier sans courriel.
+
+Champs disponibles dans le modèle élèves :
+
+| Informations | Colonnes | Conditions |
+| --- | --- | --- |
+| Identité et inscription | `prénom`, `nom`, `matricule`, `classe` | Obligatoires ; classe existante de l’année sélectionnée |
+| Coordonnées et état civil | `courriel`, `téléphone`, `date_naissance`, `sexe` | Facultatifs ; dates `AAAA-MM-JJ` |
+| Parent ou tuteur | `parent_prénom`, `parent_nom`, `parent_courriel`, `parent_téléphone`, `lien_parenté` | Prénom et nom obligatoires uniquement si un parent est renseigné ; courriel et téléphone facultatifs |
+| Frais et versements | `type_frais`, `frais`, `échéance`, `paiement`, `date_paiement`, `mode_paiement` | Voir les règles de reprise ci-dessous |
+
+**Correction de l’import des parents :** l’ancienne version exigeait le courriel du parent et déclenchait son ajout uniquement lorsque `parent_courriel` était rempli. Désormais, un parent sans courriel est importé avec son nom, son téléphone éventuel et son lien de parenté (`Père`, `Mère`, `Tuteur`…). Un parent par ligne est pris en charge ; les autres parents se rattachent depuis la fiche élève. L’aperçu affiche ces informations avant confirmation. Un dossier sans parent affiche explicitement « Non renseigné ».
+
+Dans la colonne **Parents**, les actions utilisent des icônes avec infobulles : enveloppe pour le courriel, téléphone pour appeler, envoi pour transmettre le lien d’activation d’un compte non activé, ou clé pour demander la réinitialisation du mot de passe d’un compte déjà activé. L’activation dépend de la confirmation du courriel et du choix d’un mot de passe. Sans courriel, seules les actions compatibles avec les coordonnées disponibles sont proposées. Le résultat d’une demande de réinitialisation conserve le message générique du service, sans promettre la livraison du courriel.
+
+Pour compléter des élèves déjà importés, reprendre leurs mêmes matricules, noms et classes et ajouter les colonnes parent. Laisser les colonnes financières vides pour ne pas reprendre les frais. Une relance retrouve le parent déjà lié par son courriel ou, sans courriel, par son nom sur cet élève ; elle ne le crée pas à nouveau. Les identités et coordonnées des comptes existants sont conservées et se modifient depuis leur fiche. Sans courriel, les parents de deux élèves différents ne sont pas fusionnés sur la seule base d’un nom ou d’un téléphone. Les champs personnels d’un élève ou enseignant existant restent conservés : l’import complète les rattachements et les montants, pas leur profil. Il ne reconstitue pas les notes, présences, documents, emplois du temps ou historiques détaillés de versements.
+
+Exemple d’un élève avec son parent sans courriel (adapter la classe et le matricule) :
+
+```csv
+prénom;nom;matricule;classe;date_naissance;sexe;parent_prénom;parent_nom;parent_téléphone;lien_parenté
+Awa;Traoré;M001;CP1;2014-03-02;F;Mamadou;Traoré;+22670000000;Père
+```
+
+Dans **Élèves par classe**, le modèle CSV/Excel accepte les colonnes facultatives `type_frais`, `frais`, `échéance`, `paiement`, `date_paiement` et `mode_paiement`. Téléchargez le nouveau modèle depuis l’écran. Le type de frais doit déjà être configuré pour l’établissement et le niveau. Les montants sont exprimés en FCFA ; les dates suivent le format `AAAA-MM-JJ`.
+
+Le matricule retrouve un élève déjà inscrit dans la classe de l’année sélectionnée, après vérification de son nom et de son courriel. Une ligne peut créer ou mettre à jour un frais, identifié par **élève + année + type de frais + échéance**. Pour plusieurs types de frais, utilisez des imports successifs. Les colonnes financières vides n’ajoutent aucun frais. Les colonnes de la liste affichent les frais nets actifs, les paiements reçus et le reste à payer selon la même logique que la fiche élève, y compris les reports et les paiements de frais annulés.
+
+**`paiement` représente le total déjà payé pour ce frais**, et non un nouveau versement. Exemple : frais de 50 000 FCFA, déjà payé 20 000 FCFA, puis fichier indiquant 30 000 FCFA payés : seul un complément de 10 000 FCFA est enregistré avec un reçu. Réimporter le même total n’ajoute pas de paiement. Une cellule `paiement` vide conserve les versements existants ; `0` n’est accepté que si rien n’a déjà été payé. L’import ne supprime aucun versement et ne modifie pas les frais annulés ou bénéficiant d’une réduction : utiliser la fiche élève pour ces corrections. Un complément exige sa date réelle et son mode (`CASH`, `MOBILE_MONEY`, `BANK_TRANSFER` ou `CARD`). Ne regroupez que des versements dont la saisie à cette date et avec ce mode est justifiée ; sinon, saisissez l’historique détaillé dans la fiche.
+
+Exemple de colonnes à ajouter au fichier élèves :
+
+```csv
+type_frais;frais;échéance;paiement;date_paiement;mode_paiement
+Scolarité;50000;2026-10-01;20000;2026-09-15;CASH
+```
+
+Dans **Enseignants par classe**, les colonnes `salaire` et `mois_salaire` (`AAAA-MM`) reprennent un salaire mensuel fixe. Les colonnes `paiement`, `date_paiement` et `mode_paiement` reprennent le total versé pour ce mois. Le numéro d’employé, le nom et le courriel identifient un enseignant existant. Pour plusieurs affectations, répéter les mêmes informations financières. Les rémunérations horaires ou selon présence restent gérées dans la fiche enseignant. Les taux déjà protégés par des paiements ultérieurs ne sont pas remplacés.
+
+La reprise de salaire prépare uniquement le salaire de l’enseignant concerné et utilise le circuit **Salaires → Dépenses à payer → versement**, avec contrôle du net après retenues et sans doubler les paiements. La liste affiche le net, les versements et le solde pour le mois choisi, toutes classes confondues dans cet établissement.
+
+Les imports restent traités ligne par ligne : les lignes réussies sont conservées et les erreurs sont affichées pour reprise. L’élève, ses montants et le rattachement de son parent sont enregistrés dans une même transaction : une erreur empêche l’enregistrement de toute cette ligne. Le frontend vérifie aussi que la réponse du serveur confirme le parent demandé. Pour les enseignants, la création/affectation précède la transaction de reprise du salaire : si cette dernière échoue, le profil reste disponible pour une nouvelle tentative. Les montants nécessitent les droits **Frais et paiements** ou **Salaires** en plus des accès aux listes. Redémarrer le backend et recharger le frontend après mise à jour ; aucune migration de base n’est nécessaire.
+
 Plateforme de gestion scolaire (Spring Boot 3.4.1 / Java 21 / PostgreSQL / Flyway).
 
 ## Prérequis
@@ -159,7 +264,9 @@ Le lien expire après 30 minutes par défaut (`PASSWORD_RESET_TOKEN_EXPIRATION_M
 
 Lors de l'inscription, l'utilisateur choisit l'établissement concerné afin que seul son propriétaire reçoive la demande. Le propriétaire choisit le rôle et peut affecter le compte à l'un de ses établissements lors de l'approbation.
 
-Pour tester la réception, inscrivez `boubacar.sawadogo02@gmail.com` et demandez une réinitialisation après approbation du compte. L'adresse SMTP est l'expéditeur ; ne configurez pas une redirection globale des messages vers l'adresse de test.
+Pour tester la réception avec le profil `local` seul, demandez une réinitialisation avec l'adresse d'un compte actif, même fictive : la destination SMTP est redirigée vers `boubacar.sawadogo02@gmail.com` (voir `MAIL_TEST_RECIPIENT` plus bas). Saisissez l'adresse du compte à réinitialiser, pas celle de la boîte de réception de test. L'adresse du compte et son mot de passe ne changent pas avant utilisation du lien.
+
+Les variables SMTP d'une configuration IntelliJ ne sont pas transmises à un lancement Maven dans un autre terminal. Utilisez la configuration Spring Boot **Fasoecole**, avec le profil `local` et ses variables SMTP, ou fournissez ces mêmes variables au processus Maven. Une réponse HTTP 202 ne prouve pas l'envoi : la réponse publique reste générique ; vérifiez les erreurs `Password reset email delivery failed` dans la console du backend.
 
 ### Comptes locaux de démonstration
 
@@ -275,7 +382,7 @@ ni l'exécution des migrations ni les valeurs de la base réelle.
 | --- | --- | --- |
 | Inscription publique enseignant, parent ou élève | Le titulaire choisit son mot de passe puis confirme son courriel | Approbation du propriétaire ; le parent lié à un enfant peut recevoir un accès automatique tracé |
 | Enseignant créé par l'établissement | Invitation par courriel ; le titulaire choisit son mot de passe | Profil et affectation classe/matière créés par l'établissement |
-| Élève créé par l'établissement | Invitation par courriel ; le titulaire choisit son mot de passe | Dossier, matricule, année et inscription active créés ensemble |
+| Élève créé par l'établissement | Courriel personnel unique ; activation explicite depuis Actions → Accès de connexion | Dossier, matricule, année et inscription active créés ensemble ; aucun rattachement automatique par courriel |
 | Parent ajouté à un enfant | Invitation si un courriel est fourni ; réutilisation du compte existant par courriel | Rattachement explicite à l'enfant ; preuve du courriel exigée pour l'accès automatique |
 | Personnel administratif | Invitation ou notification d'accès pour un compte déjà vérifié | Modules limités par la délégation du propriétaire |
 | Compte créé directement par la plateforme | Invitation ; aucun mot de passe transmis par l'administrateur | Les rôles sont attribués séparément par la plateforme |
@@ -461,3 +568,147 @@ La création d’un établissement charge le véritable propriétaire au lieu de
 Le sélecteur « Affecter un enseignant existant » est limité aux établissements du propriétaire de l’école cible. Le backend interroge ces établissements par propriétaire ; il ne charge plus le catalogue global. Cette limite s’applique aussi au SUPER_ADMIN dans ce sélecteur. Le personnel délégué ne voit que les enseignants de son établissement courant.
 
 Le backend refuse l’affectation d’un enseignant d’un autre propriétaire, même si son identifiant est fourni directement. Une réutilisation entre deux écoles du même propriétaire conserve les profils par établissement. Le frontend filtre également les propositions selon les établissements accessibles au compte. Aucune migration de données n’est requise.
+
+
+### Graphiques complémentaires de l’accueil
+
+Le tableau de bord expose `classReceivables` (droit FINANCE) et `weeklyAttendance` (droit STUDENTS), pour l’année scolaire sélectionnée. Le recouvrement répartit les frais actifs nets de réduction entre encaissé plafonné aux frais, solde échu et solde non échu à la date du jour. Les trop-perçus sont séparés ; les factures annulées sont exclues. Les frais sont rattachés à la dernière inscription de l’année, ou au groupe sans classe. Il s’agit d’un état des créances, distinct des flux mensuels de trésorerie.
+
+Les présences couvrent au maximum huit semaines, limitées aux dates de l’année et à aujourd’hui. Le dernier statut par élève, classe et jour est retenu. Un non-renseigné correspond à un élève inscrit à la date de l’appel, encore dans les effectifs actifs/terminés/diplômés, sans statut lors d’un appel commencé dans sa classe. Sans calendrier complet ni historique des sorties, aucun appel manquant n’est déduit et une semaine vide reste « Sans données ». Les totaux représentent des journées-élèves par classe, pas des élèves uniques. Les détails sont accessibles au clavier et sur mobile.
+
+
+### Caisse et banque à l’accueil
+
+La carte caisse utilise le solde de clôture mensuel du brouillard existant (mois actuel, ou dernier mois si la caisse est clôturée), sous le droit CASH_BOOK. Une caisse non ouverte ou un chargement en erreur ne sont pas présentés comme un solde nul.
+
+La carte banque (droit FINANCE) indique toujours **Solde non vérifié** : report BANK de l’année sélectionnée + paiements scolaires par BANK_TRANSFER reçus dans la période − dépenses et paiements enseignants par BANK_TRANSFER. Les liaisons de paiements enseignants ne sont pas additionnées aux versements. Les flux effectifs incluent les paiements de factures annulées, comme la trésorerie mensuelle. La période est limitée à aujourd’hui et à la fin de l’année scolaire. Les cartes et paiements mobiles sont exclus faute de preuve de leur versement sur un compte bancaire. Le report absent est signalé explicitement ; cette estimation ne constitue pas un relevé ni un rapprochement bancaire.
+
+
+### Emplois du temps des classes
+
+Dans **Vie scolaire et familles → Emplois du temps des classes**, choisir l’établissement, la classe et une date de la semaine à consulter, puis **Imprimer / PDF**. La feuille A4 paysage présente les sept jours, les horaires et les enseignants. Aucun planning parallèle n’est saisi : les créneaux de la fiche enseignant sont la source. Les dates de validité, inclusives, sont vérifiées pour chaque occurrence de la semaine, dans les limites de l’année sélectionnée. Les chevauchements entre enseignants dans une classe sont signalés. Les matières affichées sont les affectations actives enseignant/classe, car le créneau ne porte pas de matière unique ; les vacances et annulations restent dans le calendrier. L’accès est protégé par le module CALENDAR, pour le propriétaire, les administrateurs et le personnel autorisé.
+
+
+### Indicateurs de messages non lus
+
+Le résumé de la boîte établissement et l’accueil utilisent la même requête de comptage que la visibilité de la messagerie : conversations personnelles du compte dans l’établissement et boîte partagée accessible. Le participant personnel est prioritaire lorsqu’une conversation possède aussi un participant établissement. Chaque message est compté une seule fois, les messages envoyés par le compte sont exclus et les conversations privées des autres comptes ne sont pas incluses. Le compteur de l’accueil n’inclut plus l’ancienne table messages, absente de la messagerie actuelle.
+
+Les badges enseignant, parent et élève continuent d’utiliser leur participation personnelle. Les indicateurs sont actualisés après lecture/envoi réussi, au retour sur la fenêtre et toutes les vingt secondes. Les mêmes règles s’appliquent au personnel disposant du module MESSAGES ; en intervention administrateur dans un établissement, le badge utilise ce contexte. Une erreur réseau conserve le dernier compteur connu jusqu’à la prochaine actualisation.
+
+
+Les cartes de l’emploi du temps utilisent une couleur de fond stable selon le libellé de la matière (ou du groupe de matières associé au créneau), avec une légende et un texte sombre contrasté. Les matières non renseignées restent grises. La version imprimée conserve le fond des cartes. Dans « Créer un employé », les actions de préparation ont un fond bleu, le retrait un fond rouge et la validation un fond vert, avec un contour visible au clavier.
+
+
+### Espace enseignant et appel de classe
+
+Les quatorze modules métier sont accessibles depuis la navigation et l’accueil enseignant, y compris Messages, Calendrier scolaire, Discipline, Bibliothèque et Devoirs de maison. Le module de présence est nommé « Présences et retards ». Pour la classe et la date choisies, les lignes sans présence enregistrée sont préremplies à Présent ; les statuts existants et les modifications en cours sont conservés. Rien n’est écrit à l’ouverture de la liste. Corriger les exceptions puis utiliser « Enregistrer l’appel de la classe » ; la recherche ne limite pas les élèves enregistrés. Le bouton de chaque ligne reste disponible.
+
+`PUT /api/me/teacher/classes/{classId}/attendance` reçoit la date et les lignes nouvelles ou modifiées. Le serveur vérifie l’affectation enseignant, les inscriptions, les doublons, les dates et les statuts attendus avant toute écriture. Une erreur annule la transaction ; une présence déjà modifiée depuis le chargement demande une actualisation. Les appels non validés restent absents des statistiques.
+
+Graphiques proposés : évolution hebdomadaire des présences/absences/retards des classes affectées, répartition des notes par évaluation et suivi des devoirs remis/corrigés. Les semaines sans appel et les notes non saisies doivent rester distinctes des absences et des zéros.
+
+
+### Graphiques de l’accueil enseignant
+
+Le module est renommé **Présences et retards**, juste après **Mes classes** dans le menu Enseignement et en tête de l’accueil. Les graphiques de `GET /api/me/teacher/dashboard` suivent la classe choisie et le contexte établissement/année sélectionné. Présences : huit semaines au maximum, bornées par l’année et aujourd’hui, dernier statut par élève/jour ; une semaine vide reste sans saisie. Notes : évaluations des seules matières affectées à l’enseignant, barèmes ramenés sur 20, notes absentes et invalides exclues, vrais zéros comptés. Devoirs : uniquement ses publications, couples élève/devoir sur inscriptions actives, ciblage individuel respecté, statuts À faire/Remis/Corrigés et échéances dépassées. Les contrôles d’accès précèdent les calculs. Actualisation manuelle et toutes les trente secondes ; détails hebdomadaires accessibles au clavier et affichage mobile.
+
+
+### Ma fiche employé — enseignant
+
+Le module **Ma fiche employé** est accessible dans le menu Enseignement et à l’accueil enseignant. Il présente en lecture seule les données de la fiche administrative : identité professionnelle, matricule, date d’embauche, spécialité, matières, tarif du mois, heures prévues/travaillées/absentes/supplémentaires, montants calculés, retenues prises en compte, versements et créneaux datés. Le choix de l’établissement et du mois est un filtre de consultation. Les calculs utilisent le même service que la fiche administrative, sans simuler des droits d’administration.
+
+Les nouvelles routes `GET /api/me/teacher/employee-files` et `GET .../{teacherId}?month=YYYY-MM` utilisent le compte authentifié et refusent tout dossier d’un autre compte, même dans la même école. Aucune route de modification de contrat, de tarif, de planning ou de paiement n’est ajoutée.
+
+Le formulaire « Demander une action à l’administration » utilise `POST .../{teacherId}/requests` pour créer une conversation privée avec le propriétaire responsable de l’établissement. Le destinataire est fixé côté serveur et la demande ne modifie pas le dossier ; les réponses se consultent dans Messages. Un enseignant sans classe affectée peut consulter sa fiche et écrire à son responsable. L’envoi est désactivé si aucun responsable actif et approuvé distinct du demandeur n’est disponible, ou si l’établissement est inactif.
+
+### Évaluations, devoirs de maison et ressources de cours
+
+- Enseignant : « Notes » devient « Évaluations et notes ». La route existante reste inchangée.
+- « Devoirs de maison » réunit publication (consignes, fichiers, date de remise) et suivi par élève (À faire, Remis, Corrigé, retour du professeur). Le professeur ne modifie que le suivi de ses propres devoirs, sur une année ouverte. Les parents et élèves consultent ce suivi sans le modifier.
+- « Cours et ressources » réutilise les documents partagés par classe : supports, exercices libres et corrigés sans date de remise. Le titre permet de préciser la matière et le chapitre. Un exercice à remettre se publie dans Devoirs de maison.
+- Ces deux pages sont accessibles dans les espaces enseignant, parent et élève. Les anciennes routes personnelles `suivi-devoirs` redirigent vers `devoirs`. Le suivi administratif reste disponible côté établissement.
+- Les PDF disposent d’un aperçu en boîte de dialogue et du téléchargement. La lecture passe par l’API authentifiée et ses contrôles d’accès ; aucun document public n’est créé. Si le navigateur mobile ne sait pas afficher le PDF, le téléchargement reste disponible.
+- Les lectures de publications et fichiers sous `/api/me/parent-portal/students/{studentId}` et du suivi `/api/school-life/students/{studentId}?module=HOMEWORK` acceptent l’élève pour sa propre fiche ou un parent autorisé. Les actions réservées aux parents restent protégées par `requireGuardedChild`.
+- Aucune migration de données : publications et suivis existants conservés. La réception signifie la consultation dans l’espace personnel ; aucun envoi automatique par courriel ou WhatsApp n’est ajouté.
+
+### Outils quotidiens de l’enseignant
+
+La migration V54 ajoute le cahier de textes, les notes privées, l’accompagnement et l’historique des demandes d’indisponibilité. Au démarrage du backend, Flyway l’applique automatiquement.
+
+- **Aujourd’hui**, à l’accueil : cours effectifs à la date du jour dans le contexte sélectionné, devoirs échus restant à vérifier/corriger, évaluations passées avec des notes à saisir et rappels personnels arrivés à échéance. Un zéro réel est une note saisie ; une note manquante ne devient pas un zéro. Actualisation manuelle.
+- **Cahier de textes**, volet dépliable dans Cours et ressources : matière affectée au professeur, séance réalisée, contenu, objectifs et prochaine séance. Privé par défaut ; partage volontaire de toute la séance avec la classe. Les PDF et exercices restent dans le formulaire de ressources existant.
+- **Élèves à accompagner**, volet de Mes classes : repères indicatifs (trois absences hors absences excusées sur les trente derniers jours, devoirs personnels non remis après échéance ou moyenne indicative sous 10/20 dans ses propres évaluations). Moyenne simple normalisée sur 20, distincte de la moyenne officielle pondérée du bulletin. Le professeur peut également choisir un autre élève de sa classe, noter une action privée, prévoir un bilan et terminer le suivi. Le message destiné à la famille est un champ séparé et n’est publié que sur choix explicite ; la note privée n’est jamais incluse dans la réponse familiale.
+- **Carnet personnel** : accessible depuis Aujourd’hui, sans nouvelle rubrique principale du menu. Notes modifiables, supprimables après confirmation, rappels datés et état À faire/Terminé, strictement limités au compte enseignant.
+- **Disponibilités et absences**, volet de Mon emploi du temps : dates et heures, motif et demande éventuelle de remplacement, avec sélection de sa propre fiche employé. Le destinataire administratif est choisi par le serveur. La demande et la conversation sont enregistrées dans la même transaction. Le statut affiché est « Demande transmise » ; la réponse se consulte dans Messages. Aucun changement automatique des créneaux ni de la paie.
+
+Les séances et messages d’accompagnement partagés sont consultables dans Cours et ressources des espaces parent et élève via `GET /api/me/students/{studentId}/learning`. L’accès exige sa propre fiche ou un lien parent autorisé dans un établissement actif. Les familles ne disposent d’aucune route d’écriture sur ces outils.
+
+API enseignant : `/api/me/teacher/daily/today`, `/daily/notes`, `/daily/availability`, `/classes/{classId}/lessons` et `/classes/{classId}/support`. Les modifications de séances et d’accompagnement exigent une classe affectée et une année courante ouverte. Les notes sont liées au compte ; les demandes restent liées à sa propre fiche employé.
+
+### Accueil parent et format des montants
+
+L’accueil parent propose un suivi par enfant dans le contexte établissement/année sélectionné. Le nouveau GET `/api/me/parent/dashboard?studentId=...` exige un lien parent/tuteur actif, puis vérifie le contexte avant de lire les données. Les graphiques présentent les moyennes officielles des bulletins publiés par période et par matière, les huit dernières semaines d’appels effectivement renseignés et les devoirs À faire/Remis/Corrigés. Un résultat non publié ou sans note reste absent, tandis qu’un vrai zéro est conservé. Les appels non saisis ne deviennent ni des présences ni des absences. Les dates et élèves ciblés par les publications sont respectés.
+
+Les points à suivre et les listes récapitulent les absences, retards, devoirs échus non remis, messages d’accompagnement partagés, prochaines évaluations sur quatorze jours, annonces et événements. Les liens vers les modules conservent l’enfant choisi. L’accès Accompagnement affiche uniquement les informations volontairement partagées par les professeurs ; leurs observations privées ne sont pas exposées. Les modules scolaires, vie scolaire, communication et démarches sont regroupés à l’accueil. Une erreur de chargement n’est pas affichée comme un compteur nul.
+
+Le format global Angular utilise désormais `fr-FR` avec les données locales françaises. Les montants affichent des espaces insécables entre milliers et une virgule décimale selon la précision demandée par chaque écran (exemple : 5 000 FCFA). Les valeurs numériques stockées, saisies et calculées restent inchangées. Les champs numériques et les reçus disposaient déjà de leur format français.
+
+### Espace élève : suivi et organisation
+
+L’accueil élève présente les cours du jour, devoirs à préparer, évaluations à venir, annonces, calendrier et rappels personnels. Les graphiques affichent les moyennes officielles publiées, les résultats par matière, les présences enregistrées et les statuts des devoirs renseignés par les enseignants. Une note non publiée reste masquée et une présence non saisie ne devient pas une absence.
+
+Les modules Mes présences et retards, Annonces, Mon accompagnement, Mon dossier élève (lecture seule) et Mon organisation complètent les accès aux cours, notes, devoirs, emploi du temps, bibliothèque, discipline, démarches, messages et rendez-vous. Les rappels sont privés au compte de l’élève et ne modifient pas le statut des devoirs de classe.
+
+API : GET /api/me/student/profiles et /api/me/student/dashboard?studentId=… ; CRUD des rappels sous /api/me/student/profiles/{studentId}/tasks. Ces routes exigent le dossier propre de l’utilisateur ; le lien parent ne suffit pas. Les lectures de vie scolaire autorisent aussi l’élève pour son propre dossier ; les écritures administratives restent réservées à leurs rôles. Redémarrer le BFF pour appliquer Flyway V55 (student_study_tasks).
+
+### Brouillard de banque
+
+Le module /proprietaire/banque apparaît après le brouillard de caisse. Il dispose du droit délégué BANK_BOOK, attribuable depuis Personnel et accès. Les propriétaires et administrateurs conservent leur accès aux établissements autorisés. Redémarrer le BFF pour appliquer la migration Flyway V56.
+
+Ouvrir le registre avec une date et le solde avant les premières opérations de cette date (découvert autorisé). Les règlements scolaires, dépenses et salaires enseignants par BANK_TRANSFER sont repris une seule fois ; les dépenses liées aux salaires administratifs sont reprises via expenses. Les paiements sans mode connu, carte ou mobile money sont exclus jusqu’à la saisie du dépôt bancaire correspondant. Les autres entrées et sorties sont saisies avec date, montant, libellé et référence ; les requêtes identiques réessayées ne créent pas de doublon.
+
+Le report mensuel inclut les mois vides et changements d’année. Le solde et les exports sont explicitement « avant rapprochement bancaire ». Ce module ne réalise pas de rapprochement avec un relevé et n’applique pas les clôtures de caisse. Seuls les mouvements manuels peuvent être supprimés ici ; les opérations automatiques se corrigent dans leur module d’origine. Une saisie manuelle ne crée pas de recette ou charge budgétaire. Pour un transfert caisse/banque, enregistrer le mouvement correspondant dans chacun des deux registres.
+
+API : GET /api/owner/bank-book/schools/{schoolId}?month=YYYY-MM ; POST /open ; POST /entries ; DELETE /entries/{id}. Tests PostgreSQL sur base jetable locale : BankBookIntegrationTest avec -DbankBookTestUrl=jdbc:postgresql://127.0.0.1:PORT/bank_book_test.
+
+### Paie automatique et fiscalité des factures
+
+La préparation mensuelle des salaires calcule l’IUTS et la TPA, groupe les contrats d’un même employé dans l’établissement et alimente les obligations PAYROLL sans double création. Les calculs validés et les paramètres fiscaux enregistrés sont réutilisés ; les anciennes saisies manuelles explicites restent prioritaires. Sans paramètres, le régime salarié est utilisé avec le brut comme base, zéro charge familiale et aucune exonération TPA. Ces hypothèses sont visibles et modifiables dans Salaires. Les versements antérieurs ne sont pas modifiés ; un paiement excédant le net recalculé doit être régularisé. Pour les salaires existants, le bouton Calculer et synchroniser IUTS / TPA appelle POST /api/owner/taxes/schools/{schoolId}/synchronize-payroll?year=YYYY. Les consultations GET ne créent aucune écriture fiscale.
+
+Les dépenses peuvent inclure une facture (numéro, date, IFU fournisseur), HT, TTC et plusieurs taxes. Les taxes INCLUDED font déjà partie du TTC ; les taxes WITHHELD sont déduites du paiement fournisseur. La dépense et la caisse/banque conservent le net effectivement payé. L’action distincte Créer les reversements fiscaux inscrit les retenues dans Impôts et taxes, avec l’origine EXPENSE et le lien à la facture ; elle n’effectue aucun paiement. L’utilisateur doit disposer des droits Dépenses et Impôts. Les références et échéances ne sont pas inventées. Une facture liée à une obligation active ne peut pas être modifiée ou supprimée ; annuler explicitement l’obligation non réglée avant correction. Les taxes facturées ne sont pas ajoutées une seconde fois aux reversements.
+
+Redémarrer le BFF pour Flyway V57. Les règles de paie réutilisent BurkinaPayrollCalculator (BF-CGI-2026-v1). Pour les factures, les taux ne sont pas imposés automatiquement : les conditions de retenue diffèrent selon le fournisseur, l’opération et le statut fiscal de l’établissement. Sources DGI : https://dgi.bf/verification/CGI et loi de finances 2026 publiée au Journal officiel (https://dgi.bf/wp-content/uploads/2026/01/JOURNAL-OFFICIEL-N%C2%B001-SPECIAL-LOI-DE-FINANCES-2026.pdf).
+
+### Catalogues de matières et imports
+
+Les nouveaux établissements SECONDAIRE (et les matières communes du type MIXTE) reçoivent les 15 matières générales avec codes et catégories : FRA, MAT, ANG, ALL, ESP, HGE, PHI, SVT, PCH, ECM, EPS, INF, SES, APL, MUS. Les coefficients initiaux restent à 1, modifiables par matière et par classe ; une catégorie n’est pas un coefficient.
+
+Dans Configuration de l’école → Académique → Matières → Afficher les catalogues, les établissements existants peuvent ajouter le secondaire général et les cinq filières techniques (gestion-commerce, informatique, électricité, mécanique, bâtiment). Le catalogue complète seulement les codes et catégories manquants, conserve les noms, codes personnalisés et coefficients, et signale les conflits sans écraser les données. Une application répétée ne crée pas de doublon. Les matières techniques ne sont pas imposées à tous les lycées : l’établissement choisit ses filières.
+
+RDM désigne une matière partagée entre mécanique et bâtiment. SEC désigne Secrétariat ; SCT désigne Sécurité de chantier pour éviter un même code pour deux matières différentes. Les imports enseignants acceptent dans la colonne matière le nom ou le code, sans distinction de casse ni d’accents. Les codes ambigus sont rejetés plutôt que rattachés arbitrairement.
+
+GET /api/subjects/catalog?schoolId=… et POST /api/subjects/catalog/{packId}?schoolId=… exigent le droit MANAGEMENT dans l’établissement. Les catalogues sont des modèles modifiables, pas un programme officiel. Redémarrer le BFF pour appliquer Flyway V58 (subjects.category).
+
+### Taxes lors de la création des dépenses à payer
+
+Dans Dépenses & budget → Dépenses à payer → Ajouter une dépense (ou Ajouter une charge fixe), le bouton « Ajouter la TVA / une taxe » permet de saisir les taxes facturées et comprises dans le montant TTC. Le HT est calculé par différence ; le total des taxes ne peut pas dépasser le TTC. Les références de facture, sa date et l’IFU fournisseur sont facultatifs. Une charge fixe conserve ses taxes et son IFU sans répéter le numéro ou la date d’une facture pour les mois suivants.
+
+Les taxes sont conservées dans les détails et réparties entre les versements partiels, avec régularisation des arrondis au dernier paiement. Les paiements et registres conservent leur montant TTC effectivement payé, sans ajout de taxe une seconde fois. Cette saisie ne crée pas de reversement fiscal. Les dépenses déjà payées disposent toujours de leur formulaire de facture et de retenues distinct. Redémarrer le BFF pour appliquer Flyway V59 (expense_taxes).
+
+Validation PostgreSQL sur base jetable locale : PayableTaxesIntegrationTest avec -DpayableTaxesTestUrl=jdbc:postgresql://127.0.0.1:PORT/payable_taxes_test.
+
+### Courriel personnel unique et dossiers scolaires indépendants
+
+Le prénom, le nom, le téléphone, le matricule et les données scolaires du dossier restent propres à l’établissement. Le courriel personnel provient exclusivement du compte (`users.email`) : c’est la même adresse dans les fiches scolaires et pour la connexion. Les adresses des parents se renseignent sur les fiches parent. Un apprenant sans courriel peut être inscrit sans créer une adresse fictive.
+
+La création et l’import refusent une adresse déjà associée à un compte, sans fusion automatique. Pour rejoindre une autre école avec son compte existant, l’apprenant demande l’accès avec son matricule et l’école approuve le rattachement. Dans Élèves par classe → Actions → Accès de connexion, l’école peut renseigner le premier courriel d’un compte sans adresse ou envoyer un lien d’activation/réinitialisation à l’adresse existante. Le propriétaire (ou le super-administrateur) peut corriger le courriel depuis Actions → Modifier uniquement si `passwordSet=false` et `emailVerified=false`, pour un compte actif dont tous les dossiers et accès élève appartiennent aux écoles de ce propriétaire. Les agents délégués ne disposent pas de cette correction. Une adresse déjà utilisée est refusée. Les anciennes invitations et réinitialisations sont invalidées, même si le nouvel envoi échoue ou est temporairement limité ; la correction reste enregistrée et l’envoi peut être repris dans Accès de connexion. Aucune nouvelle migration n’est nécessaire pour cette correction avant activation.
+
+Dans Mon profil → Changer mon courriel personnel, le titulaire confirme son mot de passe actuel. `POST /api/users/me/email-change` envoie un jeton à la nouvelle adresse ; l’ancienne reste utilisable tant que le jeton n’est pas confirmé. La confirmation vérifie à nouveau la disponibilité de l’adresse, change le courriel pour tous les établissements, invalide les sessions et anciens liens de réinitialisation, puis impose une reconnexion. Un changement de mot de passe invalide aussi un changement de courriel en attente. Un échec d’envoi ne modifie pas l’adresse actuelle.
+
+Redémarrer le BFF pour appliquer V60 et V61, puis déployer le frontend reconstruit. V60 conserve les données scolaires ; ses anciennes copies du courriel restent archivées en base, sans usage fonctionnel. V61 ajoute les données nécessaires aux jetons de changement de courriel. Aucun compte, dossier, inscription, note, paiement ou accès existant n’est supprimé ni fusionné automatiquement.
+
+### État de TVA fournisseurs
+
+Impôts et taxes distingue les obligations de reversement de la TVA facturée à l’établissement par ses fournisseurs. L’état reprend les dépenses à payer MANUAL/FIXED non annulées et les factures directement enregistrées dans les dépenses payées ; les paiements gérés issus des échéances sont exclus pour éviter le double comptage. Seules les lignes TVA incluse sont reprises, pas les retenues WITHHELD. Les modèles de charges fixes ne sont pas comptés avant préparation d’une échéance.
+
+La date de facture détermine l’année et la période ; à défaut, la date d’échéance ou du paiement est utilisée avec une mention explicite. Le détail et l’export CSV suivent les filtres mois/trimestre/année. Le total concerne la TVA facturée, pas nécessairement déjà payée ou déductible. Il ne crée aucune obligation fiscale et ne modifie aucun registre. La TVA collectée par l’établissement et les reports de crédits ne sont pas calculés par cet état : aucun net à déclarer n’est déduit des seuls achats. Un excédent de TVA déductible sur la TVA collectée est un crédit de TVA, pas une promesse de remboursement automatique. Redémarrer le BFF pour exposer supplierVat dans l’aperçu fiscal ; aucune nouvelle migration.

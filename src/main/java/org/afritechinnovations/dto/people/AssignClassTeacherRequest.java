@@ -11,6 +11,14 @@ public class AssignClassTeacherRequest {
     @NotNull(message = "L'enseignant est obligatoire")
     private Long teacherId;
 
-    @NotNull(message = "La matière est obligatoire")
     private Long subjectId;
+
+    @jakarta.validation.constraints.Size(max = 100)
+    private java.util.List<@NotNull Long> subjectIds = new java.util.ArrayList<>();
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @jakarta.validation.constraints.AssertTrue(message = "Choisissez au moins une matière")
+    public boolean isSubjectSelectionPresent() {
+        return subjectId != null || (subjectIds != null && !subjectIds.isEmpty());
+    }
 }

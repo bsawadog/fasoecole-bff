@@ -241,7 +241,7 @@ public class SchoolAccessRequestService {
                 .map(parent -> parentStudentRepository.findChildrenWithUserByParentId(parent.getId()).stream()
                         .map(ParentStudent::getStudent)
                         .filter(student -> student.getSchool() != null && schoolId.equals(student.getSchool().getId()))
-                        .map(student -> student.getUser().getFirstName() + " " + student.getUser().getLastName())
+                        .map(student -> student.getFirstName() + " " + student.getLastName())
                         .toList())
                 .orElse(List.of());
     }

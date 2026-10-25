@@ -2,13 +2,25 @@ name: Deploy infrastructure dev
 on:
   workflow_dispatch:
     inputs:
+      frontend_domain:
+        description: Optional frontend DNS name (for example app.dev.fasoecole.com)
+        required: false
+        default: app.dev.fasoecole.com
+        type: string
+      frontend_certificate_arn:
+        description: Issued ACM certificate ARN in us-east-1 covering the frontend domain
+        required: false
+        default: arn:aws:acm:us-east-1:836533914034:certificate/23617871-f2d4-4fb6-9c2c-af4701aceddc
+        type: string
       api_domain:
         description: Optional API DNS name; leave empty for dev without a domain
         required: false
+        default: api.dev.fasoecole.com
         type: string
       api_certificate_arn:
         description: Optional ACM certificate ARN in eu-west-3; leave empty with API DNS name
         required: false
+        default: arn:aws:acm:eu-west-3:836533914034:certificate/3e221953-ce73-41dc-8744-70f395622731
         type: string
 permissions:
   contents: read
@@ -25,23 +37,72 @@ jobs:
     environment: dev
     steps:
       - uses: actions/checkout@v4
+      - name: Validate AWS environment variables
+        uses: actions/github-script@v7
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+          CLOUDFRONT_PREFIX_LIST_ID: ${{ vars.CLOUDFRONT_PREFIX_LIST_ID }}
+        with:
+          script: |
+            core.info(`Repository: ${process.env.GITHUB_REPOSITORY}; environment: dev`);
+            const rolePattern = /^arn:aws:iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]+$/;
+            const invalid = [];
+            for (const name of ['AWS_ROLE_ARN', 'AWS_CLOUDFORMATION_ROLE_ARN']) {
+              const value = process.env[name] || '';
+              core.info(`${name}=${JSON.stringify(value)}`);
+              if (!rolePattern.test(value)) invalid.push(name);
+            }
+            const prefixList = process.env.CLOUDFRONT_PREFIX_LIST_ID || '';
+            core.info(`CLOUDFRONT_PREFIX_LIST_ID=${JSON.stringify(prefixList)}`);
+            if (!/^pl-[a-f0-9]+$/.test(prefixList)) {
+              core.error(prefixList ? 'CLOUDFRONT_PREFIX_LIST_ID must be a pl- identifier without spaces or quotes.' : 'CLOUDFRONT_PREFIX_LIST_ID is empty in vars. Set it under Environment variables, not Environment secrets, in environment dev of this repository.');
+              invalid.push('CLOUDFRONT_PREFIX_LIST_ID');
+            }
+            if (invalid.length) {
+              core.setFailed(`Invalid variables: ${invalid.join(', ')}. Configure Settings > Environments > dev > Environment variables in this repository. Role variables must contain full IAM role ARNs, not CloudFormation output names. Environment variables override repository variables.`);
+            }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install 'cfn-lint>=1,<2'
       - run: cfn-lint -r eu-west-3 -t infra/dev/*.json
+      - name: Diagnose AWS OIDC identity
+        uses: actions/github-script@v7
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+            core.setSecret(token);
+            const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+            core.info(JSON.stringify({
+              role: process.env.AWS_ROLE_ARN,
+              repository: process.env.GITHUB_REPOSITORY,
+              ref: process.env.GITHUB_REF,
+              sub: claims.sub,
+              aud: claims.aud,
+              iss: claims.iss
+            }, null, 2));
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Deploy platform
+        id: platform
         env:
           API_DOMAIN: ${{ inputs.api_domain }}
           API_CERTIFICATE_ARN: ${{ inputs.api_certificate_arn }}
+          FRONTEND_DOMAIN: ${{ inputs.frontend_domain || vars.FRONTEND_DOMAIN }}
+          FRONTEND_CERTIFICATE_ARN: ${{ inputs.frontend_certificate_arn || vars.FRONTEND_CERTIFICATE_ARN }}
           CFN_ROLE: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           CF_PREFIX_LIST: ${{ vars.CLOUDFRONT_PREFIX_LIST_ID }}
         run: |
           set -euo pipefail
+          if { [ -n "$FRONTEND_DOMAIN" ] && [ -z "$FRONTEND_CERTIFICATE_ARN" ]; } || { [ -z "$FRONTEND_DOMAIN" ] && [ -n "$FRONTEND_CERTIFICATE_ARN" ]; }; then
+            echo "::error::Provide both frontend domain and its issued ACM certificate ARN in us-east-1."
+            exit 1
+          fi
           if { [ -n "$API_DOMAIN" ] && [ -z "$API_CERTIFICATE_ARN" ]; } || { [ -z "$API_DOMAIN" ] && [ -n "$API_CERTIFICATE_ARN" ]; }; then
             echo "::error::Provide both API domain and ACM certificate ARN, or leave both empty."
             exit 1
@@ -51,5 +112,18 @@ jobs:
           aws cloudformation deploy --stack-name fasoecole-dev-platform \
             --template-file infra/dev/platform.json --role-arn "$CFN_ROLE" \
             --no-fail-on-empty-changeset \
-            --parameter-overrides "ApiDomain=$API_DOMAIN" "ApiCertificateArn=$API_CERTIFICATE_ARN" "CloudFrontPrefixListId=$CF_PREFIX_LIST"
+            --parameter-overrides "ApiDomain=$API_DOMAIN" "ApiCertificateArn=$API_CERTIFICATE_ARN" "CloudFrontPrefixListId=$CF_PREFIX_LIST" "FrontendDomain=$FRONTEND_DOMAIN" "FrontendCertificateArn=$FRONTEND_CERTIFICATE_ARN"
           aws cloudformation describe-stacks --stack-name fasoecole-dev-platform --query 'Stacks[0].Outputs'
+      - name: Show CloudFormation failure reasons
+        if: ${{ failure() && steps.platform.outcome == 'failure' }}
+        run: |
+          aws cloudformation describe-events \
+            --region "$AWS_REGION" \
+            --stack-name fasoecole-dev-platform \
+            --query "OperationEvents[?EventType == 'VALIDATION_ERROR']" \
+            --output json || echo "::warning::Early validation details unavailable; use CloudShell to run cloudformation describe-events."
+          aws cloudformation describe-stack-events \
+            --region "$AWS_REGION" \
+            --stack-name fasoecole-dev-platform \
+            --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+            --output table

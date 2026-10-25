@@ -7,6 +7,7 @@ import java.util.List;
 import java.math.BigDecimal;
 
 public final class ParentPortalDto {
+    public record StudentTarget(Long studentId, String firstName, String lastName, String registrationNumber) { }
     private ParentPortalDto() {}
     public enum Kind { ANNOUNCEMENT, HOMEWORK, DOCUMENT }
     public enum Decision { ACCEPTED, REJECTED }

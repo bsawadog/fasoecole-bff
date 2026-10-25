@@ -65,7 +65,7 @@ public class ConversationMessagingService {
     @Transactional(readOnly = true)
     public List<FamilyContactDto.ConversationSummary> conversations(Long userId, Long schoolId) {
         if (schoolId == null) return conversations(userId);
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.MESSAGES);
         return conversationRepository.findBySchool(schoolId).stream()
                 .filter(c -> c.getParticipants().stream().anyMatch(p -> p.getSchool() != null
                         || (p.getUser() != null && p.getUser().getId().equals(userId))))
@@ -75,12 +75,21 @@ public class ConversationMessagingService {
 
     @Transactional(readOnly = true)
     public List<FamilyContactDto.Recipient> recipients(Long userId, Long schoolId, Long studentId) {
-        School school = school(schoolId);
         requireSchoolAccess(userId, schoolId, studentId);
+        return collectRecipients(userId, schoolId, studentId, isSchoolAccount(userId, schoolId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<FamilyContactDto.Recipient> appointmentRecipients(Long userId, Long schoolId) {
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
+        return collectRecipients(userId, schoolId, null, true).stream()
+                .filter(recipient -> !"ELEVE".equals(recipient.role())).toList();
+    }
+
+    private List<FamilyContactDto.Recipient> collectRecipients(Long userId, Long schoolId, Long studentId, boolean schoolActor) {
         LinkedHashMap<Long, FamilyContactDto.Recipient> recipients = new LinkedHashMap<>();
         boolean parentActor = parentRepository.findByUserId(userId).isPresent();
         boolean teacherActor = !teacherRepository.findByUserId(userId).isEmpty();
-        boolean schoolActor = isSchoolAccount(userId, schoolId);
         if (parentActor || schoolActor) {
             for (Teacher teacher : teacherRepository.findBySchoolId(schoolId)) {
                 if (studentId == null || teachesStudent(teacher, studentId)) {
@@ -101,7 +110,7 @@ public class ConversationMessagingService {
         if (schoolActor) {
             studentRepository.findBySchoolId(schoolId).stream()
                     .filter(student -> studentId == null || student.getId().equals(studentId))
-                    .forEach(student -> addRecipient(recipients, student.getUser(), "ELEVE"));
+                    .forEach(student -> addStudentRecipient(recipients, student));
             recipients.remove(userId);
         }
         return List.copyOf(recipients.values());
@@ -131,7 +140,7 @@ public class ConversationMessagingService {
                     .filter(e -> e.getStudent().getSchool().getId().equals(schoolId))
                     .filter(e -> e.getAcademicYear().getId().equals(schoolClass.getAcademicYear().getId()))
                     .forEach(e -> {
-                        addRecipient(result, e.getStudent().getUser(), "ELEVE");
+                        addStudentRecipient(result, e.getStudent());
                         parentStudentRepository.findByStudentIdWithParentUser(e.getStudent().getId())
                                 .forEach(ps -> addRecipient(result, ps.getParent().getUser(), "PARENT"));
                     });
@@ -262,7 +271,7 @@ public class ConversationMessagingService {
     private ConversationParticipant participantFor(Long userId, SchoolConversation conversation) {
         return participantRepository.findByConversationIdAndUserId(conversation.getId(), userId)
                 .or(() -> participantRepository.findByConversationIdAndSchoolId(conversation.getId(), conversation.getSchool().getId())
-                        .filter(p -> guard.allowsSchoolModule(conversation.getSchool().getId(), StaffModule.STUDENTS)))
+                        .filter(p -> guard.allowsSchoolModule(conversation.getSchool().getId(), StaffModule.MESSAGES)))
                 .orElseThrow(() -> new AccessDeniedException("Cette conversation ne vous concerne pas"));
     }
 
@@ -272,7 +281,7 @@ public class ConversationMessagingService {
                         && (studentId == null || ps.getStudent().getId().equals(studentId)))).orElse(false)) return;
         if (teacherRepository.findByUserId(userId).stream().anyMatch(t -> t.getSchool().getId().equals(schoolId)
                 && (studentId == null || teachesStudent(t, studentId)))) return;
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.MESSAGES);
     }
 
     private void validateRecipient(Long userId, Long schoolId, Long studentId, boolean schoolActor) {
@@ -299,12 +308,19 @@ public class ConversationMessagingService {
     private boolean isTeacher(User user) { return !teacherRepository.findByUserId(user.getId()).isEmpty(); }
     private boolean isSchoolAccount(Long userId, Long schoolId) {
         return Objects.equals(userId, guard.currentUserId())
-                && guard.allowsSchoolModule(schoolId, StaffModule.STUDENTS);
+                && guard.allowsSchoolModule(schoolId, StaffModule.MESSAGES);
     }
     private School school(Long id) { return schoolRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Établissement introuvable")); }
     private void addRecipient(Map<Long, FamilyContactDto.Recipient> map, User user, String role) {
         if (user != null && Boolean.TRUE.equals(user.getActive()) && Boolean.TRUE.equals(user.getApproved())) map.putIfAbsent(user.getId(), new FamilyContactDto.Recipient(user.getId(),
                 (user.getFirstName() + " " + user.getLastName()).trim(), role, user.getEmail()));
+    }
+
+    private void addStudentRecipient(Map<Long, FamilyContactDto.Recipient> map, Student student) {
+        User user = student.getUser();
+        if (user != null && Boolean.TRUE.equals(user.getActive()) && Boolean.TRUE.equals(user.getApproved())) {
+            map.putIfAbsent(user.getId(), new FamilyContactDto.Recipient(user.getId(), student.getFullName(), "ELEVE", student.getEmail()));
+        }
     }
 
     private void addParticipant(SchoolConversation conversation, ConversationParticipant participant) {

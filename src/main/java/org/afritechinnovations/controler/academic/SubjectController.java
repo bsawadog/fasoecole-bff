@@ -17,6 +17,12 @@ public class SubjectController {
 
     private final SubjectService subjectService;
     private final AccessGuard guard;
+    private final org.afritechinnovations.service.academic.SubjectCatalogService catalog;
+
+    @GetMapping("/catalog")
+    public List<org.afritechinnovations.service.academic.SubjectCatalog.Pack> catalog(@RequestParam Long schoolId){guard.requireSchoolModule(schoolId,StaffModule.MANAGEMENT);return org.afritechinnovations.service.academic.SubjectCatalog.PACKS;}
+    @PostMapping("/catalog/{packId}")
+    public org.afritechinnovations.service.academic.SubjectCatalogService.Result applyCatalog(@PathVariable String packId,@RequestParam Long schoolId){guard.requireSchoolModule(schoolId,StaffModule.MANAGEMENT);return catalog.apply(schoolId,packId);}
 
     @GetMapping
     public List<SubjectDto> getBySchool(@RequestParam Long schoolId) {

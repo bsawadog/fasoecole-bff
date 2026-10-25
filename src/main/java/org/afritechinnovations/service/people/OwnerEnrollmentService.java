@@ -128,7 +128,7 @@ public class OwnerEnrollmentService {
                         parentStudentRepository.findChildrenWithUserByParentId(p.getId()).stream()
                                 .filter(ps -> scope.contains(ps.getStudent().getSchool().getId()))
                                 .map(ps -> ps.getStudent().getUser() == null ? null
-                                        : ps.getStudent().getUser().getFirstName() + " " + ps.getStudent().getUser().getLastName())
+                                        : ps.getStudent().getFirstName() + " " + ps.getStudent().getLastName())
                                 .filter(Objects::nonNull)
                                 .distinct()
                                 .toList()))
@@ -321,7 +321,7 @@ public class OwnerEnrollmentService {
                 }
                 students.add(new OwnerEnrollmentDto.StudentPlan(
                         e.getId(), e.getStudent().getId(),
-                        e.getStudent().getUser().getFirstName(), e.getStudent().getUser().getLastName(),
+                        e.getStudent().getFirstName(), e.getStudent().getLastName(),
                         e.getStudent().getRegistrationNumber(),
                         isDecided && e.getDecisionAverage() != null ? e.getDecisionAverage() : scale(average),
                         passMark, suggestion, suggestedClass,
@@ -375,7 +375,7 @@ public class OwnerEnrollmentService {
                         "Inscription introuvable pour cette année"));
                 continue;
             }
-            String name = e.getStudent().getUser().getFirstName() + " " + e.getStudent().getUser().getLastName();
+            String name = e.getStudent().getFirstName() + " " + e.getStudent().getLastName();
             if (e.getStatus() != EnrollmentStatus.ACTIVE) {
                 skipped.add(new OwnerEnrollmentDto.Skipped(e.getId(), name, "Décision déjà enregistrée"));
                 continue;

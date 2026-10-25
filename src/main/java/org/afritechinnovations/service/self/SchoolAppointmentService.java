@@ -31,12 +31,12 @@ public class SchoolAppointmentService {
         """;
 
     public List<Recipient> recipients(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
-        return messaging.recipients(guard.currentUserId(), schoolId, null).stream()
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
+        return messaging.appointmentRecipients(guard.currentUserId(), schoolId).stream()
             .filter(r -> "PARENT".equals(r.role()) || "ENSEIGNANT".equals(r.role())).toList();
     }
     public List<Appointment> schoolAppointments(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         return jdbc.query(SELECT + " WHERE a.school_id=? AND a.organizer_user_id=? ORDER BY a.proposed_at DESC,a.id DESC",
             this::appointment, schoolId, guard.currentUserId());
     }
@@ -61,7 +61,7 @@ public class SchoolAppointmentService {
     }
     @Transactional
     public void cancel(Long schoolId, Long id) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.PARENT_PORTAL);
         int updated = jdbc.update("UPDATE school_appointments SET status='CANCELLED' WHERE id=? AND school_id=? AND organizer_user_id=? AND status IN ('PENDING','ACCEPTED')",
             id, schoolId, guard.currentUserId());
         if (updated == 0) throw new IllegalArgumentException("Ce rendez-vous ne peut plus être annulé.");

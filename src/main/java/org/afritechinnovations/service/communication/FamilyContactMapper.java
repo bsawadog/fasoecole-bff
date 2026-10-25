@@ -27,7 +27,7 @@ public final class FamilyContactMapper {
     }
 
     static String name(Student student) {
-        return student == null ? null : name(student.getUser());
+        return student == null ? null : student.getFullName();
     }
 
     public static FamilyContactDto.AbsenceReportItem report(AbsenceReport r, int justified) {

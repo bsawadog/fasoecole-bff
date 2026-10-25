@@ -26,6 +26,21 @@ public class OwnerStaffController {
 
     private final OwnerStaffService staffService;
     private final AccessGuard guard;
+    private final org.afritechinnovations.service.common.EmployeeDirectoryService directory;
+
+    @GetMapping("/schools/{schoolId}/employees")
+    public List<org.afritechinnovations.dto.common.EmployeeDirectoryDto.Row> employees(@PathVariable Long schoolId) {
+        return directory.list(schoolId,guard.currentUserId(),guard.isSuperAdmin());
+    }
+    @PutMapping("/schools/{schoolId}/employees/{userId}")
+    public org.afritechinnovations.dto.common.EmployeeDirectoryDto.Row updateEmployee(@PathVariable Long schoolId,@PathVariable Long userId,
+            @Valid @RequestBody org.afritechinnovations.dto.common.EmployeeDirectoryDto.Update request) {
+        return directory.update(schoolId,userId,request,guard.currentUserId(),guard.isSuperAdmin());
+    }
+    @PostMapping("/schools/{schoolId}/employees/{userId}/send-link")
+    public OwnerStaffDto.PasswordReset employeeLink(@PathVariable Long schoolId,@PathVariable Long userId) {
+        return directory.sendLink(schoolId,userId,guard.currentUserId(),guard.isSuperAdmin());
+    }
 
     /** Établissements et modules accessibles à l'utilisateur connecté dans l'espace propriétaire. */
     @GetMapping("/my-access")

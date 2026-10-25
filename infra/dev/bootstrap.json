@@ -6,6 +6,11 @@
       "Type": "String",
       "Default": "bsawadog/fasoecole-bff"
     },
+    "BackendOidcSubject": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Exact GitHub OIDC sub for backend; empty uses the legacy repository/environment format"
+    },
     "FrontendRepository": {
       "Type": "String",
       "Default": "bsawadog/fasoecole-spa"
@@ -21,6 +26,16 @@
     }
   },
   "Conditions": {
+    "HasBackendOidcSubject": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            { "Ref": "BackendOidcSubject" },
+            ""
+          ]
+        }
+      ]
+    },
     "HasFrontendOidcSubject": {
       "Fn::Not": [
         {
@@ -77,6 +92,7 @@
                   "Effect": "Allow",
                   "Action": [
                     "ec2:Describe*",
+                    "ec2:GetSecurityGroupsForVpc",
                     "ec2:CreateVpc",
                     "ec2:DeleteVpc",
                     "ec2:ModifyVpcAttribute",
@@ -201,6 +217,11 @@
                 },
                 {
                   "Effect": "Allow",
+                  "Action": "elasticloadbalancing:ModifyTargetGroup",
+                  "Resource": "arn:aws:elasticloadbalancing:eu-west-3:836533914034:targetgroup/fasoec-Targe-WTS9E1N0IZ3E/ac5bb210fa975466"
+                },
+                {
+                  "Effect": "Allow",
                   "Action": [
                     "iam:CreateRole",
                     "iam:DeleteRole",
@@ -302,7 +323,11 @@
                 "StringEquals": {
                   "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                   "token.actions.githubusercontent.com:sub": {
-                    "Fn::Sub": "repo:${BackendRepository}:environment:dev"
+                    "Fn::If": [
+                      "HasBackendOidcSubject",
+                      { "Ref": "BackendOidcSubject" },
+                      { "Fn::Sub": "repo:${BackendRepository}:environment:dev" }
+                    ]
                   }
                 }
               }
@@ -322,6 +347,7 @@
                     "cloudformation:UpdateStack",
                     "cloudformation:DescribeStacks",
                     "cloudformation:DescribeStackEvents",
+                    "cloudformation:DescribeEvents",
                     "cloudformation:CreateChangeSet",
                     "cloudformation:DescribeChangeSet",
                     "cloudformation:ExecuteChangeSet",

@@ -65,6 +65,16 @@ public class OwnerExpenseService {
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private final SchoolPermissions permissions;
+    private final FiscalObligationSync fiscal;
+
+    public void createInvoiceObligations(Long expenseId,Long actor,boolean admin){
+        Expense expense=requireOwnedExpense(expenseId,actor,admin);
+        School school=expense.getSchool();
+        if(!admin && !school.getOwner().getId().equals(actor) && !permissions.staffAllows(school.getId(),actor,StaffModule.TAXES))throw new AccessDeniedException("Le droit Impôts et taxes est requis.");
+        var invoice=ExpenseInvoiceAmounts.read(expense.getInvoiceDetails());
+        if(invoice==null||ExpenseInvoiceAmounts.withheld(invoice).signum()==0)throw new IllegalArgumentException("Cette facture ne comporte aucune retenue à reverser.");
+        fiscal.invoice(school.getId(),expenseId,invoice,expense.getExpenseDate(),actor);
+    }
 
     private final SchoolRepository schoolRepository;
     private final ExpenseCategoryRepository categoryRepository;
@@ -182,6 +192,7 @@ public class OwnerExpenseService {
                                                     Long ownerId, boolean systemAdmin) {
         Expense expense = requireOwnedExpense(expenseId, ownerId, systemAdmin);
         if (expense.isManagedPayment()) throw new IllegalArgumentException("Ce paiement est lié à une dépense à payer et ne peut pas être modifié ici");
+        if(expense.getInvoiceDetails()!=null&&fiscal.hasActiveInvoiceObligations(expense.getSchool().getId(),expenseId))throw new IllegalArgumentException("Cette facture possède des reversements fiscaux. Annulez les obligations non réglées dans Impôts et taxes avant de la modifier.");
         boolean categoryChanged = !expense.getCategory().getId().equals(request.categoryId());
         apply(expense, request, expense.getSchool().getId(), categoryChanged);
         expense.setUpdatedAt(LocalDateTime.now(clock));
@@ -191,6 +202,7 @@ public class OwnerExpenseService {
     public void deleteExpense(Long expenseId, Long ownerId, boolean systemAdmin) {
         Expense expense = requireOwnedExpense(expenseId, ownerId, systemAdmin);
         if (expense.isManagedPayment()) throw new IllegalArgumentException("Ce paiement est lié à une dépense à payer et ne peut pas être supprimé");
+        if(expense.getInvoiceDetails()!=null&&fiscal.hasActiveInvoiceObligations(expense.getSchool().getId(),expenseId))throw new IllegalArgumentException("Cette facture possède des reversements fiscaux. Annulez les obligations non réglées dans Impôts et taxes avant de la supprimer.");
         expenseRepository.delete(expense);
     }
 
@@ -213,7 +225,7 @@ public class OwnerExpenseService {
     // ---------------------------------------------------------------- bilan & budget
 
     public OwnerExpenseDto.Summary summary(Long schoolId, Long academicYearId, Long ownerId, boolean systemAdmin) {
-        School school = requireOwnedSchool(schoolId, ownerId, systemAdmin);
+        School school = requireSchool(schoolId, ownerId, systemAdmin, StaffModule.EXPENSES, StaffModule.FINANCIAL_STATEMENTS);
         List<ExpenseCategory> categories = categoriesOf(school);
         List<AcademicYear> years = academicYearRepository.findBySchoolId(schoolId).stream()
                 .sorted(Comparator.comparing(AcademicYear::getStartDate).reversed())
@@ -374,6 +386,8 @@ public class OwnerExpenseService {
         expense.setSupplier(blankToNull(request.supplier()));
         expense.setPaymentMethod(request.method());
         expense.setReference(blankToNull(request.reference()));
+        ExpenseInvoiceAmounts.validate(request.invoice(),request.amount(),request.expenseDate());
+        expense.setInvoiceDetails(ExpenseInvoiceAmounts.json(request.invoice()));
         expense.setNotes(blankToNull(request.notes()));
     }
 
@@ -398,7 +412,7 @@ public class OwnerExpenseService {
         User author = e.getCreatedBy();
         return new OwnerExpenseDto.ExpenseRow(e.getId(), e.isManagedPayment() ? "PAYABLE" : SOURCE_MANUAL, e.getExpenseDate(), e.getCategory().getId(),
                 e.getCategory().getName(), e.getLabel(), e.getSupplier(), e.getAmount(), e.getPaymentMethod().name(),
-                e.getReference(), e.getNotes(), author == null ? null : fullName(author));
+                e.getReference(), e.getNotes(), author == null ? null : fullName(author),ExpenseInvoiceAmounts.read(e.getInvoiceDetails()),ExpenseTaxAmounts.read(e.getExpenseTaxes()));
     }
 
     private static OwnerExpenseDto.ExpenseRow toRow(TeacherPayment tp, ExpenseCategory payroll) {
@@ -429,10 +443,14 @@ public class OwnerExpenseService {
     }
 
     private School requireOwnedSchool(Long schoolId, Long ownerId, boolean systemAdmin) {
+        return requireSchool(schoolId, ownerId, systemAdmin, StaffModule.EXPENSES);
+    }
+
+    private School requireSchool(Long schoolId, Long ownerId, boolean systemAdmin, StaffModule... modules) {
         School school = schoolRepository.findById(schoolId)
                 .orElseThrow(() -> new IllegalArgumentException("Établissement introuvable : " + schoolId));
         if (!systemAdmin && (school.getOwner() == null || !school.getOwner().getId().equals(ownerId))
-                && !permissions.staffAllows(school.getId(), ownerId, StaffModule.EXPENSES)) {
+                && java.util.Arrays.stream(modules).noneMatch(module -> permissions.staffAllows(school.getId(), ownerId, module))) {
             throw new AccessDeniedException("Vous ne pouvez gérer que les dépenses de vos établissements");
         }
         return school;

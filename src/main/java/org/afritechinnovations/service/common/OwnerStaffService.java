@@ -13,9 +13,6 @@ import org.afritechinnovations.repository.common.SchoolRepository;
 import org.afritechinnovations.repository.common.SchoolStaffRepository;
 import org.afritechinnovations.repository.common.SchoolUserRepository;
 import org.afritechinnovations.repository.common.UserRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -37,7 +34,6 @@ import java.util.Set;
 public class OwnerStaffService {
 
     public static final String STAFF_ROLE = "STAFF";
-    private static final Logger log = LoggerFactory.getLogger(OwnerStaffService.class);
 
     private final SchoolRepository schoolRepository;
     private final SchoolStaffRepository staffRepository;
@@ -45,12 +41,8 @@ public class OwnerStaffService {
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final EmailService emailService;
     private final org.afritechinnovations.service.auth.EmailVerificationService invitations;
     private final org.afritechinnovations.service.auth.PasswordResetService passwordResetService;
-
-    @Value("${app.frontend.base-url:http://localhost:4200}")
-    private String frontendBaseUrl;
 
     // ---------------------------------------------------------------- accès de l'utilisateur courant
 
@@ -90,14 +82,14 @@ public class OwnerStaffService {
                                              Long ownerId, boolean systemAdmin) {
         School school = requireOwnedSchool(schoolId, ownerId, systemAdmin);
         String email = normalizeEmail(request.email());
-        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        User user = email == null ? null : userRepository.findByEmailIgnoreCase(email).orElse(null);
         boolean existingAccount = user != null;
         String temporaryPassword = null;
 
         if (existingAccount) {
-            if (school.getOwner() != null && school.getOwner().getId().equals(user.getId())) {
-                throw new IllegalArgumentException("Le propriétaire dispose déjà de tous les accès");
-            }
+            // Un propriétaire peut aussi exercer une fonction salariée. Cette opération
+            // ajoute uniquement STAFF ; elle ne change jamais le propriétaire de l'école.
+            if (!Boolean.TRUE.equals(user.getActive())) throw new IllegalArgumentException("Ce compte est inactif.");
             if (staffRepository.existsBySchoolIdAndUserId(schoolId, user.getId())) {
                 throw new IllegalArgumentException("Cette personne fait déjà partie du personnel de l'établissement");
             }
@@ -114,6 +106,10 @@ public class OwnerStaffService {
                     .build());
         }
 
+        if (!Boolean.TRUE.equals(user.getApproved())) {
+            user.setApproved(true);
+            userRepository.save(user);
+        }
         ensureStaffRole(user, school);
         SchoolStaff staff = staffRepository.save(SchoolStaff.builder()
                 .school(school)
@@ -124,9 +120,7 @@ public class OwnerStaffService {
                 .createdBy(userRepository.getReferenceById(ownerId))
                 .build());
 
-        boolean emailSent = existingAccount && Boolean.TRUE.equals(user.getPasswordSet()) && Boolean.TRUE.equals(user.getEmailVerified())
-                ? sendQuietly(email, "Nouvel accès FasoÉcole – " + school.getName(), accessGrantedText(staff))
-                : invitations.sendInvitation(user);
+        boolean emailSent = email != null && invitations.sendAccessAssigned(user, school, "Personnel administratif : " + staff.getJobTitle());
         return new OwnerStaffDto.StaffCreated(toRow(staff), temporaryPassword, existingAccount, emailSent);
     }
 
@@ -195,7 +189,8 @@ public class OwnerStaffService {
     private boolean isManagedAccount(User user) {
         boolean onlyStaff = schoolUserRepository.findByUserId(user.getId()).stream()
                 .allMatch(link -> STAFF_ROLE.equals(link.getRole().getName()));
-        return onlyStaff && schoolRepository.findByOwnerId(user.getId()).isEmpty();
+        return onlyStaff && !user.isOwnerAccount() && user.getPlatformRoles().isEmpty()
+                && schoolRepository.findByOwnerId(user.getId()).isEmpty();
     }
 
     private OwnerStaffDto.StaffRow toRow(SchoolStaff staff) {
@@ -225,41 +220,9 @@ public class OwnerStaffService {
         return staff;
     }
 
-    private boolean sendQuietly(String recipient, String subject, String body) {
-        try {
-            emailService.sendText(recipient, subject, body);
-            return true;
-        } catch (RuntimeException e) {
-            log.warn("E-mail au personnel non envoyé à {} : {}", recipient, e.getMessage());
-            return false;
-        }
-    }
-
-    private String accessGrantedText(SchoolStaff staff) {
-        return """
-                Bonjour %s,
-
-                Un accès à l'espace de gestion de « %s » vous a été ouvert sur FasoÉcole (%s).
-                Connectez-vous avec votre compte habituel : %s
-
-                Modules autorisés : %s
-                """.formatted(staff.getUser().getFirstName(), staff.getSchool().getName(), staff.getJobTitle(),
-                loginUrl(), moduleLabels(staff));
-    }
-
-    private String loginUrl() {
-        String base = frontendBaseUrl == null ? "http://localhost:4200" : frontendBaseUrl;
-        return base.replaceAll("/+$", "") + "/login";
-    }
-
-    private static String moduleLabels(SchoolStaff staff) {
-        return String.join(", ", Arrays.stream(StaffModule.values())
-                .filter(staff.getModules()::contains).map(StaffModule::getLabel).toList());
-    }
-
     private static String normalizeEmail(String email) {
         if (email == null || email.isBlank()) {
-            throw new IllegalArgumentException("L'adresse e-mail est obligatoire");
+            return null;
         }
         return email.trim().toLowerCase(Locale.ROOT);
     }

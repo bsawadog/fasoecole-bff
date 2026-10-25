@@ -42,7 +42,7 @@ class SchoolLifeIntegrationTest {
         jdbc.update("INSERT INTO academic_years(id,school_id,label,start_date,end_date,is_current) VALUES(1002,1001,'2026-2027','2026-09-01','2027-07-01',true),(1012,1011,'2026-2027','2026-09-01','2027-07-01',true) ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO levels(id,school_id,name,cycle) VALUES(1004,1001,'CM1','PRIMAIRE'),(1014,1011,'CM1','PRIMAIRE') ON CONFLICT DO NOTHING");
         jdbc.update("INSERT INTO classes(id,school_id,academic_year_id,level_id,name) VALUES(1003,1001,1002,1004,'CM1'),(1013,1011,1012,1014,'CM1') ON CONFLICT DO NOTHING");
-        jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number) VALUES(1005,1104,1001,'A'),(1006,1105,1001,'B'),(1015,1106,1011,'C') ON CONFLICT DO NOTHING");
+        jdbc.update("INSERT INTO students(id,user_id,school_id,registration_number,first_name,last_name) VALUES(1005,1104,1001,'A','Child','A'),(1006,1105,1001,'B','Child','B'),(1015,1106,1011,'C','Child','Other') ON CONFLICT DO NOTHING");
         jdbc.update("DELETE FROM student_enrollments WHERE student_id IN (1005,1006,1015)");
         jdbc.update("INSERT INTO student_enrollments(student_id,class_id,academic_year_id,status) VALUES(1005,1003,1002,'ACTIVE'),(1006,1003,1002,'ACTIVE'),(1015,1013,1012,'ACTIVE')");
         jdbc.update("INSERT INTO parent_portal_posts(id,school_id,class_id,author_id,kind,title,content,due_date) VALUES(1020,1001,1003,1102,'HOMEWORK','Homework','Exercises',CURRENT_DATE+7),(1021,1001,1003,1101,'HOMEWORK','Other teacher','Exercises',CURRENT_DATE+7) ON CONFLICT DO NOTHING");
@@ -53,7 +53,7 @@ class SchoolLifeIntegrationTest {
         when(guard.currentUserId()).thenReturn(1102L);
         when(teacher.requireTaughtClass(1102L,1003L)).thenReturn(cls);
         var child=Student.builder().id(1005L).school(school).build();
-        when(family.requireGuardedChild(1102L,1005L)).thenReturn(child);
+        when(family.requireReadableStudent(1102L,1005L)).thenReturn(child);
         var detail=mock(SelfServiceDto.StudentOverview.class);
         when(detail.classId()).thenReturn(1003L);
         when(family.student(1102L,1005L)).thenReturn(detail);

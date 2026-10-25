@@ -50,10 +50,11 @@ public class SchoolInboxService {
 
     @Transactional(readOnly = true)
     public FamilyContactDto.InboxSummary summary(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS, StaffModule.MESSAGES);
         return new FamilyContactDto.InboxSummary(
-                reportRepository.countBySchoolIdAndStatus(schoolId, AbsenceReportStatus.PENDING),
-                messageRepository.countUnreadBySchool(schoolId));
+                guard.allowsSchoolModule(schoolId, StaffModule.STUDENTS)
+                        ? reportRepository.countBySchoolIdAndStatus(schoolId, AbsenceReportStatus.PENDING) : 0,
+                guard.allowsSchoolModule(schoolId, StaffModule.MESSAGES) ? messageRepository.countUnreadForSchoolUser(schoolId,guard.currentUserId()) : 0);
     }
 
     // ------------------------------------------------------------------ absences signalées
@@ -133,7 +134,7 @@ public class SchoolInboxService {
 
     @Transactional(readOnly = true)
     public List<FamilyContactDto.ConversationSummary> conversations(Long schoolId) {
-        guard.requireSchoolModule(schoolId, StaffModule.STUDENTS);
+        guard.requireSchoolModule(schoolId, StaffModule.MESSAGES);
         return conversationRepository.findBySchool(schoolId).stream()
                 .filter(c -> c.getParticipants().stream().anyMatch(p -> p.getSchool() != null))
                 .map(c -> FamilyContactMapper.summary(c, true))
@@ -238,7 +239,7 @@ public class SchoolInboxService {
     private SchoolConversation requireConversation(Long conversationId) {
         SchoolConversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException("Conversation introuvable : " + conversationId));
-        guard.requireSchoolModule(conversation.getSchool().getId(), StaffModule.STUDENTS);
+        guard.requireSchoolModule(conversation.getSchool().getId(), StaffModule.MESSAGES);
         if (!participantRepository.findByConversationIdAndSchoolId(conversationId, conversation.getSchool().getId()).isPresent()) {
             throw new org.springframework.security.access.AccessDeniedException("Cette conversation ne concerne pas l'établissement");
         }

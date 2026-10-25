@@ -40,6 +40,7 @@ public class SubjectService {
                 .school(School.builder().id(dto.getSchoolId()).build())
                 .name(requireName(dto.getName()))
                 .code(dto.getCode())
+                .category(validCategory(dto.getCategory()))
                 .coefficient(validCoefficient(dto.getCoefficient()))
                 .build();
         return toDto(subjectRepository.save(subject));
@@ -50,6 +51,7 @@ public class SubjectService {
                 .orElseThrow(() -> new IllegalArgumentException("Matière introuvable: " + id));
         subject.setName(requireName(dto.getName()));
         subject.setCode(dto.getCode());
+        if(dto.getCategory()!=null)subject.setCategory(validCategory(dto.getCategory()));
         if (dto.getCoefficient() != null) {
             subject.setCoefficient(validCoefficient(dto.getCoefficient()));
         }
@@ -67,6 +69,8 @@ public class SubjectService {
         return name.trim();
     }
 
+    private static String validCategory(String value){if(value==null||value.isBlank())return null;if(value.trim().length()>100)throw new IllegalArgumentException("La catégorie est limitée à 100 caractères.");return value.trim();}
+
     static BigDecimal validCoefficient(BigDecimal coefficient) {
         if (coefficient == null) {
             return BigDecimal.ONE.setScale(2);
@@ -83,6 +87,7 @@ public class SubjectService {
                 .schoolId(subject.getSchool().getId())
                 .name(subject.getName())
                 .code(subject.getCode())
+                .category(subject.getCategory())
                 .coefficient(subject.getCoefficient())
                 .build();
     }

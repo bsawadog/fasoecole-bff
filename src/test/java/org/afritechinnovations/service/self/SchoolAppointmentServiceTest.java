@@ -24,19 +24,19 @@ class SchoolAppointmentServiceTest {
     private final SchoolAppointmentService service = new SchoolAppointmentService(jdbc, guard, messaging);
     @BeforeEach void setup() { when(guard.currentUserId()).thenReturn(10L); }
     @Test void onlyParentsAndTeachersCanBeInvited() {
-        when(messaging.recipients(10L, 2L, null)).thenReturn(List.of(
+        when(messaging.appointmentRecipients(10L, 2L)).thenReturn(List.of(
             new Recipient(7L, "Parent", "PARENT", null), new Recipient(8L, "Teacher", "ENSEIGNANT", null),
             new Recipient(9L, "Student", "ELEVE", null)));
         assertEquals(List.of(7L, 8L), service.recipients(2L).stream().map(Recipient::userId).toList());
-        verify(guard).requireSchoolModule(2L, StaffModule.STUDENTS);
+        verify(guard).requireSchoolModule(2L, StaffModule.PARENT_PORTAL);
     }
     @Test void rejectsAnInaccessibleRecipientBeforeWriting() {
-        when(messaging.recipients(10L, 2L, null)).thenReturn(List.of());
+        when(messaging.appointmentRecipients(10L, 2L)).thenReturn(List.of());
         assertThrows(AccessDeniedException.class, () -> service.create(2L, new Request(999L, LocalDateTime.now().plusDays(1), "Meeting")));
         verifyNoInteractions(jdbc);
     }
     @Test void rejectsPastDatesBeforeWriting() {
-        when(messaging.recipients(10L, 2L, null)).thenReturn(List.of(new Recipient(7L, "Parent", "PARENT", null)));
+        when(messaging.appointmentRecipients(10L, 2L)).thenReturn(List.of(new Recipient(7L, "Parent", "PARENT", null)));
         assertThrows(IllegalArgumentException.class, () -> service.create(2L, new Request(7L, LocalDateTime.now().minusDays(1), "Meeting")));
         verifyNoInteractions(jdbc);
     }
@@ -46,7 +46,7 @@ class SchoolAppointmentServiceTest {
     }
     @Test void cancellationsAreRestrictedToTheirSchoolAndOrganizer() {
         assertThrows(IllegalArgumentException.class, () -> service.cancel(2L, 8L));
-        verify(guard).requireSchoolModule(2L, StaffModule.STUDENTS);
+        verify(guard).requireSchoolModule(2L, StaffModule.PARENT_PORTAL);
         verify(jdbc).update(contains("school_id=? AND organizer_user_id=?"), eq(8L), eq(2L), eq(10L));
     }
 }

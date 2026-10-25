@@ -162,6 +162,14 @@ class OwnerExpenseServiceTest {
     }
 
     @Test
+    void financialStatementsAccessAllowsSummaryButNotExpenseManagement() {
+        when(permissions.staffAllows(1L, 55L, StaffModule.FINANCIAL_STATEMENTS)).thenReturn(true);
+        assertEquals(school.getName(), service.summary(1L, null, 55L, false).schoolName());
+        assertThrows(AccessDeniedException.class, () -> service.listExpenses(1L, null, null, null, 55L, false));
+        assertThrows(AccessDeniedException.class, () -> service.listCategories(1L, 55L, false));
+    }
+
+    @Test
     void defaultCategoriesAreCreatedOnFirstUseAndZeroBudgetRemovesTheLine() {
         when(categoryRepository.existsBySchoolId(1L)).thenReturn(false);
         when(expenseRepository.countByCategoryForSchool(1L)).thenReturn(List.of());

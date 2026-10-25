@@ -24,6 +24,10 @@ public class SchoolStaff {
     @Column(name = "monthly_salary", precision = 12, scale = 2)
     private java.math.BigDecimal monthlySalary;
 
+    @Builder.Default
+    @Column(name = "access_only", nullable = false)
+    private boolean accessOnly = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "school_id", nullable = false)
     private School school;

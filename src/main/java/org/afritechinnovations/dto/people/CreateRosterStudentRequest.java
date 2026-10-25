@@ -20,7 +20,6 @@ public class CreateRosterStudentRequest {
     @Size(max = 100)
     private String lastName;
 
-    @NotBlank
     @Email
     @Size(max = 150)
     private String email;

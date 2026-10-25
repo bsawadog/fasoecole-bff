@@ -114,6 +114,18 @@ class AccessGuardTest {
         assertDoesNotThrow(() -> guard.requireSchoolModule(1L, StaffModule.GRADES));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = StaffModule.class, names = {
+            "CALENDAR", "DISCIPLINE", "LIBRARY", "HOMEWORK", "REQUESTS", "PARENT_PORTAL", "MESSAGES", "CASH_BOOK", "FINANCIAL_STATEMENTS" })
+    void separatePermissionsNeverGrantStudentRecordsOrOwnership(StaffModule module) {
+        when(schools.findById(1L)).thenReturn(Optional.of(school1));
+        when(permissions.staffAllows(1L, 14L, module)).thenReturn(true);
+        login(14L, "STAFF");
+        assertDoesNotThrow(() -> guard.requireSchoolModule(1L, module));
+        assertThrows(AccessDeniedException.class, () -> guard.requireSchoolModule(1L, StaffModule.STUDENTS));
+        assertThrows(AccessDeniedException.class, () -> guard.requireOwnedSchool(1L));
+    }
+
     @Test
     void messagingRequiresACommonSchool() {
         lenient().when(schoolUsers.findByUserId(13L)).thenReturn(List.of(SchoolUser.builder().school(school2).build()));

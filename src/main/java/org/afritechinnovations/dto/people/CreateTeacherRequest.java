@@ -21,7 +21,6 @@ public class CreateTeacherRequest {
     @Size(max = 100)
     private String lastName;
 
-    @NotBlank(message = "Le courriel est obligatoire")
     @Email(message = "Courriel invalide")
     @Size(max = 150)
     private String email;
@@ -44,6 +43,25 @@ public class CreateTeacherRequest {
     @jakarta.validation.constraints.DecimalMin("0.00")
     @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private java.math.BigDecimal monthlySalary;
+
+    @jakarta.validation.constraints.Pattern(regexp = "FIXED_MONTHLY|HOURLY")
+    private String rateType;
+
+    @jakarta.validation.constraints.DecimalMin("0.01")
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
+    private java.math.BigDecimal hourlyRate;
+
+    private LocalDate rateEffectiveFrom;
+
+    /** Classe facultative ; les matières restent enregistrées sans affectation. */
+    private Long classId;
+
+    @Size(max = 100)
+    private java.util.List<@NotNull Long> subjectIds = new java.util.ArrayList<>();
+
+    @jakarta.validation.Valid
+    @Size(max = 100)
+    private java.util.List<InitialTeacherSlotRequest> initialSlots = new java.util.ArrayList<>();
 
 
 }
