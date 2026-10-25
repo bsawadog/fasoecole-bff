@@ -458,7 +458,7 @@
           "Comment": "Rewrite Angular routes only; leave missing assets as errors",
           "Runtime": "cloudfront-js-2.0"
         },
-        "FunctionCode": "function handler(event) { var r = event.request; if (!r.uri.startsWith('/api/') && r.uri.split('/').pop().indexOf('.') === -1) r.uri = '/index.html'; return r; }"
+        "FunctionCode": "function handler(event) { var r = event.request; var p = r.uri.replace(/\\/+$/, '') || '/'; var pages = ['/contact','/etablissements','/services/portail-parent','/services/suivi-scolaire','/services/frais-scolaires','/services/communication','/services/tableaux-de-bord']; if (!r.uri.startsWith('/api/') && r.uri.split('/').pop().indexOf('.') === -1) r.uri = p === '/' ? '/index.html' : pages.indexOf(p) >= 0 ? p + '/index.html' : '/index.csr.html'; return r; }"
       }
     },
     "Distribution": {
