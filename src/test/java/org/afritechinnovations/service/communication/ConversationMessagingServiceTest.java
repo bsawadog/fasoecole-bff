@@ -141,4 +141,35 @@ class ConversationMessagingServiceTest {
         assertEquals(List.of(50L), service.conversations(20L, 1L).stream()
                 .map(FamilyContactDto.ConversationSummary::id).toList());
     }
+
+    @Test void studentCanStartConversationWithOwnSchool() {
+        when(studentRepository.findAllByUserId(30L)).thenReturn(List.of(student));
+        when(studentRepository.findById(5L)).thenReturn(Optional.of(student));
+        when(userRepository.findById(30L)).thenReturn(Optional.of(child));
+        when(conversationRepository.save(any())).thenAnswer(i -> {
+            SchoolConversation conversation = i.getArgument(0); conversation.setId(50L); return conversation;
+        });
+        when(participantRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(messageRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        var thread = service.start(30L, new FamilyContactDto.NewConversationRequest(
+                1L, 5L, "Question", "Bonjour", List.of(), true));
+        assertEquals(50L, thread.conversation().id());
+        ArgumentCaptor<SchoolConversation> captor = ArgumentCaptor.forClass(SchoolConversation.class);
+        verify(conversationRepository).save(captor.capture());
+        assertSame(student, captor.getValue().getStudent());
+        assertEquals(2, captor.getValue().getParticipants().size());
+        assertTrue(captor.getValue().getParticipants().stream().anyMatch(p -> p.getSchool() == school));
+        verify(guard, never()).requireSchoolModule(anyLong(), any());
+    }
+
+    @Test void studentCannotStartConversationForAnotherSchoolOrStudent() {
+        when(studentRepository.findAllByUserId(30L)).thenReturn(List.of(student));
+        doThrow(new AccessDeniedException("Accès refusé")).when(guard).requireSchoolModule(anyLong(), any());
+        assertThrows(AccessDeniedException.class, () -> service.start(30L,
+                new FamilyContactDto.NewConversationRequest(1L, 99L, "Question", "Bonjour", List.of(), true)));
+        when(schoolRepository.findById(2L)).thenReturn(Optional.of(School.builder().id(2L).name("Other").build()));
+        assertThrows(AccessDeniedException.class, () -> service.start(30L,
+                new FamilyContactDto.NewConversationRequest(2L, 5L, "Question", "Bonjour", List.of(), true)));
+        verifyNoInteractions(conversationRepository, messageRepository, participantRepository);
+    }
 }

@@ -276,6 +276,9 @@ public class ConversationMessagingService {
     }
 
     private void requireSchoolAccess(Long userId, Long schoolId, Long studentId) {
+        if (studentId != null && studentRepository.findAllByUserId(userId).stream()
+                .anyMatch(student -> student.getId().equals(studentId)
+                        && student.getSchool().getId().equals(schoolId))) return;
         if (parentRepository.findByUserId(userId).map(parent -> parentStudentRepository.findByParentId(parent.getId()).stream()
                 .anyMatch(ps -> ps.getStudent().getSchool().getId().equals(schoolId)
                         && (studentId == null || ps.getStudent().getId().equals(studentId)))).orElse(false)) return;
